@@ -220,4 +220,123 @@ void* uv__malloc(size_t size);
 void uv__free(void* ptr);
 void* uv__realloc(void* ptr, size_t size);
 
+/* Logging. */
+void incr_generation ();
+int get_generation ();
+void mylog (const char *format, ...);
+
+/* Unified callback queue. */
+#define MAX_CALLBACK_NARGS 5
+enum callback_type
+{
+  /* include/uv.h */
+  UV_ALLOC_CB,
+  UV_READ_CB,
+  UV_WRITE_CB,
+  UV_CONNECT_CB,
+  UV_SHUTDOWN_CB,
+  UV_CONNECTION_CB,
+  UV_CLOSE_CB,
+  UV_POLL_CB,
+  UV_TIMER_CB,
+  UV_ASYNC_CB,
+  UV_PREPARE_CB,
+  UV_CHECK_CB,
+  UV_IDLE_CB,
+  UV_EXIT_CB,
+  UV_WALK_CB,
+  UV_FS_CB,
+  UV_WORK_CB,
+  UV_AFTER_WORK_CB,
+  UV_GETADDRINFO_CB,
+  UV_GETNAMEINFO_CB,
+  UV_FS_EVENT_CB,
+  UV_FS_POLL_CB,
+  UV_SIGNAL_CB,
+  UV_UDP_SEND_CB,
+  UV_UDP_RECV_CB,
+  UV_THREAD_CB,
+
+  /* include/uv-threadpool.h */
+  UV__WORK_WORK,
+  UV__WORK_DONE
+};
+
+#define INIT_CBI (type) \
+  struct callback_info *cbi_p = malloc (sizeof *cbi_p); \
+  assert (cbi_p != NULL); \
+  memset (cbi_p, 0, sizeof (*cbi_p)); \
+  cbi_p->type = type;
+
+/* Macros to prep a CBI for invoke_callback, with 0-5 args. */
+#define PREP_CBI_0 (type, cb) \
+  INIT_CBI (type) \
+  cbi_p->cb = cb;
+#define PREP_CBI_1 (type, cb, arg0) \
+  INIT_CBI (type) \
+  cbi_p->args[0] = arg0;
+#define PREP_CBI_2 (type, cb, arg0, arg1) \
+  PREP_CBI_1 (type, cb, arg0) \
+  cbi_p->args[1] = arg1
+#define PREP_CBI_3 (type, cb, arg0, arg1, arg2) \
+  PREP_CBI_2 (type, cb, arg0, arg1) \
+  cbi_p->args[2] = arg2
+#define PREP_CBI_4 (type, cb, arg0, arg1, arg2, arg3) \
+  PREP_CBI_3 (type, cb, arg0, arg1, arg2) \
+  cbi_p->args[3] = arg3
+#define PREP_CBI_5 (type, cb, arg0, arg1, arg2, arg3, arg4) \
+  PREP_CBI_4 (type, cb, arg0, arg1, arg2, arg3) \
+  cbi_p->args[4] = arg4
+
+/* Macros to invoke a callback, with 0-5 args. */
+#define INVOKE_CALLBACK_0 (type, cb) \
+  PREP_CBI_0 (type, cb) \
+  invoke_callback (cbi_p);
+#define INVOKE_CALLBACK_1 (type, cb, arg0) \
+  PREP_CBI_1 (type, cb, arg0) \
+  invoke_callback (cbi_p);
+#define INVOKE_CALLBACK_2 (type, cb, arg0, arg1) \
+  PREP_CBI_2 (type, cb, arg0, arg1) \
+  invoke_callback (cbi_p);
+#define INVOKE_CALLBACK_3 (type, cb, arg0, arg1, arg2) \
+  PREP_CBI_3 (type, cb, arg0, arg1, arg2) \
+  invoke_callback (cbi_p);
+#define INVOKE_CALLBACK_4 (type, cb, arg0, arg1, arg2, arg3) \
+  PREP_CBI_4 (type, cb, arg0, arg1, arg2, arg3) \
+  invoke_callback (cbi_p);
+#define INVOKE_CALLBACK_5 (type, cb, arg0, arg1, arg2, arg3, arg4) \
+  PREP_CBI_5 (type, cb, arg0, arg1, arg2, arg3, arg4) \
+  invoke_callback (cbi_p);
+
+/* Description of a callback. */
+struct callback_info
+{
+  enum callback_type type;
+  void (*cb)();
+  long args[MAX_CALLBACK_NARGS]; /* Must be large enough for the widest arg type. Seems to be 8 bytes. */
+};
+
+/* Nodes that comprise a callback tree. */
+struct callback_node
+{
+  struct callback_info info; /* Description of this callback. */
+  int level; /* What level in the callback tree is it? For root nodes this is 0. */
+  struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
+  struct callback_node *children; /* Linked list of children. */
+
+  /* If node is a child, NEXT points to the next child in the parent's CHILDREN list. */
+  struct callback_node *next_child;
+};
+
+/* Nodes that comprise the list of callback trees. */
+struct callback_root_node
+{
+  /* Root of this tree. */
+  struct callback_node *info;
+  /* Next element. */
+  struct callback_root_node *next;
+};
+
+void invoke_callback (struct callback_info *);
+
 #endif /* UV_COMMON_H_ */

@@ -28,6 +28,7 @@
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
 #include <string.h> /* memset */
+#include <assert.h>
 
 #if defined(_WIN32)
 # include <malloc.h> /* malloc */
@@ -623,4 +624,146 @@ void uv_loop_delete(uv_loop_t* loop) {
   assert(err == 0);
   if (loop != default_loop)
     uv__free(loop);
+}
+
+static int generation = 0;
+
+void incr_generation ()
+{
+  generation++;
+}
+
+int get_generation ()
+{
+  return generation;
+}
+
+void mylog (const char *format, ...)
+{
+  pid_t my_pid;
+  va_list args;
+  char indents[512];
+  int i;
+  int generation;
+  time_t now;
+  char *now_s;
+
+  now = time (NULL);
+  now_s = ctime (&now);
+  now_s [strlen (now_s) - 1] = '\0'; /* Remove the trailing newline. */
+  generation = get_generation ();
+
+  indents[0] = '\0';
+  for (i = 0; i < generation; i++)
+    strncat (indents, "  ", 512);
+
+  my_pid = getpid ();
+  printf ("%s %s gen %i process %i: ", indents, now_s, generation, my_pid);
+
+  va_start(args, format);
+  vprintf(format, args);
+  va_end(args);
+
+  fflush (NULL);
+}
+
+void invoke_callback (struct callback_info *ci)
+{
+  assert (ci != NULL);  
+  printf ("invoke_callback: ci %p type %i cb %p\n",
+    (void *) ci, ci->type, ci->cb);
+
+  switch (ci->type)
+  {
+    /* include/uv.h */
+    case UV_ALLOC_CB:
+      ci->cb ((uv_handle_t *) ci->args[0], (size_t) ci->args[1], (uv_buf_t *) ci->args[2]);
+      break;
+    case UV_READ_CB:
+      ci->cb ((uv_stream_t *) ci->args[0], (ssize_t) ci->args[1], (const uv_buf_t *) ci->args[2]);
+      break;
+    case UV_WRITE_CB:
+      ci->cb ((uv_write_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_CONNECT_CB:
+      ci->cb ((uv_connect_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_SHUTDOWN_CB:
+      ci->cb ((uv_shutdown_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_CONNECTION_CB:
+      ci->cb ((uv_stream_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_CLOSE_CB:
+      ci->cb ((uv_handle_t *) ci->args[0]);
+      break;
+    case UV_POLL_CB:
+      ci->cb ((uv_poll_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_TIMER_CB:
+      ci->cb ((uv_timer_t *) ci->args[0]);
+      break;
+    case UV_ASYNC_CB:
+      ci->cb ((uv_async_t *) ci->args[0]);
+      break;
+    case UV_PREPARE_CB:
+      ci->cb ((uv_prepare_t *) ci->args[0]);
+      break;
+    case UV_CHECK_CB:
+      ci->cb ((uv_check_t *) ci->args[0]);
+      break;
+    case UV_IDLE_CB:
+      ci->cb ((uv_idle_t *) ci->args[0]);
+      break;
+    case UV_EXIT_CB:
+      ci->cb ((uv_process_t *) ci->args[0], (int64_t) ci->args[1], (int) ci->args[2]);
+      break;
+    case UV_WALK_CB:
+      ci->cb ((uv_handle_t *) ci->args[0], (void *) ci->args[1]);
+      break;
+    case UV_FS_CB:
+      ci->cb ((uv_fs_t *) ci->args[0]);
+      break;
+    case UV_WORK_CB:
+      ci->cb ((uv_work_t *) ci->args[0]);
+      break;
+    case UV_AFTER_WORK_CB:
+      ci->cb ((uv_work_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_GETADDRINFO_CB:
+      ci->cb ((uv_getaddrinfo_t *) ci->args[0], (int) ci->args[1], (struct addrinfo *) ci->args[2]);
+      break;
+    case UV_GETNAMEINFO_CB:
+      ci->cb ((uv_getnameinfo_t *) ci->args[0], (int) ci->args[1], (const char *) ci->args[2], (const char *) ci->args[3]);
+      break;
+    case UV_FS_EVENT_CB:
+      ci->cb ((uv_fs_event_t *) ci->args[0], (const char *) ci->args[1], (int) ci->args[2], (int) ci->args[3]);
+      break;
+    case UV_FS_POLL_CB:
+      ci->cb ((uv_fs_poll_t *) ci->args[0], (int) ci->args[1], (const uv_stat_t *) ci->args[2], (const uv_stat_t *) ci->args[3]);
+      break;
+    case UV_SIGNAL_CB:
+      ci->cb ((uv_signal_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_UDP_SEND_CB:
+      ci->cb ((uv_udp_send_t *) ci->args[0], (int) ci->args[1]);
+      break;
+    case UV_UDP_RECV_CB:
+      ci->cb ((uv_udp_t *) ci->args[0], (ssize_t) ci->args[1], (const uv_buf_t *) ci->args[2], (const struct sockaddr *) ci->args[3], (unsigned) ci->args[4]);
+      break;
+    case UV_THREAD_CB:
+      ci->cb ((void *) ci->args[0]);
+      break;
+
+    /* include/uv-threadpool.h */
+    case UV__WORK_WORK:
+      ci->cb ((struct uv__work *) ci->args[0]);
+      break;
+    case UV__WORK_DONE:
+      ci->cb ((struct uv__work *) ci->args[0], (int) ci->args[1]);
+      break;
+    default:
+      printf ("invoke_callback: ERROR, unsupported type\n");
+      assert (0 == 1);
+  }
 }
