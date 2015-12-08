@@ -30,6 +30,10 @@
 #include <string.h> /* memset */
 #include <assert.h>
 
+#include <sys/types.h> /* getpid */
+#include <unistd.h> /* getpid */
+
+
 #if defined(_WIN32)
 # include <malloc.h> /* malloc */
 #else
@@ -667,103 +671,179 @@ void mylog (const char *format, ...)
   fflush (NULL);
 }
 
-void invoke_callback (struct callback_info *ci)
+/* Unified callback queue. */
+static struct callback_node *current_callback_node = NULL;
+void current_callback_node_set (struct callback_node *cbn)
 {
-  assert (ci != NULL);  
-  printf ("invoke_callback: ci %p type %i cb %p\n",
-    (void *) ci, ci->type, ci->cb);
+  current_callback_node = cbn;
+}
 
-  switch (ci->type)
+struct callback_node *current_callback_node_get (void)
+{
+  return current_callback_node;
+}
+
+void invoke_callback (struct callback_info *cbi)
+{
+  assert (cbi != NULL);  
+
+  struct callback_node *orig_cbn = current_callback_node_get();
+  struct callback_node *new_cbn = malloc (sizeof *new_cbn);
+  assert (new_cbn != NULL);
+  new_cbn->info = cbi;
+  if (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE) /* TODO Is this ever true? */
+  {
+    orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
+    new_cbn->level = orig_cbn->level + 1;
+    new_cbn->parent = orig_cbn;
+  }
+  else if (cbi->type == UV_TIMER_CB)
+  {
+    orig_cbn = ((uv_timer_t *) cbi->args[0])->parent;
+    new_cbn->level = orig_cbn->level + 1;
+    new_cbn->parent = orig_cbn;
+  }
+  else if (orig_cbn)
+  {
+    new_cbn->level = orig_cbn->level + 1;
+    new_cbn->parent = orig_cbn;
+  }
+  else
+  {
+    new_cbn->level = 0;
+    new_cbn->parent = NULL;
+  }
+  new_cbn->children = NULL;
+  new_cbn->next = NULL;
+
+  mylog ("invoke_callback: cbi %p type %s cb %p level %i parent %p\n",
+    (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
+  assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
+       || (0 < new_cbn->level && new_cbn->parent != NULL));
+
+  current_callback_node_set (new_cbn);
+  switch (cbi->type)
   {
     /* include/uv.h */
     case UV_ALLOC_CB:
-      ci->cb ((uv_handle_t *) ci->args[0], (size_t) ci->args[1], (uv_buf_t *) ci->args[2]);
+      cbi->cb ((uv_handle_t *) cbi->args[0], (size_t) cbi->args[1], (uv_buf_t *) cbi->args[2]);
       break;
     case UV_READ_CB:
-      ci->cb ((uv_stream_t *) ci->args[0], (ssize_t) ci->args[1], (const uv_buf_t *) ci->args[2]);
+      cbi->cb ((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]);
       break;
     case UV_WRITE_CB:
-      ci->cb ((uv_write_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_write_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_CONNECT_CB:
-      ci->cb ((uv_connect_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_connect_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_SHUTDOWN_CB:
-      ci->cb ((uv_shutdown_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_shutdown_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_CONNECTION_CB:
-      ci->cb ((uv_stream_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_stream_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_CLOSE_CB:
-      ci->cb ((uv_handle_t *) ci->args[0]);
+      cbi->cb ((uv_handle_t *) cbi->args[0]);
       break;
     case UV_POLL_CB:
-      ci->cb ((uv_poll_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_TIMER_CB:
-      ci->cb ((uv_timer_t *) ci->args[0]);
+      cbi->cb ((uv_timer_t *) cbi->args[0]);
       break;
     case UV_ASYNC_CB:
-      ci->cb ((uv_async_t *) ci->args[0]);
+      cbi->cb ((uv_async_t *) cbi->args[0]);
       break;
     case UV_PREPARE_CB:
-      ci->cb ((uv_prepare_t *) ci->args[0]);
+      cbi->cb ((uv_prepare_t *) cbi->args[0]);
       break;
     case UV_CHECK_CB:
-      ci->cb ((uv_check_t *) ci->args[0]);
+      cbi->cb ((uv_check_t *) cbi->args[0]);
       break;
     case UV_IDLE_CB:
-      ci->cb ((uv_idle_t *) ci->args[0]);
+      cbi->cb ((uv_idle_t *) cbi->args[0]);
       break;
     case UV_EXIT_CB:
-      ci->cb ((uv_process_t *) ci->args[0], (int64_t) ci->args[1], (int) ci->args[2]);
+      cbi->cb ((uv_process_t *) cbi->args[0], (int64_t) cbi->args[1], (int) cbi->args[2]);
       break;
     case UV_WALK_CB:
-      ci->cb ((uv_handle_t *) ci->args[0], (void *) ci->args[1]);
+      cbi->cb ((uv_handle_t *) cbi->args[0], (void *) cbi->args[1]);
       break;
     case UV_FS_CB:
-      ci->cb ((uv_fs_t *) ci->args[0]);
+      cbi->cb ((uv_fs_t *) cbi->args[0]);
       break;
     case UV_WORK_CB:
-      ci->cb ((uv_work_t *) ci->args[0]);
+      cbi->cb ((uv_work_t *) cbi->args[0]);
       break;
     case UV_AFTER_WORK_CB:
-      ci->cb ((uv_work_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_work_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_GETADDRINFO_CB:
-      ci->cb ((uv_getaddrinfo_t *) ci->args[0], (int) ci->args[1], (struct addrinfo *) ci->args[2]);
+      cbi->cb ((uv_getaddrinfo_t *) cbi->args[0], (int) cbi->args[1], (struct addrinfo *) cbi->args[2]);
       break;
     case UV_GETNAMEINFO_CB:
-      ci->cb ((uv_getnameinfo_t *) ci->args[0], (int) ci->args[1], (const char *) ci->args[2], (const char *) ci->args[3]);
+      cbi->cb ((uv_getnameinfo_t *) cbi->args[0], (int) cbi->args[1], (const char *) cbi->args[2], (const char *) cbi->args[3]);
       break;
     case UV_FS_EVENT_CB:
-      ci->cb ((uv_fs_event_t *) ci->args[0], (const char *) ci->args[1], (int) ci->args[2], (int) ci->args[3]);
+      cbi->cb ((uv_fs_event_t *) cbi->args[0], (const char *) cbi->args[1], (int) cbi->args[2], (int) cbi->args[3]);
       break;
     case UV_FS_POLL_CB:
-      ci->cb ((uv_fs_poll_t *) ci->args[0], (int) ci->args[1], (const uv_stat_t *) ci->args[2], (const uv_stat_t *) ci->args[3]);
+      cbi->cb ((uv_fs_poll_t *) cbi->args[0], (int) cbi->args[1], (const uv_stat_t *) cbi->args[2], (const uv_stat_t *) cbi->args[3]);
       break;
     case UV_SIGNAL_CB:
-      ci->cb ((uv_signal_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_signal_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_UDP_SEND_CB:
-      ci->cb ((uv_udp_send_t *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((uv_udp_send_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_UDP_RECV_CB:
-      ci->cb ((uv_udp_t *) ci->args[0], (ssize_t) ci->args[1], (const uv_buf_t *) ci->args[2], (const struct sockaddr *) ci->args[3], (unsigned) ci->args[4]);
+      cbi->cb ((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]);
       break;
     case UV_THREAD_CB:
-      ci->cb ((void *) ci->args[0]);
+      cbi->cb ((void *) cbi->args[0]);
+      break;
+
+    /* include/uv-unix.h */
+    case UV__IO_CB:
+      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__io_s *) cbi->args[1], (unsigned int) cbi->args[2]);
+      break;
+    case UV__ASYNC_CB:
+      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__async *) cbi->args[1], (unsigned int) cbi->args[2]);
       break;
 
     /* include/uv-threadpool.h */
     case UV__WORK_WORK:
-      ci->cb ((struct uv__work *) ci->args[0]);
+      cbi->cb ((struct uv__work *) cbi->args[0]);
       break;
     case UV__WORK_DONE:
-      ci->cb ((struct uv__work *) ci->args[0], (int) ci->args[1]);
+      cbi->cb ((struct uv__work *) cbi->args[0], (int) cbi->args[1]);
       break;
     default:
-      printf ("invoke_callback: ERROR, unsupported type\n");
+      mylog ("invoke_callback: ERROR, unsupported type\n");
       assert (0 == 1);
   }
+  current_callback_node_set (orig_cbn);
+}
+
+static char *callback_type_strings[] = {
+  "UV_ALLOC_CB", "UV_READ_CB", "UV_WRITE_CB", "UV_CONNECT_CB", "UV_SHUTDOWN_CB", 
+  "UV_CONNECTION_CB", "UV_CLOSE_CB", "UV_POLL_CB", "UV_TIMER_CB", "UV_ASYNC_CB", 
+  "UV_PREPARE_CB", "UV_CHECK_CB", "UV_IDLE_CB", "UV_EXIT_CB", "UV_WALK_CB", 
+  "UV_FS_CB", "UV_WORK_CB", "UV_AFTER_WORK_CB", "UV_GETADDRINFO_CB", "UV_GETNAMEINFO_CB", 
+  "UV_FS_EVENT_CB", "UV_FS_POLL_CB", "UV_SIGNAL_CB", "UV_UDP_SEND_CB", "UV_UDP_RECV_CB", 
+  "UV_THREAD_CB", 
+
+  /* include/uv-unix.h */
+  "UV__IO_CB", "UV__ASYNC_CB", 
+
+  /* include/uv-threadpool.h */
+  "UV__WORK_WORK", "UV__WORK_DONE" 
+};
+
+
+char *callback_type_to_string (enum callback_type type)
+{
+  assert (CALLBACK_TYPE_MIN <= type && type < CALLBACK_TYPE_MAX);
+  return callback_type_strings[type];
 }

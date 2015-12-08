@@ -342,7 +342,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         pe->events |= w->pevents & (UV__EPOLLIN | UV__EPOLLOUT);
 
       if (pe->events != 0) {
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, pe->events);
+#else
         w->cb(loop, w, pe->events);
+#endif
         nevents++;
       }
     }

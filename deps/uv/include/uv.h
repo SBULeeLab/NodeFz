@@ -411,6 +411,7 @@ struct uv_shutdown_s {
     void* reserved[4];                                                        \
   } u;                                                                        \
   UV_HANDLE_PRIVATE_FIELDS                                                    \
+  struct callback_node *parent; \
 
 /* The abstract base class of all handles. */
 struct uv_handle_s {

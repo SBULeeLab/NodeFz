@@ -203,7 +203,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (ev->filter == EVFILT_VNODE) {
         assert(w->events == UV__POLLIN);
         assert(w->pevents == UV__POLLIN);
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_FS_EVENT_CB, w->cb, loop, w, ev->fflags);
+#else
         w->cb(loop, w, ev->fflags); /* XXX always uv__fs_event() */
+#endif
         nevents++;
         continue;
       }
@@ -244,7 +248,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (revents == 0)
         continue;
 
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, revents);
+#else
       w->cb(loop, w, revents);
+#endif
       nevents++;
     }
     loop->watchers[loop->nwatchers] = NULL;
@@ -322,7 +330,11 @@ static void uv__fs_event(uv_loop_t* loop, uv__io_t* w, unsigned int fflags) {
   if (fcntl(handle->event_watcher.fd, F_GETPATH, pathbuf) == 0)
     path = uv__basename_r(pathbuf);
 #endif
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, handle->cb, handle, path, events, 0);
+#else
   handle->cb(handle, path, events, 0);
+#endif
 
   if (handle->event_watcher.fd == -1)
     return;

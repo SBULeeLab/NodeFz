@@ -106,7 +106,11 @@ static void uv__chld(uv_signal_t* handle, int signum) {
     if (WIFSIGNALED(process->status))
       term_signal = WTERMSIG(process->status);
 
+#ifdef UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3 (UV_EXIT_CB, process->exit_cb, process, exit_status, term_signal);
+#else
     process->exit_cb(process, exit_status, term_signal);
+#endif
   }
   assert(QUEUE_EMPTY(&pending));
 }

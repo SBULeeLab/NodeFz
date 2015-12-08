@@ -89,7 +89,11 @@ static void uv__async_event(uv_loop_t* loop,
 
     if (h->async_cb == NULL)
       continue;
+#ifdef UNIFIED_CALLBACK
+    INVOKE_CALLBACK_1 (UV_ASYNC_CB, h->async_cb, h);
+#else
     h->async_cb(h);
+#endif
   }
 }
 
@@ -129,12 +133,20 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     uint64_t val;
     assert(n == sizeof(val));
     memcpy(&val, buf, sizeof(val));  /* Avoid alignment issues. */
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, loop, wa, val);
+#else
     wa->cb(loop, wa, val);
+#endif
     return;
   }
 #endif
 
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, loop, wa, n);
+#else
   wa->cb(loop, wa, n);
+#endif
 }
 
 

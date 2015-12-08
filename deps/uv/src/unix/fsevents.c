@@ -172,7 +172,13 @@ static void (*pFSEventStreamStop)(FSEventStreamRef);
         uv__free(event);                                                      \
       }                                                                       \
       if (err != 0 && !uv__is_closing((handle)) && uv__is_active((handle)))   \
-        (handle)->cb((handle), NULL, 0, err);                                 \
+      {                                                                       \
+        #if UNIFIED_CALLBACK                                                  \
+          INVOKE_CALLBACK_4(UV_FS_EVENT_CB, (handle)->cb, (handle), NULL, 0, err); \
+        #else                                                                 \
+          (handle)->cb((handle), NULL, 0, err);                               \
+        #endif                                                                \
+      }                                                                       \
     } while (0)
 
 

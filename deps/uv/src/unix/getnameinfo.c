@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "uv.h"
+#include "uv-common.h"
 #include "internal.h"
 
 
@@ -70,7 +71,13 @@ static void uv__getnameinfo_done(struct uv__work* w, int status) {
   }
 
   if (req->getnameinfo_cb)
+  {
+#ifdef UNIFIED_CALLBACK
+    INVOKE_CALLBACK_4 (UV_GETNAMEINFO_CB, req->getnameinfo_cb, req, req->retcode, host, service);
+#else
     req->getnameinfo_cb(req, req->retcode, host, service);
+#endif
+  }
 }
 
 /*

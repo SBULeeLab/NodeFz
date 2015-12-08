@@ -485,11 +485,19 @@ void uv_process_fs_event_req(uv_loop_t* loop, uv_req_t* req,
             case FILE_ACTION_REMOVED:
             case FILE_ACTION_RENAMED_OLD_NAME:
             case FILE_ACTION_RENAMED_NEW_NAME:
+#if UNIFIED_CALLBACK
+              INVOKE_CALLBACK_4(UV_FS_EVENT_CB, handle->cb, handle, filename, UV_RENAME, 0);
+#else
               handle->cb(handle, filename, UV_RENAME, 0);
+#endif
               break;
 
             case FILE_ACTION_MODIFIED:
+#if UNIFIED_CALLBACK
+              INVOKE_CALLBACK_4(UV_FS_EVENT_CB, handle->cb, handle, filename, UV_CHANGE, 0);
+#else
               handle->cb(handle, filename, UV_CHANGE, 0);
+#endif
               break;
           }
 
@@ -502,11 +510,19 @@ void uv_process_fs_event_req(uv_loop_t* loop, uv_req_t* req,
         offset = file_info->NextEntryOffset;
       } while (offset && !(handle->flags & UV__HANDLE_CLOSING));
     } else {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_4(UV_FS_EVENT_CB, handle->cb, handle, NULL, UV_CHANGE, 0);
+#else
       handle->cb(handle, NULL, UV_CHANGE, 0);
+#endif
     }
   } else {
     err = GET_REQ_ERROR(req);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_4(UV_FS_EVENT_CB, handle->cb, handle, NULL, 0, uv_translate_sys_error(err));
+#else
     handle->cb(handle, NULL, 0, uv_translate_sys_error(err));
+#endif
   }
 
   if (!(handle->flags & UV__HANDLE_CLOSING)) {

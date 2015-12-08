@@ -92,7 +92,11 @@ static void worker(void* arg) {
       break;
 
     w = QUEUE_DATA(q, struct uv__work, wq);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_1(UV__WORK_WORK, w->work, w);
+#else
     w->work(w);
+#endif
 
     uv_mutex_lock(&w->loop->wq_mutex);
     w->work = NULL;  /* Signal uv_cancel() that the work req is done
@@ -185,6 +189,10 @@ void uv__work_submit(uv_loop_t* loop,
   w->loop = loop;
   w->work = work;
   w->done = done;
+#ifdef UNIFIED_CALLBACK
+  w->parent = current_callback_node_get();
+  assert (w->parent != NULL);
+#endif
   post(&w->wq);
 }
 
@@ -238,7 +246,11 @@ void uv__work_done(uv_async_t* handle) {
 
     w = container_of(q, struct uv__work, wq);
     err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2(UV__WORK_DONE, w->done, w, err);
+#else
     w->done(w, err);
+#endif
   }
 }
 
@@ -246,7 +258,11 @@ void uv__work_done(uv_async_t* handle) {
 static void uv__queue_work(struct uv__work* w) {
   uv_work_t* req = container_of(w, uv_work_t, work_req);
 
+#ifdef UNIFIED_CALLBACK
+  INVOKE_CALLBACK_1(UV_WORK_CB, req->work_cb, req);
+#else
   req->work_cb(req);
+#endif
 }
 
 
@@ -259,7 +275,11 @@ static void uv__queue_done(struct uv__work* w, int err) {
   if (req->after_work_cb == NULL)
     return;
 
+#ifdef UNIFIED_CALLBACK
+  INVOKE_CALLBACK_2(UV_AFTER_WORK_CB, req->after_work_cb, req, err);
+#else
   req->after_work_cb(req, err);
+#endif
 }
 
 

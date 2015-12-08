@@ -162,7 +162,11 @@ void uv__run_timers(uv_loop_t* loop) {
 
     uv_timer_stop(handle);
     uv_timer_again(handle);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_1(UV_TIMER_CB, handle->timer_cb, handle);
+#else
     handle->timer_cb(handle);
+#endif
   }
 }
 

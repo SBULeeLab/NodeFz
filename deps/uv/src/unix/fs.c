@@ -904,7 +904,11 @@ static void uv__fs_done(struct uv__work* w, int status) {
     req->result = -ECANCELED;
   }
 
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_1 (UV_FS_CB, req->cb, req);
+#else
   req->cb(req);
+#endif
 }
 
 

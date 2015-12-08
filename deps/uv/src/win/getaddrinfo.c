@@ -211,7 +211,13 @@ complete:
 
   /* finally do callback with converted result */
   if (req->getaddrinfo_cb)
+  {
+#ifdef UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3 (UV_GETADDRINFO_CB, req->getaddrinfo_cb, req, req->retcode, req->addrinfo);
+#else
     req->getaddrinfo_cb(req, req->retcode, req->addrinfo);
+#endif
+  }
 }
 
 

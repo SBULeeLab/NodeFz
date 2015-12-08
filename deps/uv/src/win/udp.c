@@ -289,9 +289,17 @@ static void uv_udp_queue_recv(uv_loop_t* loop, uv_udp_t* handle) {
   if (loop->active_udp_streams < uv_active_udp_streams_threshold) {
     handle->flags &= ~UV_HANDLE_ZERO_READ;
 
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 65536, &handle->recv_buffer);
+#else
     handle->alloc_cb((uv_handle_t*) handle, 65536, &handle->recv_buffer);
+#endif
     if (handle->recv_buffer.len == 0) {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, UV_ENOBUFS, &handle->recv_buffer, NULL, 0);
+#else
       handle->recv_cb(handle, UV_ENOBUFS, &handle->recv_buffer, NULL, 0);
+#endif
       return;
     }
     assert(handle->recv_buffer.base != NULL);
@@ -485,7 +493,11 @@ void uv_process_udp_recv_req(uv_loop_t* loop, uv_udp_t* handle,
         uv_udp_recv_stop(handle);
         buf = (handle->flags & UV_HANDLE_ZERO_READ) ?
               uv_buf_init(NULL, 0) : handle->recv_buffer;
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, uv_translate_sys_error(err), &buf, NULL, 0);
+#else
         handle->recv_cb(handle, uv_translate_sys_error(err), &buf, NULL, 0);
+#endif
       }
       goto done;
     }
@@ -494,11 +506,15 @@ void uv_process_udp_recv_req(uv_loop_t* loop, uv_udp_t* handle,
   if (!(handle->flags & UV_HANDLE_ZERO_READ)) {
     /* Successful read */
     partial = !REQ_SUCCESS(req);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, req->u.io.overlapped.InternalHigh, &handle->recv_buffer, (const struct sockaddr*) &handle->recv_from, partial ? UV_UDP_PARTIAL : 0);
+#else
     handle->recv_cb(handle,
                     req->u.io.overlapped.InternalHigh,
                     &handle->recv_buffer,
                     (const struct sockaddr*) &handle->recv_from,
                     partial ? UV_UDP_PARTIAL : 0);
+#endif
   } else if (handle->flags & UV_HANDLE_READING) {
     DWORD bytes, err, flags;
     struct sockaddr_storage from;
@@ -506,9 +522,17 @@ void uv_process_udp_recv_req(uv_loop_t* loop, uv_udp_t* handle,
 
     /* Do a nonblocking receive */
     /* TODO: try to read multiple datagrams at once. FIONREAD maybe? */
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 65536, &buf);
+#else
     handle->alloc_cb((uv_handle_t*) handle, 65536, &buf);
+#endif
     if (buf.len == 0) {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, UV_ENOBUFS, &buf, NULL, 0);
+#else
       handle->recv_cb(handle, UV_ENOBUFS, &buf, NULL, 0);
+#endif
       goto done;
     }
     assert(buf.base != NULL);
@@ -529,28 +553,49 @@ void uv_process_udp_recv_req(uv_loop_t* loop, uv_udp_t* handle,
                     NULL) != SOCKET_ERROR) {
 
       /* Message received */
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, bytes, &buf, (const struct sockaddr*) &from, 0);
+#else
       handle->recv_cb(handle, bytes, &buf, (const struct sockaddr*) &from, 0);
+#endif
     } else {
       err = WSAGetLastError();
       if (err == WSAEMSGSIZE) {
         /* Message truncated */
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, bytes, &buf, (const struct sockaddr*) &from, UV_UDP_PARTIAL);
+
+#else
         handle->recv_cb(handle,
                         bytes,
                         &buf,
                         (const struct sockaddr*) &from,
                         UV_UDP_PARTIAL);
+#endif
       } else if (err == WSAEWOULDBLOCK) {
         /* Kernel buffer empty */
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, 0, &buf, NULL, 0);
+#else
         handle->recv_cb(handle, 0, &buf, NULL, 0);
+#endif
       } else if (err == WSAECONNRESET || err == WSAENETRESET) {
         /* WSAECONNRESET/WSANETRESET is ignored because this just indicates
          * that a previous sendto operation failed.
          */
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, 0, &buf, NULL, 0);
+#else
         handle->recv_cb(handle, 0, &buf, NULL, 0);
+#endif
       } else {
         /* Any other error that we want to report back to the user. */
         uv_udp_recv_stop(handle);
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, uv_translate_sys_error(err), &buf, NULL, 0);
+#else
         handle->recv_cb(handle, uv_translate_sys_error(err), &buf, NULL, 0);
+#endif
       }
     }
   }
@@ -584,7 +629,11 @@ void uv_process_udp_send_req(uv_loop_t* loop, uv_udp_t* handle,
     if (!REQ_SUCCESS(req)) {
       err = GET_REQ_SOCK_ERROR(req);
     }
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2(UV_UDP_SEND_CB, req->cb, req, uv_translate_sys_error(err));
+#else
     req->cb(req, uv_translate_sys_error(err));
+#endif
   }
 
   DECREASE_PENDING_REQ_COUNT(handle);

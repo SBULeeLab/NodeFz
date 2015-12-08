@@ -130,7 +130,13 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   }
 
   if (req->cb)
+  {
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_GETADDRINFO_CB, req->cb, req, req->retcode, req->addrinfo);
+#else
     req->cb(req, req->retcode, req->addrinfo);
+#endif
+  }
 }
 
 

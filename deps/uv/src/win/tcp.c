@@ -227,8 +227,13 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
     }
 
     if (handle->stream.conn.shutdown_req->cb) {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, handle->stream.conn.shutdown_req->cb, handle->stream.conn.shutdown_req, uv_translate_sys_error(err));
+
+#else
       handle->stream.conn.shutdown_req->cb(handle->stream.conn.shutdown_req,
                                uv_translate_sys_error(err));
+#endif
     }
 
     handle->stream.conn.shutdown_req = NULL;
@@ -496,9 +501,17 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
   */
   if (loop->active_tcp_streams < uv_active_tcp_streams_threshold) {
     handle->flags &= ~UV_HANDLE_ZERO_READ;
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 65536, &handle->tcp.conn.read_buffer);
+#else
     handle->alloc_cb((uv_handle_t*) handle, 65536, &handle->tcp.conn.read_buffer);
+#endif
     if (handle->tcp.conn.read_buffer.len == 0) {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, UV_ENOBUFS, &handle->tcp.conn.read_buffer);
+#else
       handle->read_cb((uv_stream_t*) handle, UV_ENOBUFS, &handle->tcp.conn.read_buffer);
+#endif
       return;
     }
     assert(handle->tcp.conn.read_buffer.base != NULL);
@@ -971,18 +984,27 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
         err = WSAECONNRESET;
       }
 
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, uv_translate_sys_error(err), &buf);
+
+#else
       handle->read_cb((uv_stream_t*)handle,
                       uv_translate_sys_error(err),
                       &buf);
+#endif
     }
   } else {
     if (!(handle->flags & UV_HANDLE_ZERO_READ)) {
       /* The read was done with a non-zero buffer length. */
       if (req->u.io.overlapped.InternalHigh > 0) {
         /* Successful read */
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, req->u.io.overlapped.InternalHigh, &handle->tcp.conn.read_buffer);
+#else
         handle->read_cb((uv_stream_t*)handle,
                         req->u.io.overlapped.InternalHigh,
                         &handle->tcp.conn.read_buffer);
+#endif
         /* Read again only if bytes == buf.len */
         if (req->u.io.overlapped.InternalHigh < handle->tcp.conn.read_buffer.len) {
           goto done;
@@ -997,16 +1019,28 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
 
         buf.base = 0;
         buf.len = 0;
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, UV_EOF, &handle->tcp.conn.read_buffer);
+#else
         handle->read_cb((uv_stream_t*)handle, UV_EOF, &handle->tcp.conn.read_buffer);
+#endif
         goto done;
       }
     }
 
     /* Do nonblocking reads until the buffer is empty */
     while (handle->flags & UV_HANDLE_READING) {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 65536, &buf);
+#else
       handle->alloc_cb((uv_handle_t*) handle, 65536, &buf);
+#endif
       if (buf.len == 0) {
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, UV_ENOBUFS, &buf);
+#else
         handle->read_cb((uv_stream_t*) handle, UV_ENOBUFS, &buf);
+#endif
         break;
       }
       assert(buf.base != NULL);
@@ -1021,7 +1055,11 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
                   NULL) != SOCKET_ERROR) {
         if (bytes > 0) {
           /* Successful read */
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, bytes, &buf);
+#else
           handle->read_cb((uv_stream_t*)handle, bytes, &buf);
+#endif
           /* Read again only if bytes == buf.len */
           if (bytes < buf.len) {
             break;
@@ -1031,14 +1069,22 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
           handle->flags &= ~(UV_HANDLE_READING | UV_HANDLE_READABLE);
           DECREASE_ACTIVE_COUNT(loop, handle);
 
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, UV_EOF, &buf);
+#else
           handle->read_cb((uv_stream_t*)handle, UV_EOF, &buf);
+#endif
           break;
         }
       } else {
         err = WSAGetLastError();
         if (err == WSAEWOULDBLOCK) {
           /* Read buffer was completely empty, report a 0-byte read. */
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, 0, &buf);
+#else
           handle->read_cb((uv_stream_t*)handle, 0, &buf);
+#endif
         } else {
           /* Ouch! serious error. */
           handle->flags &= ~UV_HANDLE_READING;
@@ -1050,9 +1096,13 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
             err = WSAECONNRESET;
           }
 
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, uv_translate_sys_error(err), &buf);
+#else
           handle->read_cb((uv_stream_t*)handle,
                           uv_translate_sys_error(err),
                           &buf);
+#endif
         }
         break;
       }
@@ -1098,7 +1148,11 @@ void uv_process_tcp_write_req(uv_loop_t* loop, uv_tcp_t* handle,
       /* use UV_ECANCELED for consistency with Unix */
       err = UV_ECANCELED;
     }
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2(UV_WRITE_CB, req->cb, req, err);
+#else
     req->cb(req, err);
+#endif
   }
 
   handle->stream.conn.write_reqs_pending--;
@@ -1128,8 +1182,13 @@ void uv_process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
       DECREASE_ACTIVE_COUNT(loop, handle);
       if (handle->stream.serv.connection_cb) {
         err = GET_REQ_SOCK_ERROR(req);
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_2(UV_CONNECTION_CB, handle->stream.serv.connection_cb, (uv_stream_t*)handle, uv_translate_sys_error(err));
+
+#else
         handle->stream.serv.connection_cb((uv_stream_t*)handle,
                                       uv_translate_sys_error(err));
+#endif
       }
     }
   } else if (REQ_SUCCESS(req) &&
@@ -1143,7 +1202,12 @@ void uv_process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
 
     /* Accept and SO_UPDATE_ACCEPT_CONTEXT were successful. */
     if (handle->stream.serv.connection_cb) {
+#if UNIFIED_CALLBACK
+      printf ("uv_process_tcp_accept_req: New connection!\n");
+      INVOKE_CALLBACK_2(UV_CONNECTION_CB, handle->stream.serv.connection_cb, (uv_stream_t*)handle, 0);
+#else
       handle->stream.serv.connection_cb((uv_stream_t*)handle, 0);
+#endif
     }
   } else {
     /* Error related to accepted socket is ignored because the server */
@@ -1184,7 +1248,11 @@ void uv_process_tcp_connect_req(uv_loop_t* loop, uv_tcp_t* handle,
   } else {
     err = GET_REQ_SOCK_ERROR(req);
   }
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_2(UV_CONNECT_CB, req->cb, req, uv_translate_sys_error(err));
+#else
   req->cb(req, uv_translate_sys_error(err));
+#endif
 
   DECREASE_PENDING_REQ_COUNT(handle);
 }

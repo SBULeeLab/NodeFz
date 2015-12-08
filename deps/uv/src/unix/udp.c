@@ -112,10 +112,12 @@ static void uv__udp_run_completed(uv_udp_t* handle) {
     /* req->status >= 0 == bytes written
      * req->status <  0 == errno
      */
-    if (req->status >= 0)
-      req->send_cb(req, 0);
-    else
-      req->send_cb(req, req->status);
+    int status = (req->status >= 0 ? 0 : req->status);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2(UV_UDP_SEND_CB, req->send_cb, req, status);
+#else
+    req->send_cb(req, status);
+#endif
   }
 
   if (QUEUE_EMPTY(&handle->write_queue)) {
@@ -165,9 +167,17 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
   h.msg_name = &peer;
 
   do {
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 64 * 1024, &buf);
+#else
     handle->alloc_cb((uv_handle_t*) handle, 64 * 1024, &buf);
+#endif
     if (buf.len == 0) {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, UV_ENOBUFS, &buf, NULL, 0);
+#else
       handle->recv_cb(handle, UV_ENOBUFS, &buf, NULL, 0);
+#endif
       return;
     }
     assert(buf.base != NULL);
@@ -182,10 +192,16 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
     while (nread == -1 && errno == EINTR);
 
     if (nread == -1) {
+      ssize_t nread;
       if (errno == EAGAIN || errno == EWOULDBLOCK)
-        handle->recv_cb(handle, 0, &buf, NULL, 0);
+        nread = 0;
       else
-        handle->recv_cb(handle, -errno, &buf, NULL, 0);
+        nread = -errno;
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, nread, &buf, NULL, 0);
+#else
+      handle->recv_cb(handle, nread, &buf, NULL, 0);
+#endif
     }
     else {
       const struct sockaddr *addr;
@@ -198,7 +214,11 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
       if (h.msg_flags & MSG_TRUNC)
         flags |= UV_UDP_PARTIAL;
 
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, nread, &buf, addr, flags);
+#else
       handle->recv_cb(handle, nread, &buf, addr, flags);
+#endif
     }
   }
   /* recv_cb callback may decide to pause or close the handle */

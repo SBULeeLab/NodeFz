@@ -183,10 +183,14 @@ static void poll_cb(uv_fs_t* req) {
 
   if (req->result != 0) {
     if (ctx->busy_polling != req->result) {
+#ifdef UNIFIED_CALLBACK
+      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, ctx->poll_cb, ctx->parent_handle, req->result, &ctx->statbuf, &zero_statbuf);
+#else
       ctx->poll_cb(ctx->parent_handle,
                    req->result,
                    &ctx->statbuf,
                    &zero_statbuf);
+#endif
       ctx->busy_polling = req->result;
     }
     goto out;
@@ -196,7 +200,13 @@ static void poll_cb(uv_fs_t* req) {
 
   if (ctx->busy_polling != 0)
     if (ctx->busy_polling < 0 || !statbuf_eq(&ctx->statbuf, statbuf))
+    {
+#ifdef UNIFIED_CALLBACK
+      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, ctx->poll_cb, ctx->parent_handle, 0, &ctx->statbuf, statbuf);
+#else
       ctx->poll_cb(ctx->parent_handle, 0, &ctx->statbuf, statbuf);
+#endif
+    }
 
   ctx->statbuf = *statbuf;
   ctx->busy_polling = 1;

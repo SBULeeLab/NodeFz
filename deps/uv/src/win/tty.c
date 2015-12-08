@@ -457,11 +457,19 @@ static void uv_tty_queue_read_line(uv_loop_t* loop, uv_tty_t* handle) {
   req = &handle->read_req;
   memset(&req->u.io.overlapped, 0, sizeof(req->u.io.overlapped));
 
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 8192, &handle->tty.rd.read_line_buffer);
+#else
   handle->alloc_cb((uv_handle_t*) handle, 8192, &handle->tty.rd.read_line_buffer);
+#endif
   if (handle->tty.rd.read_line_buffer.len == 0) {
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, UV_ENOBUFS, &handle->tty.rd.read_line_buffer);
+#else
     handle->read_cb((uv_stream_t*) handle,
                     UV_ENOBUFS,
                     &handle->tty.rd.read_line_buffer);
+#endif
     return;
   }
   assert(handle->tty.rd.read_line_buffer.base != NULL);
@@ -596,9 +604,14 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
     /* An error occurred while waiting for the event. */
     if ((handle->flags & UV_HANDLE_READING)) {
       handle->flags &= ~UV_HANDLE_READING;
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, uv_translate_sys_error(GET_REQ_ERROR(req)), &uv_null_buf_);
+
+#else
       handle->read_cb((uv_stream_t*)handle,
                       uv_translate_sys_error(GET_REQ_ERROR(req)),
                       &uv_null_buf_);
+#endif
     }
     goto out;
   }
@@ -607,9 +620,14 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
   if (!GetNumberOfConsoleInputEvents(handle->handle, &records_left)) {
     handle->flags &= ~UV_HANDLE_READING;
     DECREASE_ACTIVE_COUNT(loop, handle);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, uv_translate_sys_error(GetLastError()), &uv_null_buf_);
+
+#else
     handle->read_cb((uv_stream_t*)handle,
                     uv_translate_sys_error(GetLastError()),
                     &uv_null_buf_);
+#endif
     goto out;
   }
 
@@ -628,9 +646,14 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
                              &records_read)) {
         handle->flags &= ~UV_HANDLE_READING;
         DECREASE_ACTIVE_COUNT(loop, handle);
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, uv_translate_sys_error(GetLastError()), &buf);
+
+#else
         handle->read_cb((uv_stream_t*) handle,
                         uv_translate_sys_error(GetLastError()),
                         &buf);
+#endif
         goto out;
       }
       records_left--;
@@ -748,9 +771,14 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
         if (!char_len) {
           handle->flags &= ~UV_HANDLE_READING;
           DECREASE_ACTIVE_COUNT(loop, handle);
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, uv_translate_sys_error(GetLastError()), &buf);
+
+#else
           handle->read_cb((uv_stream_t*) handle,
                           uv_translate_sys_error(GetLastError()),
                           &buf);
+#endif
           goto out;
         }
 
@@ -796,9 +824,17 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
       if (handle->tty.rd.last_key_offset < handle->tty.rd.last_key_len) {
         /* Allocate a buffer if needed */
         if (buf_used == 0) {
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 1024, &buf);
+#else
           handle->alloc_cb((uv_handle_t*) handle, 1024, &buf);
+#endif
           if (buf.len == 0) {
+#if UNIFIED_CALLBACK
+            INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, UV_ENOBUFS, &buf);
+#else
             handle->read_cb((uv_stream_t*) handle, UV_ENOBUFS, &buf);
+#endif
             goto out;
           }
           assert(buf.base != NULL);
@@ -808,7 +844,11 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
 
         /* If the buffer is full, emit it */
         if ((size_t) buf_used == buf.len) {
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, buf_used, &buf);
+#else
           handle->read_cb((uv_stream_t*) handle, buf_used, &buf);
+#endif
           buf = uv_null_buf_;
           buf_used = 0;
         }
@@ -829,7 +869,11 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
 
   /* Send the buffer back to the user */
   if (buf_used > 0) {
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, buf_used, &buf);
+#else
     handle->read_cb((uv_stream_t*) handle, buf_used, &buf);
+#endif
   }
 
  out:
@@ -865,19 +909,31 @@ void uv_process_tty_read_line_req(uv_loop_t* loop, uv_tty_t* handle,
       /* Real error */
       handle->flags &= ~UV_HANDLE_READING;
       DECREASE_ACTIVE_COUNT(loop, handle);
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, uv_translate_sys_error(GET_REQ_ERROR(req)), &buf);
+#else
       handle->read_cb((uv_stream_t*) handle,
                       uv_translate_sys_error(GET_REQ_ERROR(req)),
                       &buf);
+#endif
     } else {
       /* The read was cancelled, or whatever we don't care */
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, 0, &buf);
+#else
       handle->read_cb((uv_stream_t*) handle, 0, &buf);
+#endif
     }
 
   } else {
     /* Read successful */
     /* TODO: read unicode, convert to utf-8 */
     DWORD bytes = req->u.io.overlapped.InternalHigh;
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, bytes, &buf);
+#else
     handle->read_cb((uv_stream_t*) handle, bytes, &buf);
+#endif
   }
 
   /* Wait for more input events. */
@@ -1991,7 +2047,11 @@ void uv_process_tty_write_req(uv_loop_t* loop, uv_tty_t* handle,
 
   if (req->cb) {
     err = GET_REQ_ERROR(req);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2(UV_WRITE_CB, req->cb, req, uv_translate_sys_error(err));
+#else
     req->cb(req, uv_translate_sys_error(err));
+#endif
   }
 
   handle->stream.conn.write_reqs_pending--;
@@ -2034,9 +2094,17 @@ void uv_tty_endgame(uv_loop_t* loop, uv_tty_t* handle) {
     /* TTY shutdown is really just a no-op */
     if (handle->stream.conn.shutdown_req->cb) {
       if (handle->flags & UV__HANDLE_CLOSING) {
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, handle->stream.conn.shutdown_req->cb, handle->stream.conn.shutdown_req, UV_ECANCELED);
+#else
         handle->stream.conn.shutdown_req->cb(handle->stream.conn.shutdown_req, UV_ECANCELED);
+#endif
       } else {
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, handle->stream.conn.shutdown_req->cb, handle->stream.conn.shutdown_req, 0);
+#else
         handle->stream.conn.shutdown_req->cb(handle->stream.conn.shutdown_req, 0);
+#endif
       }
     }
 

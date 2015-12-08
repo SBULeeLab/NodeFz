@@ -94,6 +94,10 @@ void uv_process_async_wakeup_req(uv_loop_t* loop, uv_async_t* handle,
   if (handle->flags & UV__HANDLE_CLOSING) {
     uv_want_endgame(loop, (uv_handle_t*)handle);
   } else if (handle->async_cb != NULL) {
+#ifdef UNIFIED_CALLBACK
+    INVOKE_CALLBACK_1 (UV_ASYNC_CB, handle->async_cb, handle);
+#else
     handle->async_cb(handle);
+#endif
   }
 }

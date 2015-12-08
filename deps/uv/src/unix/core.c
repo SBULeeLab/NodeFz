@@ -256,7 +256,11 @@ static void uv__finish_close(uv_handle_t* handle) {
   QUEUE_REMOVE(&handle->handle_queue);
 
   if (handle->close_cb) {
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_1 (UV_CLOSE_CB, handle->close_cb, handle);
+#else
     handle->close_cb(handle);
+#endif
   }
 }
 
@@ -730,7 +734,11 @@ static int uv__run_pending(uv_loop_t* loop) {
     QUEUE_REMOVE(q);
     QUEUE_INIT(q);
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
+#else
     w->cb(loop, w, UV__POLLOUT);
+#endif
   }
 
   return 1;

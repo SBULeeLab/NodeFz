@@ -50,7 +50,8 @@
     QUEUE* q;                                                                 \
     QUEUE_FOREACH(q, &loop->name##_handles) {                                 \
       h = QUEUE_DATA(q, uv_##name##_t, queue);                                \
-      h->name##_cb(h);                                                        \
+      INVOKE_CALLBACK_1(UV_##type##_CB, h->name##_cb, h);                     \
+      /* h->name##_cb(h); */                                                  \
     }                                                                         \
   }                                                                           \
                                                                               \

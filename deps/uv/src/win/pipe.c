@@ -364,7 +364,11 @@ void uv_pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle) {
 
       /* Already closing. Cancel the shutdown. */
       if (req->cb) {
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, req->cb, req, UV_ECANCELED);
+#else
         req->cb(req, UV_ECANCELED);
+#endif
       }
 
       DECREASE_PENDING_REQ_COUNT(handle);
@@ -385,7 +389,11 @@ void uv_pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle) {
       handle->flags |= UV_HANDLE_WRITABLE; /* Questionable */
       if (req->cb) {
         err = pRtlNtStatusToDosError(nt_status);
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, req->cb, req, uv_translate_sys_error(err));
+#else
         req->cb(req, uv_translate_sys_error(err));
+#endif
       }
 
       DECREASE_PENDING_REQ_COUNT(handle);
@@ -412,7 +420,11 @@ void uv_pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle) {
       handle->flags |= UV_HANDLE_WRITABLE; /* Questionable */
       if (req->cb) {
         err = GetLastError();
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, req->cb, req, uv_translate_sys_error(err));
+#else
         req->cb(req, uv_translate_sys_error(err));
+#endif
       }
 
       DECREASE_PENDING_REQ_COUNT(handle);
@@ -1487,7 +1499,11 @@ static void uv_pipe_read_eof(uv_loop_t* loop, uv_pipe_t* handle,
   handle->flags &= ~UV_HANDLE_READABLE;
   uv_read_stop((uv_stream_t*) handle);
 
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, UV_EOF, &buf);
+#else
   handle->read_cb((uv_stream_t*) handle, UV_EOF, &buf);
+#endif
 }
 
 
@@ -1499,7 +1515,11 @@ static void uv_pipe_read_error(uv_loop_t* loop, uv_pipe_t* handle, int error,
 
   uv_read_stop((uv_stream_t*) handle);
 
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, uv_translate_sys_error(error), &buf);
+#else
   handle->read_cb((uv_stream_t*)handle, uv_translate_sys_error(error), &buf);
+#endif
 }
 
 
@@ -1620,9 +1640,17 @@ void uv_process_pipe_read_req(uv_loop_t* loop, uv_pipe_t* handle,
         }
       }
 
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, avail, &buf);
+#else
       handle->alloc_cb((uv_handle_t*) handle, avail, &buf);
+#endif
       if (buf.len == 0) {
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*) handle, UV_ENOBUFS, &buf);
+#else
         handle->read_cb((uv_stream_t*) handle, UV_ENOBUFS, &buf);
+#endif
         break;
       }
       assert(buf.base != NULL);
@@ -1638,7 +1666,11 @@ void uv_process_pipe_read_req(uv_loop_t* loop, uv_pipe_t* handle,
           handle->pipe.conn.remaining_ipc_rawdata_bytes =
             handle->pipe.conn.remaining_ipc_rawdata_bytes - bytes;
         }
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, handle->read_cb, (uv_stream_t*)handle, bytes, &buf);
+#else
         handle->read_cb((uv_stream_t*)handle, bytes, &buf);
+#endif
 
         /* Read again only if bytes == buf.len */
         if (bytes <= buf.len) {
@@ -1692,7 +1724,11 @@ void uv_process_pipe_write_req(uv_loop_t* loop, uv_pipe_t* handle,
   } else {
     if (req->cb) {
       err = GET_REQ_ERROR(req);
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_2(UV_WRITE_CB, req->cb, req, uv_translate_sys_error(err));
+#else
       req->cb(req, uv_translate_sys_error(err));
+#endif
     }
   }
 
@@ -1732,7 +1768,11 @@ void uv_process_pipe_accept_req(uv_loop_t* loop, uv_pipe_t* handle,
     handle->pipe.serv.pending_accepts = req;
 
     if (handle->stream.serv.connection_cb) {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_2(UV_CONNECTION_CB, handle->stream.serv.connection_cb, (uv_stream_t*)handle, 0);
+#else
       handle->stream.serv.connection_cb((uv_stream_t*)handle, 0);
+#endif
     }
   } else {
     if (req->pipeHandle != INVALID_HANDLE_VALUE) {
@@ -1763,7 +1803,11 @@ void uv_process_pipe_connect_req(uv_loop_t* loop, uv_pipe_t* handle,
     } else {
       err = GET_REQ_ERROR(req);
     }
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2(UV_CONNECT_CB, req->cb, req, uv_translate_sys_error(err));
+#else
     req->cb(req, uv_translate_sys_error(err));
+#endif
   }
 
   DECREASE_PENDING_REQ_COUNT(handle);
@@ -1794,7 +1838,11 @@ void uv_process_pipe_shutdown_req(uv_loop_t* loop, uv_pipe_t* handle,
   }
 
   if (req->cb) {
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, req->cb, req, 0);
+#else
     req->cb(req, 0);
+#endif
   }
 
   DECREASE_PENDING_REQ_COUNT(handle);

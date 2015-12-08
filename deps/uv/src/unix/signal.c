@@ -383,7 +383,11 @@ static void uv__signal_event(uv_loop_t* loop,
 
       if (msg->signum == handle->signum) {
         assert(!(handle->flags & UV_CLOSING));
+#ifdef UNIFIED_CALLBACK
+        INVOKE_CALLBACK_2(UV_SIGNAL_CB, handle->signal_cb, handle, handle->signum);
+#else
         handle->signal_cb(handle, handle->signum);
+#endif
       }
 
       handle->dispatched_signals++;

@@ -442,7 +442,12 @@ void uv__stream_destroy(uv_stream_t* stream) {
 
   if (stream->connect_req) {
     uv__req_unregister(stream->loop, stream->connect_req);
+#if UNIFIED_CALLBACK
+    //printf ("uv__stream_destroy: destroying a connection\n");
+    INVOKE_CALLBACK_2(UV_CONNECT_CB, stream->connect_req->cb, stream->connect_req, -ECANCELED);
+#else
     stream->connect_req->cb(stream->connect_req, -ECANCELED);
+#endif
     stream->connect_req = NULL;
   }
 
@@ -456,7 +461,12 @@ void uv__stream_destroy(uv_stream_t* stream) {
      * callee that the handle has been destroyed.
      */
     uv__req_unregister(stream->loop, stream->shutdown_req);
+#if UNIFIED_CALLBACK
+    //printf ("uv__stream_destroy: shutting down a connection\n");
+    INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, stream->shutdown_req->cb, stream->shutdown_req, -ECANCELED);
+#else
     stream->shutdown_req->cb(stream->shutdown_req, -ECANCELED);
+#endif
     stream->shutdown_req = NULL;
   }
 
@@ -542,13 +552,23 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
           break;
       }
 
+#if UNIFIED_CALLBACK
+      //printf ("uv__server_io: accepting new connection failed\n");
+      INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, stream, err);
+#else
       stream->connection_cb(stream, err);
+#endif
       continue;
     }
 
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;
+#if UNIFIED_CALLBACK
+    //printf ("uv__server_io: accepted new connection\n");
+    INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, stream, 0);
+#else
     stream->connection_cb(stream, 0);
+#endif
 
     if (stream->accepted_fd != -1) {
       /* The user hasn't yet accepted called uv_accept() */
@@ -682,7 +702,13 @@ static void uv__drain(uv_stream_t* stream) {
       stream->flags |= UV_STREAM_SHUT;
 
     if (req->cb != NULL)
+    {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, req->cb, req, err);
+#else
       req->cb(req, err);
+#endif
+    }
   }
 }
 
@@ -937,7 +963,13 @@ static void uv__write_callbacks(uv_stream_t* stream) {
 
     /* NOTE: call callback AFTER freeing the request data. */
     if (req->cb)
+    {
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_2 (UV_WRITE_CB, req->cb, req, req->error);
+#else
       req->cb(req, req->error);
+#endif
+    }
   }
 
   assert(QUEUE_EMPTY(&stream->write_completed_queue));
@@ -984,7 +1016,11 @@ static void uv__stream_eof(uv_stream_t* stream, const uv_buf_t* buf) {
   if (!uv__io_active(&stream->io_watcher, UV__POLLOUT))
     uv__handle_stop(stream);
   uv__stream_osx_interrupt_select(stream);
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, UV_EOF, buf);
+#else
   stream->read_cb(stream, UV_EOF, buf);
+#endif
   stream->flags &= ~UV_STREAM_READING;
 }
 
@@ -1108,10 +1144,18 @@ static void uv__read(uv_stream_t* stream) {
       && (count-- > 0)) {
     assert(stream->alloc_cb != NULL);
 
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, stream->alloc_cb, (uv_handle_t*)stream, 64 * 1024, &buf); 
+#else
     stream->alloc_cb((uv_handle_t*)stream, 64 * 1024, &buf);
+#endif
     if (buf.len == 0) {
       /* User indicates it can't or won't handle the read. */
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, UV_ENOBUFS, &buf);
+#else
       stream->read_cb(stream, UV_ENOBUFS, &buf);
+#endif
       return;
     }
 
@@ -1148,10 +1192,18 @@ static void uv__read(uv_stream_t* stream) {
           uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
           uv__stream_osx_interrupt_select(stream);
         }
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, 0, &buf);
+#else
         stream->read_cb(stream, 0, &buf);
+#endif
       } else {
         /* Error. User should call uv_close(). */
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, -errno, &buf);
+#else
         stream->read_cb(stream, -errno, &buf);
+#endif
         if (stream->flags & UV_STREAM_READING) {
           stream->flags &= ~UV_STREAM_READING;
           uv__io_stop(stream->loop, &stream->io_watcher, UV__POLLIN);
@@ -1171,11 +1223,19 @@ static void uv__read(uv_stream_t* stream) {
       if (is_ipc) {
         err = uv__stream_recv_cmsg(stream, &msg);
         if (err != 0) {
+#if UNIFIED_CALLBACK
+          INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, err, &buf);
+#else
           stream->read_cb(stream, err, &buf);
+#endif
           return;
         }
       }
+#if UNIFIED_CALLBACK
+      INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, nread, &buf);
+#else
       stream->read_cb(stream, nread, &buf);
+#endif
 
       /* Return if we didn't fill the buffer, there is no more data to read. */
       if (nread < buflen) {
@@ -1313,7 +1373,14 @@ static void uv__stream_connect(uv_stream_t* stream) {
   }
 
   if (req->cb)
+  {
+#if UNIFIED_CALLBACK
+    //printf ("uv__stream_connect: connecting\n");
+    INVOKE_CALLBACK_2(UV_CONNECT_CB, req->cb, req, error);
+#else
     req->cb(req, error);
+#endif
+  }
 
   if (uv__stream_fd(stream) == -1)
     return;

@@ -161,7 +161,11 @@ static void uv__inotify_read(uv_loop_t* loop,
 
       QUEUE_FOREACH(q, &w->watchers) {
         h = QUEUE_DATA(q, uv_fs_event_t, watchers);
+#if UNIFIED_CALLBACK
+        INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, h->cb, h, path, events, 0);
+#else
         h->cb(h, path, events, 0);
+#endif
       }
     }
   }
