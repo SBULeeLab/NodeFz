@@ -1,0 +1,484 @@
+Jamie Davis <davisjam@vt.edu>
+22 October 2015
+
+I went into src/threadpool.c and added printfs to 
+ work
+  > this actually performs a work item
+    calls w->work
+ uv__work_done
+  > invokes the 'done' callback on a completed work item
+    calls w->done
+
+ include/uv-threadpool.h defines the uv__work item, with
+ the work and done fields defined as:
+
+   void (*work)(struct uv__work *w);
+   void (*done)(struct uv__work *w, int status);
+
+FORWARD ORDER
+1
+stat hello 0x1897380
+stat world 0x1897aa0
+rename 0x1896a40
+
+2
+stat hello 0x19cb380
+rename 0x19caa40
+stat world 0x19cbaa0
+
+3
+stat hello 0x1539380
+stat world 0x1539aa0
+rename 0x1538a40
+
+4
+stat hello
+rename
+stat world
+
+5
+stat hello
+stat world
+rename
+
+6
+stat hello
+stat world
+rename
+
+7
+stat hello
+stat world
+rename
+
+8
+stat hello
+stat world
+rename
+
+REVERSED ORDER
+1
+rename 0x13c8848
+stat world 0x1663aa0
+stat hello 0x1663380
+
+2
+rename 0x2873a40
+stat world 0x2874aa0
+stat hello 0x2874380
+
+3
+rename
+stat world
+stat hello
+
+4
+rename
+stat world
+stat hello
+
+5
+stat world
+rename
+stat hello
+
+------------------
+
+Conclusion:
+  0. file_system.js is a useful tool to explore node+libuv interactions.
+
+  1. The order in which callbacks enter the queue in uv__work_done
+    depends on the order in which the underlying FS operations complete.
+
+  2. Once they reach the queue, we can re-order them, as demonstrated.
+    However it's the thread pool ordering that determines the order 
+    in which they reach the queue.
+    I haven't yet identified a way to determine which callback is which
+    across runs (i.e. which one is 'stat' vs 'rename' in run X?).
+    This would allow me to re-order function and callback invocations.
+    
+  3. To do that, I think I need to know how 'work' and 'done' get set
+    for each `struct uv__work'.
+
+  4. Just because a 'stat' command succeeded does not mean that the 
+     stat'd file still exists at the time of the callback.
+
+  5. Can re-order things all we want (both threadpool execution order 
+      and global callback order) in src/threadpool.c, PROVIDED
+      we can identify what we're working with.
+
+  6. The libuv forum suggests that the threadpool is only used to
+      emulate asynchronous-less synchronous operations like AIO.
+      Where are asynchronous-native operations like sockets handled?
+
+Open questions:
+  1. Where are asynchronous-native operations like sockets handled?
+  2. How does node.js submit operation+callback requests to libuv?
+      >> $NODE/src/*wrap.cc ?
+  3. Can we add user-defined data to libuv structs for label propagation?
+
+---------------------------------
+
+Jamie Davis <davisjam@vt.edu>
+23 October 2015
+
+Yesterday I discussed the open questions above with Dr. Lee.
+#1: He suggested that finding this out would be valuable.
+#2, #3: This may be irrelevant. If a fork (and-wait?) approach is used,
+  the parent can launch a child to explore the path not taken.
+  In such a setting, there's no need to know WHAT the work payload is,
+  because the memory address itself can be used as the ID.
+  I was thinking that we had to propagate labels in order to identify items
+  between runs, but if I stick to a PARTICULAR run then I can use fork to
+  reorder arbitrarily. 
+  
+  See test_code/fork_test.c and test_code/fork_test.txt for some sample code 
+    along these lines.
+
+  New open questions:
+  1. Where are asynchronous-native operations like sockets handled?
+     Is every callback executed in uv__work_done?
+      > Explore http server, since socket code is not done by threadpool.
+        I believe the answer is yes.
+  2. Play with fork!
+
+-------------------------
+
+24 October 2015
+
+Addressing the open questions from 23 October:
+
+1. Regarding asynchronous-native operations like sockets:
+   The callback is executed in uv__io_poll.
+   Testing with 'node simple_http':
+     uv__io_poll: calling w 0x2bd84a8's cb 0xdbff40 with {events 1, data 13}
+     APP: Server handled a client!
+     uv__io_poll: finished calling w 0x2bd84a8's cb 0xdbff40 with {events 1, data 18446744073709551615}
+
+   The callback function is:
+     gdb `which node`
+     info symbol 0xdbff40
+     uv.stream_io in section .text
+
+     src/unix/stream.c:
+
+   Uncomfortably, multiple callbacks can be pending in each phase of the loop, and furthermore
+     in uv__io_poll we may call a single callback that routes us into threadpool: uv__work_done
+     which calls multiple callbacks.
+     It's not clear how to change the order of these callbacks at the level of uv__io_poll.
+
+   Suppose that for starters we only re-order callbacks in threadpool::worker and threadpool::uv__work_done.
+   This should be enough to see some interesting behavior.
+
+2. Playing with fork: 
+   I modified uv__work_done as follows:
+    - wait until 4 callbacks show up (not sure what they all are)
+    - shmem
+    - fork()
+      > child goes first and runs callbacks in forward order
+      > parent sees child is done, goes second, and runs callbacks in reverse order
+    Result: success, callbacks are executed in forward and reverse order as expected.
+
+   This raises new questions.
+
+    1. Unlike race conditions in memory, in node the race conditions can and do modify external
+       resources like the file system or databases. 
+
+       Different copies must not be allowed to see each other's actions. This suggests the need
+       to ``reset'' things to the previous state. In the filesystem, taking a snapshot/rsync-backup
+       should suffice (provided it preserves things like atime "just in case"). The database presumably
+       also live in the filesystem. Network traffic can't be rolled back, though, so if network traffic
+       is involved then the recipient must be able to "roll back" as well.
+
+       This may be a limitation on the types of Node.js applications we can test. 
+       If we treat Node.js applications as a "black box" then we need a way to reset the entire system.
+
+    2. Need a way to decide when we have enough pending callbacks to fork and execute.
+       Perhaps every time a new callback is received we can fork () and either start executing or NOT start executing.
+
+    3. Review papers on reducing the exponential search space, e.g. partial order reduction.
+
+    4. What happens if one process errors out? I'm guessing it closes stdout and stderr, discomfiting us. Not sure though.
+       Need to introduce a fatal error into file_system.js under a particular interleaving.
+
+-------------------------
+
+26 October 2015
+
+4. above: Regarding error'ing out: 
+  If one process exits, the other's output is unaffected. It must dup the file descriptors. In retrospect, this makes sense.
+  However, if one process relies on the other to log its completion, then we're in trouble.
+  Need to wait for completion OR exit. I added a working implementation of this in threadpool.c.
+
+-------------------------
+
+27 October 2015
+
+Discussion with Dr. Lee:
+  - Bounded waiting: in time and in number of items in the queue
+  - Flip order of only the first X items in the queue
+  - Can't change order of JUST execution (cb->work) or JUST cleanup (cb->done),
+      because execution maps to the 'request time' and cleanup maps to the 'done time'.
+      Two work items could be done in order A, B, and finished in order B, A.
+  - Partial order reduction: 
+    > Need to read these papers (static [80s], dynamic [00s])
+    > Only explore interleavings that actually affect each other
+    > Issue here -- how to know if they affect each other in the "black box" approach to callbacks?
+      Callbacks X and Y may not be directly related (surface level), but X may trigger callback Z that will affect Y.
+
+  - Bounded reordering: added env variable REORDER_DISTANCE. If 0, do nothing. Otherwise use that reorder distance. Default is 0.
+    > Haven't implemented the behavior yet.   
+    > One paper used 'forward/backward' rather than spawning K! children. This sounds like a good move.
+  - Wrote min_reordering.js that will exit(0) if reordering < X, otherwise exit(1).
+    min_reordering.js uses dynamically-generated code so that I don't have to eyeball addresses for correctness;
+    each incrementer function has its own "name". Hooray for closures!
+  - Developed doubly linked list for a much-cleaner-to-work-with done_list.
+
+-------------------------
+
+28 October 2015
+
+Implemented bounded waiting mechanism based on timeout and REORDER_DISTANCE.
+Not quite working -- not quite understanding how to trigger epoll_wait to go back to uv__work_done.
+  > output manipulation
+  > log function that prefixes pid
+  > figure out why epoll_wait isn't being nice
+
+-------------------------
+
+29 October 2015
+
+Still working on the epoll_wait issue.
+  - Added 'generation' to mylog for indentation. This should help clarify issues.
+  - Idea: what if we spawn ALL children at a level before proceeding on one? This might help
+      if the issue is some weird conflict between epoll and fork () (the internet suggests that
+      there might be one).
+
+      This leads to memory overhead (a weird combo of BFS and DFS search, but still painful), but 
+      if it fixes the problem them that would be swell.
+
+-------------------------
+
+30 October 2015
+
+- Used the combination DFS-BFS search as proposed on 29 Oct. This fixes the problem, hooray!
+
+TODO (by order of priority):
+  1. > Need a way to "prove" that it's working properly on a wide variety of inputs.
+    Can generate simulated output for min_reordering.js and emit that, then compare.
+
+  2. > Need to determine whether or not child exited 0.
+
+  3. > Need to re-think the notion of a timeout. Because parents wait for children recursively,
+    using clock time is a bad idea. 
+
+    Propose instead using "number of loops since I last ran a callback". 
+    This would require changing all callback calls to use a uv-common function that sets a 
+    flag and then calls the callback. Then in main loop we could bump a counter, also through
+    uv-common
+
+  4. > Must avoid "wait forever"-style epoll requests. Never return -1 from the timout function.
+    Instead, add a sleep in the main loop -- this effectively simulates "forever", although
+    if done naively this would cause "idle" callbacks (and others?) to be executed many more 
+    times than might be expected. Might need to take more care with this change.
+
+    3,4: If each loop waits for a second, then "loops since I last ran a callback" has a lower bound of "seconds since I last ran a callback"
+
+-------------------------
+
+8 Nov 2015
+
+- Fixed bug in list_size. Code is now in working order, ready to proceed on verifying correctness tomorrow.
+
+-------------------------
+
+9 Nov 2015
+
+Addressing 1. from 30 October:
+  1. Wrote simulator (min_reordering_exploration.pl) to simulate min_reordering.js's output
+     when run under a modified Node. Initial results suggest that the simulator output matches
+     the real output. Hooray!
+
+  2. Implemented the node-mocks guy's fs.stat example to show the more general power of the 
+     libuv reordering approach.
+
+Addressing 2. from 30 October:
+  1. Added exit status checking.
+
+  2. It appears that fork() -> pthread_join() is a bad combination. See for example
+      developerweb.net/viewtopic.php?id=3633
+     Since this is a bit orthogonal, I just don't clean up the thread pool threads.
+
+Outstanding TODOs, carried over from 30 October:
+  1. Need to re-think the notion of a timeout. Because parents wait for children recursively,
+    using clock time is a bad idea. 
+
+    Propose instead using "number of loops since I last ran a callback". 
+    This would require changing all callback calls to use a uv-common function that sets a 
+    flag and then calls the callback. Then in main loop we could bump a counter, also through
+    uv-common
+
+  2. > Must avoid "wait forever"-style epoll requests. Never return -1 from the timout function.
+    Instead, add a sleep in the main loop -- this effectively simulates "forever", although
+    if done naively this would cause "idle" callbacks (and others?) to be executed many more 
+    times than might be expected. Might need to take more care with this change.
+
+    3,4: If each loop waits for a second, then "loops since I last ran a callback" has a lower bound of "seconds since I last ran a callback"
+
+-------------------------
+
+13 Nov 2015
+    
+Discussed progress with Dongyoon. Many ideas on paper.
+
+-------------------------
+
+16 Nov 2015
+
+1. Question: How are fs.X and fs.XSync implemented?
+  Answer: X is routed into libuv's thread pool work queue for asynchronous handling. XSync () is routed into libuv where it is called synchronously in uv__fs_work. The result is passed back up.
+
+  See the '16 Nov 2015' entry in jamie_node_src_notes for details.
+
+2. I reviewed issues with fork and pthreads. Most notably, in the child only the thread that
+called fork() survives. I verified this using the fork_pthread.c test. 
+
+Happily, Node.js only uses two sets of threads: the event loop thread (1 thread) and 
+the thread pool threads (X threads).
+As a result, getting to a coherent state prior to fork and re-initializing threads after fork
+should not be difficult with the judicious use of locks.
+  http://www.linuxprogrammingblog.com/threads-and-fork-think-twice-before-using-them
+  http://pubs.opengroup.org/onlinepubs/009695399/functions/pthread_atfork.html
+
+This probably also explains the segfault in pthread_join. Note that
+both v8 and libuv make use of pthread_join, suggesting that we need
+a pthread_at_fork call in both layers.
+
+Question: When and why does v8's Thread::Start get called? I have added prints to show that it happens,
+but have not yet tracked down WHY it happens. Next step: gdb
+
+  cdprog
+  gdb `which node`
+
+  (gdb) break v8::base::Thread::Start
+  Breakpoint 1 at 0xdfa174
+  (gdb) c
+  The program is not being run.
+  (gdb) run file_system.js 
+  Starting program: /home/jamie/bin/node file_system.js
+  Traceback (most recent call last):
+    File "/usr/share/gdb/auto-load/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.19-gdb.py", line 63, in <module>
+      from libstdcxx.v6.printers import register_libstdcxx_printers
+  ImportError: No module named 'libstdcxx'
+  [Thread debugging using libthread_db enabled]
+  Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+  Breakpoint 1, 0x0000000000dfa174 in v8::base::Thread::Start() ()
+  (gdb) bt
+  #0  0x0000000000dfa174 in v8::base::Thread::Start() ()
+  #1  0x0000000000dcb9bc in v8::platform::WorkerThread::WorkerThread(v8::platform::TaskQueue*) ()
+  #2  0x0000000000dc9191 in v8::platform::CreateDefaultPlatform(int) ()
+  #3  0x0000000000d68e9e in node::Start(int, char**) ()
+  #4  0x00007ffff6becec5 in __libc_start_main (main=0x688310 <main>, argc=2, argv=0x7fffffffe508, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=0x7fffffffe4f8)
+        at libc-start.c:287
+  #5  0x000000000068852f in _start ()
+  (gdb)
+
+Answer: The threads are launched as part of default_platform, whatever that is.
+
+Conclusion:
+pthread_atfork needed to be added at each layer that calls pthreads.
+Two places:
+  1. V8 uses a pool of threads for its default_platform (whatever that is)
+    At the V8 layer, these threads seem to be used to provide "isolates" (independent interpreters?), and it doesn't look like Node makes use of "isolates".
+    As a result, no synchronization seemed to be required. I just added a Reinitialize function that would empty and re-create the thread pool.
+    
+  2. libuv uses a pool of threads for its asynchronous worker pool
+    These worker threads are all active, and an uncontrolled fork() could result in inconsistent memory states,
+      locked-never-to-be-released mutexes, etc.
+    To resolve this, I added a posix semaphore to control the number of active threads. 
+    By down'ing this semaphore nthreads times and waiting for all threads to be waiting, I can ensure that
+      all worker threads are in a quiesced state at the time of fork ().
+      On resume: 
+        - the parent post's to the sema
+        - the child re-initializes all of the pthread variables and launches nthreads threads
+
+-------------------------
+
+19 Nov 2015
+
+1. Following up on the pthread question, I put printfs into the code to figure out the path by which
+the v8 pthreads are assigned work. Work gets into their shared queue via DefaultPlatform::CallOnBackgroundThread
+
+CallOnBackgroundThread seems to be used for compilation and garbage collection tasks
+(grep'd the full tree including node and v8). It is called here:
+
+v8/src/optimizing-compile-dispatcher.cc
+
+  OptimizingCompileDispatcher::QueueForOptimization calls:
+      V8::GetCurrentPlatform()->CallOnBackgroundThread(
+              new CompileTask(isolate_), v8::Platform::kShortRunningTask);
+
+
+  OptimizingCompileDispatcher::Unblock() calls:
+      V8::GetCurrentPlatform()->CallOnBackgroundThread(
+              new CompileTask(isolate_), v8::Platform::kShortRunningTask);
+  
+v8/src/heap/mark-compact.cc
+  MarkCompactCollector::StartSweeperThreads calls:
+    V8::GetCurrentPlatform()->CallOnBackgroundThread(
+          new SweeperTask(heap(), heap()->old_space()),
+                v8::Platform::kShortRunningTask);
+
+The sample cluster.js program is sufficient to exercise these threads.
+This means that I DEFINITELY need to correctly re-initialize them in a controlled fashion.
+
+Since the WorkerThreads end up waiting on a semaphore in TaskQueue::GetNext, there's already
+a built-in waiting mechanism. I added a counter to track the number of waiters, and taught
+DefaultPlatform to wait for the queue to empty and all the waiters to be pending prior to
+fork'ing. Since the tasks seem to be short (kShortRunningTask, whatever that means!), 
+I expect that if the main thread pauses to wait for it to empty, then it will empty fairly quickly.
+
+Implementation appears to have worked. I added a few functions to TaskQueue and now
+DefaultPlatform asks it if all of its threads are waiting on it. Since no OTHER threads should be
+waiting on the DefaultPlatform's TaskQueue (right?), this seems fine.
+
+2. The Node.js cluster module uses fork(). This makes it unsuitable
+to use in my testing environment, since I fork() too. The parent does not know what pid to wait on, and there's
+no (?) way to tell the parent that it has a NEW child to wait on (and you'd need to fork the parent itself
+to wait on the new child every time the child forks...). Anyway it just seems like a mess.
+
+3. I read the microarchitecture paper on Node.js (I-cache performance issues). It reminded me that as a largely-server-side programming framework, we'll need to think about network inputs as we fork. If we run through once to completion, we can record the network inputs. Afterward we can simulate them? Hmm...
+
+4. I took a peek at how callbacks are invoked:
+
+jamie@lqingrui:~/Desktop/node_project/node/deps/uv/src$ grep -Ri cb\( . | wc -l
+141
+
+Threadpool callbacks take 1 or 2 args:
+  jamie@lqingrui:~/Desktop/node_project/node/deps/uv/src$ grep -Ri cb\( . | grep threadpool
+  ./threadpool.c:  req->work_cb(req);
+  ./threadpool.c:  req->after_work_cb(req, err);
+
+
+More general callbacks take between 1 and 5 args. Here are examples of each:
+  ./unix/fs.c:  req->cb(req);
+  ./unix/udp.c:      req->send_cb(req, req->status);
+  ./unix/getaddrinfo.c:    req->cb(req, req->retcode, req->addrinfo);
+  ./unix/getnameinfo.c:    req->getnameinfo_cb(req, req->retcode, host, service);
+  ./win/udp.c:      handle->recv_cb(handle, UV_ENOBUFS, &buf, NULL, 0);
+
+19 Nov 2015
+Meeting with Dr. Lee.
+
+1. He has a literature list, to which I am welcome to add. For the next meeting, read the Bounded POR and DPOR papers.
+2. Discussion about dealing with network traffic. I assert that the major use case for Node.js is as a server to fulfill network requests.  Consequently it's important to be able to handle this.  Probably not an open system (maintaining connections tricky), but can make a closed system (feed the same input). This requires that the client's input does not change based on the server's output. There are clearly cases where this is not true (e.g. two concurrent requests, one to delete a file and one to stat it, and the output will be either "no such file" and "stat values" -- the client will respond differently based on the server's decisions. So let's not discard an open system forever, but for now it's probably necessary to get something working.
+
+3. Proposed architecture:
+A. Fork preserves memory state
+B. Use file system checkpointing to roll back changes from one run to the next
+C. Record network inputs (connections, client data, etc.) and feed that into subsequent runs. Can record the loop number so that we can feed it at the appropriate spot. Modify the epoll mechanism to replay network input at the appropriate spot instead of looking for a live connection. Children close the parent's connections.
+
+4. Question: Node.js uses a lot of external modules. Are these pure JS? Do they interact with libuv? Do they run JS code in the thread pool "work" or just as "done" (e.g. database requests/callbacks)? (single-threaded vs. multi-threaded event driven)
+
+5. Plan to attend ASPLOS Apr. 2-6 '16 in Atlanta.

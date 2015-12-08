@@ -1,0 +1,289 @@
+Assertion
+  Cool, good for unit testing.
+  I like that this was the FIRST topic covered. Even though it's just alphabetical.
+Buffer
+  Looks painful. I hope I never have to use this.
+C/C++ Addons
+  Yikes. Note that callbacks can be handled by C/C++ code.
+Child Processes
+  fork, sending (including e.g. a server object?)
+  - Unclear how this works in the context of the event loop vs. just for Node.js-themed scripting?
+  - Asynchronous process creation: follows standard async programming patterns
+Cluster: 
+  Useful info:
+  "A single instance of Node.js runs in a single thread. To take advantage of 
+   multi-core systems the user will sometimes want to launch a cluster of Node.js
+   processes to handle the load."
+  "Cluster" process spawns multiple "worker" processes. 
+  Implemented on top of child_process.fork
+  Workers share any TCP connection for load-balancing: master receives new connections
+  and distributes round-robin to workers. Or workers can accept incoming connections directly.
+  No shared memory state between the workers.
+Console:
+  For stdout/stderr
+  synchronous when destination is a terminal or a file
+  asynchronous when a pipe
+
+  cool feature: pair calls to console.time(label), console.timeEnd(label)
+
+  No limited tracing facility w.r.t. verbosity and trace class, 
+    though there is a 'console.trace' which prefixes its output with "Trace :"
+  For a fancier tracing facility, use an object of class Console
+Crypto:
+  For crypto needs. Only two async functions (e.g. randomBytes for pseudo-random data).
+  Documentation indicates that these should never really take longer than a few
+  milliseconds -- could be an interesting thing to poke at.
+Debugger:
+  node debug X.js lets you run your program in debugger mode.
+  You can embed breakpoints with the statement 'debugger;' in your source.
+  Interface is similar to gdb
+DNS:
+  If you need to do DNS resolution.
+Domain:
+  Deprecated.
+Errors:
+  JavaScript supports try/catch/throw/finally, so errors can be caught.
+  This does not mean that this is always done correctly.
+  
+  Class Error:
+    - General error object. Includes stack trace and message.
+      Wraps both "system errors" and normal "JavaScript errors"
+    - Stack frames only extend to the beginning of *synchronous code execution*
+      (e.g. when executing an asynchronous callback, we don't track how we got there)
+
+  Various subclasses:
+    - RangeError: arg is not in set of acceptable values
+    - TypeError: arg is not an allowable type
+    - ReferenceError: trying to access an undefined variable
+    - SyntaxError: program is not valid JavaScript
+
+  All exceptions thrown by Node.js or the JS runtime *will* be instances
+    of Error.
+    
+  ------
+
+  System errors: operational errors to which the program must react
+    - like errno
+  In Node.js, system errors are represented as Error instances with
+    added members.
+    
+    - EPERM
+    - ENOENT
+    - EEXIST
+    ...
+
+  NB All Node.js APIs treat invalid arguments as exceptional and will
+  throw an error as an exception.
+  If using an asynchronous API, such errors must be handled by the 
+    "node style callback" passed to the API.
+  ** Do NOT try something like
+
+  try{
+      fs.readFile(no_such_file, function(err, data){
+          if (err) {
+            throw err;
+          }
+      });
+  } catch(err) {
+    console.log(err);
+  }
+
+  to handle errors thrown by asynchronous APIs. By the time the callback
+  is executed, the surrounding try/catch block is long gone.
+  This will usually crash the process instead!
+
+  ------
+
+  Now, there is another mechanism for providing errors: the "error" event.
+  Used by stream-based and event-emitter-based APIs that represent a SERIES of
+  asynchronous operations over time (not a one-shot pass/fail async operation).
+
+  If no "error" event handler is attached to the source, the error will be thrown.
+  This will crash the process unless
+    1. Domains (deprecated) are employed, or
+    2. process.on('uncaughtException') has a handler
+
+  To attach an event handler, try something like
+    var connection = net.connect('localhost');
+    connection.on('error', function(err) {
+        ...
+    });
+Events:
+  All objects that emit events are instances of events.EventEmitter
+  Functions (called listeners) can be attached to objects, to be executed
+    when the corresponding event is emitted.
+  Inside a listener, 'this' refers to the EventEmitter to which the listener
+    was attached.
+
+  When an EventEmitter experiences an error, typically it emits an 'error' event.
+    If no listener, the default action is to dump a stack trace and exit.
+
+  Multiple listeners can be registered for the same event.
+  Internally an EventEmitter maintains an array of listeners, and
+    evaluates them appropriately when an event is emitted.
+
+  - one-time listeners: emiter.once(event, listener)
+File System:
+  Simple wrappers around standard POSIX functions.
+  All methods have synchronous and asynchronous versions.
+  
+  This is the first module that I recall that explicitly states 
+    "With the asynchronous methods there is no guaranteed ordering."
+  with an example. I guess it's probably the first one where this kind of
+  thing can really happen and bite you.
+
+  To avoid asynchronous races, the correct solution when operations are
+  dependent is to chain the callbacks:
+
+  fs.COMMAND(args, function(err){ 
+    ...
+    fs.COMMAND2(args, function(err){
+      ...
+    });
+  });
+
+  **Scheduling constraint: If a callback is chained by another callback, then obviously
+    the first callback must precede the second callback.
+  **Scheduling constraint: When an EventEmitter emits an event, the listeners for
+    that event are scheduled in the order in which they were registered
+
+  Of course, this is not always a solution, since the dependent callback
+  will itself be executed asynchronously (making for some
+  difficult-to-detect race conditions).
+
+  If this is not feasible, you probably need to re-structure your program?
+
+  Programmer is strongly advised to use the asynchronous versions, as the
+  synchronous ones will (duh) block the entire process, halting ALL connections.
+
+  If no callback argument is provided, a default callback is used that just
+  rethrows errors.
+Globals:
+  Documents objects available in all modules:
+    - global: object
+    - process: object
+    - console: object
+    - Class: Buffer
+    - require()
+    __filename : string
+    __dirname : string
+    - module : object
+    Also, some TIMER functions:
+      - t = setTimeout(callback, ms) : run callback after at least X ms
+      - clearTimeout(t) : cancel this timer
+      - t = setInterval(callback, ms) : run callback every X ms
+      - clearInterval(t) : cancel this timer
+HTTP:
+  HTTP server and client code. Uses EventEmitter paradigm (duh).
+HTTPS:
+  Similar to HTTP
+Modules:
+  Node.js has a simple module system: files and modules are in one-to-one correspondence.
+  To add functions and objects to the root of your module, add them to the special 'exports' object.
+  Variables local to the module will be private.
+  To export a function (like a constructor), assign it to module.exports instead of exports. 
+  Cyclic module dependencies are allowed, but be careful.
+Net:
+  Moar network programming (local or TCP)
+OS:
+  OS-related utility functions
+Path:
+  Utilities for handling and transforming file paths in an OS-independent way.
+  Mostly just string games; no file system consultation.
+Process:
+  Global object, accessible from anywhere. Instance of EventEmitter.
+
+  Node.js will exit with status 0 when no more async operations are pending.
+  Other relevant exit statuses:
+    - uncaught fatal exception
+    - invalid argument
+    - signal exits
+  
+  Note that the uncaughtException handler is NOT a good "all-purpose" error catcher.
+  An unhandled exception means your application (and Node.js itself) is in an undefined state.
+  You can register POSIX signal handlers, a la process.on('SIGINT', function() { ... });
+    - SIGUSR1 is reserved for the debugger
+
+  Command-line args are in the array process.argv
+  process.execPath: absolute pathname of executable that started the process. Often the same as `which node`;
+  Environment variables: process.env (an object with key:value pairs)
+
+  Additional fun facts:
+    "It is very important for APIs to be either 100% synchronous or 100% asynchronous." 
+    process.nextTick(callback[, arg, ...]) : Once the current event loop runs to completion, call this callback function
+Punycode:
+  Just bizarre. Not sure what these are fore.
+Query Strings:
+  Utilities for dealing with "query strings". Use to massage arguments in URIs.
+Readline:
+  Read a stream on a line-by-line basis.
+  Useful for interactive programs or for file munching.
+REPL:
+  REPL: Read-Eval-Print Loop
+  For a node CLI, I guess. Probably irrelevant.
+Stream:
+  Abstract interface. All Streams are EventEmitters.
+  HTTPServer requests, stduot, etc. are Streams.
+  Readable, writable, or both.
+
+  stream.Readable: interface for a data source. 
+  Flowing mode: data is provided to your program as fast as possible
+  Paused mode: yuo must call stream.read() to get chunks of data out.
+
+  Default is paused mode.
+  To switch to flowing mode, try one of:
+    1. add a 'data' event handler
+    2. call the resume() method
+    3. call the pipe method and send it into a Writable 
+  To switch to paused mode, do one of:
+    1. pause()
+    2. remove 'data' event handlers and remove all pipe destination(s)
+
+  stream.Writable: interface for a data destination, with some analogous and some unique events and methods.
+String Decoder:
+  Decodes a buffer to a string. Teeny.
+Timers:
+  Cool functions:
+    T = setTimeout: one-time callback after X milliseconds
+    clearTimeout(T): nevermind
+    I = setInterval: schedule repeated execution of callback every X milliseconds
+    clearInterval(I): nevermind
+    {I|T}.unref(): an active timer, but if it's the only item left in the event loop then the program will end
+    {I|T}.ref(): nevermind
+    IM = setImmediate: "immediate" execution of callback after I/O events callbacks, BEFORE setTimeout and setInterval
+    clearImmediate(IM): nevermind
+
+    **Scheduling constraint: Callbacks for immediates are queued in the order in which they were created. 
+    **Scheduling constraint: The entire callback queue is processed every event loop iteration.
+      - so no delaying these
+    **Scheduling constraint: Callbacks for immediates are queued in the order in which they were created
+      - so no re-ordering these
+TLS/SSL:
+  Blah blah security.
+TTY:
+  Generally, this module is just used under the hood by other modules.
+UDP/Datagram:
+  For your UDP needs. Networking stuff.
+URL:
+  URL manipulation.
+Utilities:
+  Primarily used to support Node.js's internal APIs.
+  Might be useful for your own programs.
+
+  util.format: like printf
+  util.log: output with timestamp on stdout
+  util.inspect(object[, options]): return a string representation. Can be colorized!
+
+  Lots of deprecated util.is* functions.
+V8:
+  Events and interfaces specific to the version of V8 built with Node.js.
+  Lets you set additional V8 command-line flags. Irrelevant.
+VM:
+  vm.runInThisContext(code[,options]): compile, run, and return the result of some code.
+
+  Class Script: class for holding precompiled scripts and running them in specific sandboxes (or ThisContext)
+    - the running code does NOT have access to local scope, but DOES have access to the current global object (e.g. a hypothetical global.globalVar)
+    > This will NOT run synchronously; the script can modify global variables and register callbacks like setTimeout that basically "show up" in the sandbox in which it runs. 
+      See vm.js in this dir for an example.
+Zlib:
+  For your Gzip/Gunzip and Deflate/Inflate needs.

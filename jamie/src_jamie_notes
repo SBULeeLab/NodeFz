@@ -1,0 +1,208 @@
+Notes on ...../node/src
+ - node code lives in node/src
+ - 45KLOC
+
+node_main.cc::main() -> node.cc::Start -> StartNodeInstance 
+
+StartNodeInstance contains:
+
+Environment* env = CreateEnvironment(isolate, context, instance_data);
+...
+LoadEnvironment(env);
+...
+
+  bool more;
+  do { 
+    v8::platform::PumpMessageLoop(default_platform, isolate);
+    more = uv_run(env->event_loop(), UV_RUN_ONCE);
+
+    if (more == false) {
+      v8::platform::PumpMessageLoop(default_platform, isolate);
+      EmitBeforeExit(env);
+
+      // Emit `beforeExit` if the loop became alive either after emitting
+      // event, or after running some callbacks.
+      more = uv_loop_alive(env->event_loop());
+      if (uv_run(env->event_loop(), UV_RUN_NOWAIT) != 0)
+        more = true;
+    }    
+  } while (more == true);
+
+------------
+
+So we see that StartNodeInstance calls 'more = uv_run' until more is false.
+Does libuv then deal with *everything*? Or are there other routes into node
+  that don't go into libuv and are handled directly?
+
+Anyway, it looks like investigating libuv (specifically uv_run) might be more fruitful. 
+I think the mental image of Node as "syntax sugar" might be a good one.
+
+-------------------
+
+16 Nov 2015
+
+Question: How are fs.X and fs.XSync implemented?
+Answer: X is routed into libuv's thread pool work queue for asynchronous handling. XSync () is routed into libuv where it is called synchronously in uv__fs_work. The result is passed back up.
+Relevant code:
+
+We examine stat and statSync, though the implementation looks the same
+for all such functions throughout Node.js's JS and C components as well as libuv.
+
+First let's look in lib/fs.js, where we find two versions of every function:
+
+Asynchronous:
+  fs.stat = function(path, callback) {
+    callback = makeCallback(callback);
+    if (!nullCheck(path, callback)) return;
+    var req = new FSReqWrap();
+    req.oncomplete = callback;
+    binding.stat(pathModule._makeLong(path), req);
+  };
+
+Synchronous:
+  fs.statSync = function(path) {
+    nullCheck(path);
+    return binding.stat(pathModule._makeLong(path));
+  };
+
+The async version creates and passes a "req" object that registers the callback to be called when oncomplete is set. JD: Note that callback might be null, but we still pass *some* callback down to libuv, yes? Might be a null pointer though, and get ignored.
+The sync version does not create a "req" object, instead returning the result directly.
+
+Next we examine src/node_file.cc, which appears to correspond to the "binding" referenced in the fs.stat definitions.
+
+Here we have one Stat function:
+  static void Stat(const FunctionCallbackInfo<Value>& args) {
+    Environment* env = Environment::GetCurrent(args);
+
+    if (args.Length() < 1) 
+      return TYPE_ERROR("path required");
+    if (!args[0]->IsString())
+      return TYPE_ERROR("path must be a string");
+
+    node::Utf8Value path(env->isolate(), args[0]);
+
+    if (args[1]->IsObject()) {
+      ASYNC_CALL(stat, args[1], *path)
+    } else {
+      SYNC_CALL(stat, *path, *path)
+      args.GetReturnValue().Set(
+          BuildStatsObject(env, static_cast<const uv_stat_t*>(SYNC_REQ.ptr)));
+    }
+  }
+
+If there is an object in the args (i.e. a req object), we call ASYNC_CALL, otherwise we call SYNC_CALL.
+
+ASYNC_CALL and SYNC_CALL are macros that call ASYNC_DEST_CALL and SYNC_DEST_CALL. These macros are defined as follows, also in src/node_file.cc:
+  #define ASYNC_DEST_CALL(func, req, dest, ...)                                 \
+    Environment* env = Environment::GetCurrent(args);                           \
+    CHECK(req->IsObject());                                                     \
+    FSReqWrap* req_wrap = FSReqWrap::New(env, req.As<Object>(), #func, dest);   \
+    int err = uv_fs_ ## func(env->event_loop(),                                 \
+                             &req_wrap->req_,                                   \
+                             __VA_ARGS__,                                       \
+                             After);                                            \
+    req_wrap->Dispatched();                                                     \
+    if (err < 0) {                                                              \
+      uv_fs_t* uv_req = &req_wrap->req_;                                        \
+      uv_req->result = err;                                                     \
+      uv_req->path = nullptr;                                                   \
+      After(uv_req);                                                            \
+    }                                                                           \
+    args.GetReturnValue().Set(req_wrap->persistent());
+
+  #define ASYNC_CALL(func, req, ...)                                            \
+    ASYNC_DEST_CALL(func, req, nullptr, __VA_ARGS__)                            \
+
+  #define SYNC_DEST_CALL(func, path, dest, ...)                                 \
+    fs_req_wrap req_wrap;                                                       \
+    env->PrintSyncTrace();                                                      \
+    int err = uv_fs_ ## func(env->event_loop(),                                 \
+                           &req_wrap.req,                                       \
+                           __VA_ARGS__,                                         \
+                           nullptr);                                            \
+    if (err < 0) {                                                              \
+      return env->ThrowUVException(err, #func, nullptr, path, dest);            \
+    }                                                                           \
+
+  #define SYNC_CALL(func, path, ...)                                            \
+    SYNC_DEST_CALL(func, path, nullptr, __VA_ARGS__)                            \
+
+So we see ourselves calling uv_fs_<func> (where func is a syscall like stat, close, access, fdatasync, ...) with the env->event_loop () and either the After callback (async) or nullptr (sync).
+
+Looking at libuv now, src/unix/fs.c defines uv_fs_<func> functions for each.
+uv_fs_stat is defined as:
+
+  int uv_fs_stat(uv_loop_t* loop, uv_fs_t* req, const char* path, uv_fs_cb cb) {
+    INIT(STAT);
+    PATH;
+    POST;
+  }
+
+These macros are:
+  #define INIT(subtype)                                                         \
+    do {                                                                        \
+      req->type = UV_FS;                                                        \
+      if (cb != NULL)                                                           \
+        uv__req_init(loop, req, UV_FS);                                         \
+      req->fs_type = UV_FS_ ## subtype;                                         \
+      req->result = 0;                                                          \
+      req->ptr = NULL;                                                          \
+      req->loop = loop;                                                         \
+      req->path = NULL;                                                         \
+      req->new_path = NULL;                                                     \
+      req->cb = cb;                                                             \
+    }                                                                           \
+    while (0)
+  
+  #define PATH                                                                  \
+    do {                                                                        \
+      assert(path != NULL);                                                     \
+      if (cb == NULL) {                                                         \
+        req->path = path;                                                       \
+      } else {                                                                  \
+        req->path = uv__strdup(path);                                           \
+        if (req->path == NULL)                                                  \
+          return -ENOMEM;                                                       \
+      }                                                                         \
+    }                                                                           \
+    while (0)
+...
+#define POST                                                                  \
+  do {                                                                        \
+    if (cb != NULL) {                                                         \
+      uv__work_submit(loop, &req->work_req, uv__fs_work, uv__fs_done);        \
+      return 0;                                                               \
+    }                                                                         \
+    else {                                                                    \
+      uv__fs_work(&req->work_req);                                            \
+      mylog ("POST: result %i\n", req->result);                              \
+      return req->result;                                                     \
+    }                                                                         \
+  }                                                                           \
+  while (0)
+
+The key here is POST, which either calls uv__work_submit (when a cb is defined; async request) or uv__fs_work (sync).
+
+uv__work_submit is defined in libuv's src/threadpool.c:
+  void uv__work_submit(uv_loop_t* loop,
+                       struct uv__work* w,
+                       void (*work)(struct uv__work* w),
+                       void (*done)(struct uv__work* w, int status)) {
+    uv_once(&once, init_once);
+    w->loop = loop;
+    w->work = work;
+    w->done = done;
+    post(&w->wq);
+  }
+
+  post is also defined in src/threadpool.c, and places the item on the associated wq. This is presumably always the thread pool's work queue:
+    static void post(QUEUE* q) {
+      uv_mutex_lock(&mutex);
+      QUEUE_INSERT_TAIL(&wq, q);
+      if (idle_threads > 0)
+        uv_cond_signal(&cond);
+      uv_mutex_unlock(&mutex);
+    }
+
+uv__fs_work, on the other hand, is found in libuv's src/unix/fs.c. It calls the requested syscall directly
+and places the result in req->result.

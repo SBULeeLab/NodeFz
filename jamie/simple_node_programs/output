@@ -1,0 +1,95 @@
+I went into src/threadpool.c and added printfs to 
+ work
+  > this actually performs a work item
+    calls w->work
+ uv__work_done
+  > invokes the 'done' callback on a completed work item
+    calls w->done
+
+ include/uv-threadpool.h defines the uv__work item, with
+ the work and done fields defined as:
+
+   void (*work)(struct uv__work *w);
+   void (*done)(struct uv__work *w, int status);
+
+FORWARD ORDER
+1
+stat hello 0x1897380
+stat world 0x1897aa0
+rename 0x1896a40
+
+2
+stat hello 0x19cb380
+rename 0x19caa40
+stat world 0x19cbaa0
+
+3
+stat hello 0x1539380
+stat world 0x1539aa0
+rename 0x1538a40
+
+4
+stat hello
+rename
+stat world
+
+5
+stat hello
+stat world
+rename
+
+6
+stat hello
+stat world
+rename
+
+7
+stat hello
+stat world
+rename
+
+8
+stat hello
+stat world
+rename
+
+REVERSED ORDER
+1
+rename 0x13c8848
+stat world 0x1663aa0
+stat hello 0x1663380
+
+2
+rename 0x2873a40
+stat world 0x2874aa0
+stat hello 0x2874380
+
+3
+rename
+stat world
+stat hello
+
+4
+rename
+stat world
+stat hello
+
+5
+stat world
+rename
+stat hello
+
+------------------
+
+Conclusion:
+  The order in which callbacks enter the queue in uv__work_done
+    depends on the order in which the underlying FS operations complete.
+  Once they reach the queue, we can re-order them, as demonstrated.
+    However it's the thread pool ordering that determines the order 
+    in which they reach the queue.
+    I haven't yet identified a way to determine which callback is which
+    across runs (i.e. which one is 'stat' vs 'rename' in run X?).
+    This would allow me to re-order function and callback invocations.
+    
+    To do that, I think I need to know how 'work' and 'done' get set
+    for each `struct uv__work'.

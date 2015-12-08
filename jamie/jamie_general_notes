@@ -1,0 +1,144 @@
+Jamie Davis
+Node.js resources (in addition to those in the project proposal bibliography)
+
+It would be good to trim these down into a few solid resources and add entries
+for them in the project bibliography for Milestone 1.
+
+These are readings, organized roughly in order of increasing technicality.
+Starting at "motivation", moving to Node.js, and heading down
+into libuv
+
+--------------
+
+- Motivation: Event-loop-style performance on a web server
+  http://blog.webfaction.com/2008/12/a-little-holiday-present-10000-reqssec-with-nginx-2/
+
+Node.js summaries:
+  Node.js:
+  https://www.youtube.com/watch?v=ztspvPYybIY
+    - Watched it, 2 Oct 2015. Original Node.js talk from Ryan Dahl. Some useful stuff as background info.
+  nodejs.org
+    - Interestingly, this just describes APIs. Not even much in the way of the classic "under the hood" control flow diagram.
+    See http://stackoverflow.com/questions/2353818/how-do-i-get-started-with-node-js for a great collection of resources
+
+  Miscellaneous other resources:
+    http://blog.zenika.com/index.php?post/2011/04/10/NodeJS
+
+    https://nodesource.com/blog/ is a good resource for many things Node.js, including
+      https://nodesource.com/blog/understanding-the-nodejs-event-loop
+    http://blog.mixu.net/2011/02/01/understanding-the-node-js-event-loop/
+
+    http://www.journaldev.com/7462/node-js-processing-model-single-threaded-model-with-event-loop-architectur
+      Has a detailed diagram on Node.js architecture, though the color scheme sucks.
+    http://stackoverflow.com/questions/22644328/when-is-the-thread-pool-used
+
+    http://stackoverflow.com/questions/25568613/node-js-event-loop
+      Answer has recommendations about Control Flow (raw callbacks, async, Promises (bluebird))
+
+  Advice about handling CPU-heavy workloads: Don't!
+    http://stackoverflow.com/questions/3491811/node-js-and-cpu-intensive-requests
+
+--------------
+
+Visualization?
+  - https://www.youtube.com/watch?v=8aGhZQkoFbQ : Philip Roberts: What the heck is the event loop anyway? | JSConf EU 2014
+      https://github.com/latentflip/loupe : web browsers
+      https://github.com/chaijs/loupe : web browsers and Node.js both? Is this a fork of Loupe?
+
+--------------
+
+Some ideas related to varying callback execution order by mocking the backend
+  http://howtonode.org/testing-private-state-and-mocking-deps
+  http://howtonode.org/make-your-tests-deterministic
+    ** The code here is wrong but the bug is not caught by unit tests (because
+        it's a semantics issue rather than an explicit fault).
+       It would be great if we had some way to address this.
+       For example, if the input program is itself a (paranoid) unit test rather than production code,
+       then by running it through all (or most) executions we would see failures manifest themselves.
+
+       The solution (node-mocks module, see specifically https://github.com/vojtajina/node-mocks/blob/master/lib/util.js :: predictableNextTick)
+        puts mock objects into the Node.js space, and feeds the user-provided callback to predictableNextTick when the event is simulated as occurring. 
+        It does NOT go below the Node.js layer, so the solution is not good enough for our needs. But it's a nice example of an existing solution approach.
+
+--------------
+
+Article on the interaction between Node.js and libuv:
+http://www.future-processing.pl/blog/on-problems-with-threads-in-node-js/
+  Specifically covers the implications of the thread pool (and its default size of 4).
+  Emphasizes (particularly in the comments) that only some types of IO use the thread pool.
+  The asynchronous operations that make use of the thread pool are generally:
+    - FS operations
+    - user code
+  Includes a ``Simplified diagram of execution flow for a function using the thread pool'', a useful
+  and readable diagram.
+
+--------------
+
+--------------
+
+Non-exhaustive list of Node.js-using companies and github projects:
+  https://github.com/nodejs/node-v0.x-archive/wiki/Projects,-Applications,-and-Companies-Using-Node
+  http://venturebeat.com/2014/08/20/5-node-projects-you-should-know-about-2/
+
+  Potential projects for testing whatever I develop:
+    https://github.com/cmpolis/Apples-and-Oranges (has a setTimeout(1000) to wait for libraries to load...)
+    https://github.com/node-red/node-red
+    https://github.com/krakenjs/kraken-js
+    https://github.com/dalssoft/memcached.js
+    https://github.com/orlandov/azathoth
+
+--------------
+
+Book on libuv architecture and use:
+  http://nikhilm.github.io/uvbook/
+
+  From http://docs.libuv.org/en/v1.x/design.html:
+    libuv uses a thread pool to make asynchronous file I/O operations possible, but network I/O is always performed in a single thread, each loop’s thread. 
+  From http://nikhilm.github.io/uvbook/basics.html#event-loops:
+    node.js uses the default loop as its main loop. If you are writing bindings you should be aware of this.
+
+  This probably doesn't affect the scheduling of the callbacks after the event occurs, though?
+  This means that multiple file I/O operations can be active concurrently (up to the size of the thread pool),
+    but at most one network I/O operation can be active at once and is done by the "main thread".
+
+  Looking up various API calls in the Node.js node/src, it looks like Node.js packs up requests and callbacks and
+    ships them all to libuv. This means that by putting our own hooks into libuv, we can make Node.js dance.
+    Presumably any external Node.js modules all end up using libuv too (no guarantee on this though).
+    
+  Next up: determine where to put said hooks in libuv. Ideally we would be able to control both
+    - the order of execution of threads in the thread pool
+    - the order of execution of the callbacks that take place after the threads finish
+
+  Users of libuv:
+    https://github.com/libuv/libuv/wiki/Projects-that-use-libuv
+
+  Some libuv videos
+    https://www.youtube.com/watch?v=-jprnUPsbug
+    https://www.youtube.com/watch?v=cLL28s6yb1I
+    https://www.youtube.com/watch?v=jsiqvXi3qSA
+
+-------
+
+node includes a copy of libuv (node/deps/uv). If we just make that a symlink to our clone of libuv 
+(or modify that version instead, no major changes should have occurred...), should be good to go.
+  > presumably node gets linked to libuv "somewhere", so can I supply my own doctored libuv
+    wherever that is?
+    TODO
+
+--------------
+
+Some disagreement about the usefulness of Node:
+  https://www.semitwist.com/mirror/node-js-is-cancer.html 
+  (however, this hasn't stopped a wide variety of users from, y'know, using it)
+  > Some responses from the community:
+    https://news.ycombinator.com/item?id=3064932
+    https://groups.google.com/forum/#!topic/nodejs/-txO_D5Lq-g[1-25]
+    https://www.reddit.com/comments/kz199
+    https://www.reddit.com/r/programming/comments/ky6uc/nodejs_is_cancer/
+
+Review "Concurrency testing using schedule bounding: an empirical study"
+for references to Node.js/JavaScript/asynchronous-style testing
+  - Done, no such references
+
+What are Promises?
+  - Done, I made physical notes on 2 Oct 2015.

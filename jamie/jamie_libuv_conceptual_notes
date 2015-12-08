@@ -1,0 +1,6 @@
+Thread pool: Used to emulate asynchronous operations in cases
+where no asynchronous operation is available -- the async thread
+does the synchronous op and then calls the callback.
+  https://github.com/joyent/libuv/issues/1578
+
+Change threadpool size with env variable UV_THREADPOOL_SIZE
