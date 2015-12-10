@@ -1,43 +1,76 @@
 #include "list.h"
 
+#include <assert.h>
+#include <stddef.h> /* NULL */
+#include <stdlib.h> /* malloc */
+
 /* Initialize HEAD and TAIL to be members of an empty list. */
 void list_init (struct list *list)
 {
-  ASSERT (list != NULL);
+  assert(list != NULL);
 
   //mylog ("list_init: Initializing list %p (done_list %p)\n", list, &done_list);
   list->magic = LIST_MAGIC;
-  list->head.elem = NULL;
   list->head.next = &list->tail;
   list->head.prev = NULL;
 
-  list->tail.elem = NULL;
   list->tail.next = NULL;
   list->tail.prev = &list->head;
 }
 
+/* Insert NEW just before NEXT. */
+void list_insert (struct list_elem *new_elem, struct list_elem *next)
+{
+  assert(new_elem != NULL);
+  assert(next != NULL);
+
+  next->prev->next = new_elem;
+
+  new_elem->prev = next->prev;
+  new_elem->next = next;
+
+  next->prev = new_elem;
+}
+
+/* Remove ELEM from its current list. */
+struct list_elem * list_remove (struct list_elem *elem)
+{
+  assert(elem != NULL);
+
+  struct list_elem *pred = elem->prev;
+  struct list_elem *succ = elem->next;
+
+  pred->next = succ;
+  succ->prev = pred;
+  return elem;
+}
+
 /* Put ELEM at the end of the list. ELEM must not be NULL.
    Not thread safe. */
-void list_push_back (struct list *list, void *elem)
+void list_push_back (struct list *list, struct list_elem *elem)
 {
-  struct list_elem *node;
+  assert(list != NULL);
+  assert(list_looks_valid (list));
+  assert(elem != NULL);
 
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  list_insert (elem, list_tail (list));
+}
 
-  ASSERT (elem != NULL);
+/* Put ELEM at the front of the list. ELEM must not be NULL.
+   Not thread safe. */
+void list_push_front (struct list *list, struct list_elem *elem)
+{
+  assert(list != NULL);
+  assert(list_looks_valid (list));
+  assert(elem != NULL);
 
-  node = (struct list_elem *) malloc (sizeof(struct list_elem));
-  ASSERT (node != NULL);
+  list_insert (elem, list_begin (list));
+}
 
-  /* Prepare the node. */
-  node->elem = elem;
-  node->next = &list->tail;
-  node->prev = list->tail.prev;
-
-  /* Insert into list. */
-  list->tail.prev->next = node;
-  list->tail.prev = node;
+/* Return the element after ELEM. */
+struct list_elem * list_next (struct list_elem *elem)
+{
+  return elem->next;
 }
 
 /* Return the list_elem at the front of LIST.
@@ -48,8 +81,8 @@ struct list_elem * list_front (struct list *list)
 {
   struct list_elem *node;
 
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   node = list->head.next;
   if (node == &list->tail)
@@ -65,63 +98,36 @@ struct list_elem * list_back (struct list *list)
 {
   struct list_elem *node;
 
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
-  node = list->tail.prev;
-  if (node == &list->head)
+  if (list_empty (list))
     return NULL;
-  return node;
+  return list->tail.prev;
 }
 
 /* Return the element at the front of the queue, or NULL if empty. 
    Not thread safe. */
-void * list_pop_front (struct list *list)
+struct list_elem * list_pop_front (struct list *list)
 {
-  struct list_elem *node;
-  void *elem;
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
-
-  if (list->head.next == &list->tail)
+  if (list_empty (list))
     return NULL;
-
-  /* Get the node after list->head. */
-  node = list->head.next;
-
-  /* Fix up the list. */
-  list->head.next = node->next;
-  list->head.next->prev = &list->head;
-
-  elem = node->elem;
-  free (node);
-  return elem;
+  return list_remove (list_front (list));
 }
 
 /* Return the element at the back of the queue, or NULL if empty. 
    Not thread safe. */
-void * list_pop_back (struct list *list)
+struct list_elem * list_pop_back (struct list *list)
 {
-  struct list_elem *node;
-  void *elem;
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
-
-  if (list->head.next == &list->tail)
+  if (list_empty (list))
     return NULL;
-
-  /* Get the node before list->tail. */
-  node = list->tail.prev;
-
-  /* Remove node from the list. */
-  list->tail.prev = node->prev;
-  list->tail.prev->next = &list->tail;
-
-  elem = node->elem;
-  free (node);
-  return elem;
+  return list_remove (list_back (list));
 }
 
 /* Return the first SPLIT_SIZE elements of LIST in their own dynamically-allocated list.
@@ -130,18 +136,18 @@ void * list_pop_back (struct list *list)
 struct list * list_split (struct list *list, int split_size)
 {
   int i;
-  void *elem;
-  struct list *front_list;
+  struct list_elem *elem = NULL;
+  struct list *front_list = NULL;
   int orig_size;
 
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   orig_size = list_size (list);
-  ASSERT (split_size <= orig_size);
+  assert(split_size <= orig_size);
 
   front_list = (struct list *) malloc (sizeof (struct list));
-  ASSERT (front_list != NULL);
+  assert(front_list != NULL);
   list_init (front_list);
 
   for (i = 0; i < split_size; i++)
@@ -150,8 +156,8 @@ struct list * list_split (struct list *list, int split_size)
     list_push_back (front_list, elem);
   }
 
-  ASSERT (list_size (front_list) == split_size);
-  ASSERT (list_size (front_list) + list_size (list) == orig_size);
+  assert(list_size (front_list) == split_size);
+  assert(list_size (front_list) + list_size (list) == orig_size);
 
   return front_list;
 }
@@ -160,8 +166,8 @@ struct list * list_split (struct list *list, int split_size)
   In an empty list, returns the tail. */
 struct list_elem * list_begin (struct list *list)
 {
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   return list->head.next;
 }
@@ -169,8 +175,8 @@ struct list_elem * list_begin (struct list *list)
 /* Returns the tail (one past the final element). */
 struct list_elem * list_end (struct list *list)
 {
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   return list_tail (list);
 }
@@ -178,8 +184,8 @@ struct list_elem * list_end (struct list *list)
 /* Returns the head of the list. */
 struct list_elem * list_head (struct list *list)
 {
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   return &list->head;
 }
@@ -187,8 +193,8 @@ struct list_elem * list_head (struct list *list)
 /* Returns the tail of the list. */
 struct list_elem * list_tail (struct list *list)
 {
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   return &list->tail;
 }
@@ -199,8 +205,8 @@ int list_size (struct list *list)
   int size = 0;
   struct list_elem *n;
 
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   for (n = list_begin (list); n != list_end (list); n = n->next)
     size++;
@@ -210,8 +216,8 @@ int list_size (struct list *list)
 /* Return 1 if empty, 0 else. */
 int list_empty (struct list *list)
 {
-  ASSERT (list != NULL);
-  ASSERT (list_looks_valid (list));
+  assert(list != NULL);
+  assert(list_looks_valid (list));
 
   return (list->head.next == &list->tail);
 }
@@ -221,7 +227,7 @@ int list_looks_valid (struct list *list)
 {
   int is_valid; 
 
-  ASSERT (list != NULL);
+  assert(list != NULL);
 
   is_valid = 1;
   /* Magic must be correct. */

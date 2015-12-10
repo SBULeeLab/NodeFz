@@ -51,6 +51,7 @@
         'common.gypi',
         'include/uv.h',
         'include/tree.h',
+        'src/list.c',
         'include/uv-errno.h',
         'include/uv-threadpool.h',
         'include/uv-version.h',

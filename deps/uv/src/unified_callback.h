@@ -1,6 +1,8 @@
 #ifndef UV_UNIFIED_CALLBACK_H_
 #define UV_UNIFIED_CALLBACK_H_
 
+#include "list.h"
+
 /* Unified callback queue. */
 #define UNIFIED_CALLBACK 1
 
@@ -108,25 +110,20 @@ struct callback_node
   struct callback_info *info; /* Description of this callback. */
   int level; /* What level in the callback tree is it? For root nodes this is 0. */
   struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
+  int active; /* 1 if callback active, 0 if finished. */
 
-  /* If root, this is the next root. 
-     TODO If not root, this is the next child node? */
-  struct callback_node *next; 
-  /* TODO If node is a child, NEXT points to the next child in the parent's CHILDREN list. */
-  struct callback_node *children; /* Linked list of children. */
-};
-
-/* Nodes that comprise the list of callback trees. */
-struct callback_root_node
-{
-  /* Root of this tree. */
-  struct callback_node *info;
-  /* Next element. */
-  struct callback_root_node *next;
+  struct list children; /* Linked list of children. */
+  
+  struct list_elem global_order_elem; /* For inclusion in the global callback order. */
+  struct list_elem child_elem; /* For inclusion in parent's list of children. */
+  struct list_elem root_elem; /* For root nodes: inclusion in list of root nodes. */
 };
 
 void current_callback_node_set (struct callback_node *);
 struct callback_node * current_callback_node_get (void);
 void invoke_callback (struct callback_info *);
+
+void dump_callback_global_order (void);
+void dump_callback_trees (int squash_timers);
 
 #endif /* UV_UNIFIED_CALLBACK_H_ */

@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "uv-common.h"
+#include "list.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -655,14 +656,18 @@ void mylog (const char *format, ...)
   now = time (NULL);
   now_s = ctime (&now);
   now_s [strlen (now_s) - 1] = '\0'; /* Remove the trailing newline. */
+#if 0
   generation = get_generation ();
-
   indents[0] = '\0';
   for (i = 0; i < generation; i++)
     strncat (indents, "  ", 512);
 
   my_pid = getpid ();
   printf ("%s %s gen %i process %i: ", indents, now_s, generation, my_pid);
+#else
+  my_pid = getpid ();
+  printf ("%s process %i: ", now_s, my_pid);
+#endif
 
   va_start(args, format);
   vprintf(format, args);
@@ -672,10 +677,15 @@ void mylog (const char *format, ...)
 }
 
 /* Unified callback queue. */
+static struct list root_list;
+static struct list global_order_list;
+
 static struct callback_node *current_callback_node = NULL;
 void current_callback_node_set (struct callback_node *cbn)
 {
   current_callback_node = cbn;
+  if (cbn == NULL)
+    mylog ("current_callback_node_set: Next callback will be a root\n");
 }
 
 struct callback_node *current_callback_node_get (void)
@@ -685,13 +695,19 @@ struct callback_node *current_callback_node_get (void)
 
 void invoke_callback (struct callback_info *cbi)
 {
+  struct callback_node *orig_cbn, *new_cbn;
+
   assert (cbi != NULL);  
 
-  struct callback_node *orig_cbn = current_callback_node_get();
-  struct callback_node *new_cbn = malloc (sizeof *new_cbn);
+  /* Potentially racey but very unlikely. */
+  if (!list_looks_valid (&global_order_list))
+    list_init (&global_order_list);
+  
+  orig_cbn = current_callback_node_get();
+  new_cbn = malloc (sizeof *new_cbn);
   assert (new_cbn != NULL);
   new_cbn->info = cbi;
-  if (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE) /* TODO Is this ever true? */
+  if (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE)
   {
     orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
     new_cbn->level = orig_cbn->level + 1;
@@ -713,15 +729,40 @@ void invoke_callback (struct callback_info *cbi)
     new_cbn->level = 0;
     new_cbn->parent = NULL;
   }
-  new_cbn->children = NULL;
-  new_cbn->next = NULL;
+  new_cbn->active = 1;
+  list_init (&new_cbn->children);
 
-  mylog ("invoke_callback: cbi %p type %s cb %p level %i parent %p\n",
-    (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
+  if (new_cbn->parent)
+    /* TODO Can race if being added by a UV__WORK_WORK item. */
+    list_push_back (&new_cbn->parent->children, &new_cbn->child_elem); 
+  else
+  {
+    /* TODO Can race if being added by a UV__WORK_WORK item. */
+    if (!list_looks_valid (&root_list))
+      list_init (&root_list);
+    list_push_back (&root_list, &new_cbn->root_elem); 
+  }
+
+  /* TODO Can race. */
+  list_push_back (&global_order_list, &new_cbn->global_order_elem);
+
+  if (new_cbn->parent && new_cbn->parent->info->type == UV__WORK_WORK)
+    mylog ("invoke_callback: Child of a UV__WORK_WORK item\n");
+  if (!new_cbn->parent && cbi->type == UV__WORK_WORK)
+    mylog ("invoke_callback: root node is a UV__WORK_WORK item??\n");
+
+  mylog ("invoke_callback: invoking callback_node %p cbi %p type %s cb %p level %i parent %p\n",
+    new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
   assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
        || (0 < new_cbn->level && new_cbn->parent != NULL));
 
+#if 1
   current_callback_node_set (new_cbn);
+#else
+  /* TODO If UV__WORK_WORK, can be called in parallel. Matching problem. Bad news bears. Perhaps track per-tid current_callback_node? */
+  if (cbi->type != UV__WORK_WORK)
+    current_callback_node_set (new_cbn);
+#endif
   switch (cbi->type)
   {
     /* include/uv.h */
@@ -747,7 +788,7 @@ void invoke_callback (struct callback_info *cbi)
       cbi->cb ((uv_handle_t *) cbi->args[0]);
       break;
     case UV_POLL_CB:
-      cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1]);
+      cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1], (int) cbi->args[2]);
       break;
     case UV_TIMER_CB:
       cbi->cb ((uv_timer_t *) cbi->args[0]);
@@ -823,7 +864,22 @@ void invoke_callback (struct callback_info *cbi)
       mylog ("invoke_callback: ERROR, unsupported type\n");
       assert (0 == 1);
   }
+
+#if 1
   current_callback_node_set (orig_cbn);
+#else
+  if (cbi->type != UV__WORK_WORK)
+    current_callback_node_set (orig_cbn);
+#endif
+
+  mylog ("invoke_callback: Done with callback_node %p cbi %p\n",
+    new_cbn, new_cbn->info); 
+  new_cbn->active = 0;
+
+  /* DEBUGGING */
+  dump_callback_global_order ();
+  dump_callback_trees (0);
+  printf ("\n\n\n\n\n");
 }
 
 static char *callback_type_strings[] = {
@@ -846,4 +902,59 @@ char *callback_type_to_string (enum callback_type type)
 {
   assert (CALLBACK_TYPE_MIN <= type && type < CALLBACK_TYPE_MAX);
   return callback_type_strings[type];
+}
+
+/* Prints callback node CBN using printf. */
+static void dump_callback_node (struct callback_node *cbn, char *prefix)
+{
+  assert (cbn != NULL);
+  printf ("%s cbn %p info %p type %s level %i parent %p active %i n_children %i\n", 
+    prefix, cbn, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->active, list_size (&cbn->children));
+}
+
+/* Dumps all callbacks in the order in which they were called. */
+void dump_callback_global_order (void)
+{
+  struct list_elem *e;
+  int cbn_num;
+  char prefix[64];
+
+  printf ("Dumping all %i callbacks we have invoked, in order\n", list_size (&global_order_list));
+  cbn_num = 0;
+  for (e = list_begin (&global_order_list); e != list_end (&global_order_list); e = list_next (e))
+  {
+    struct callback_node *cbn = list_entry (e, struct callback_node, global_order_elem);
+    snprintf (prefix, 64, "Callback %i: ", cbn_num);
+    dump_callback_node (cbn, prefix);
+    cbn_num++;
+  }
+  fflush (NULL);
+}
+
+static void dump_callback_tree (struct callback_node *cbn)
+{
+  struct list_elem *e;
+  assert (cbn != NULL);
+
+  dump_callback_node (cbn, "");
+  for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
+    dump_callback_tree (list_entry (e, struct callback_node, child_elem));
+}
+
+/* Dumps each callback tree. */
+void dump_callback_trees (int squash_timers)
+{
+  struct list_elem *e;
+  int tree_num;
+
+  printf ("Dumping all %i callback trees\n", list_size (&root_list));
+
+  tree_num = 0;
+  for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
+  {
+    printf ("Tree %i:\n", tree_num);
+    dump_callback_tree (list_entry (e, struct callback_node, root_elem));
+    ++tree_num;
+  }
+  fflush (NULL);
 }
