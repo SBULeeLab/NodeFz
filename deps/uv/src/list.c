@@ -16,6 +16,8 @@ void list_init (struct list *list)
 
   list->tail.next = NULL;
   list->tail.prev = &list->head;
+
+  pthread_mutex_init (&list->lock, NULL);
 }
 
 /* Insert NEW just before NEXT. */
@@ -240,4 +242,16 @@ int list_looks_valid (struct list *list)
   if (list->head.next == NULL || list->tail.prev == NULL)
     is_valid = 0;
   return is_valid;
+}
+
+void list_lock (struct list *list)
+{
+  assert(list != NULL);
+  pthread_mutex_lock (&list->lock);
+}
+
+void list_unlock (struct list *list)
+{
+  assert(list != NULL);
+  pthread_mutex_unlock (&list->lock);
 }

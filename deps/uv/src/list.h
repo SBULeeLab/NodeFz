@@ -1,13 +1,15 @@
 #ifndef UV_SRC_LIST_H_
 #define UV_SRC_LIST_H_
 
+#include <pthread.h>
+
 /* Doubly linked list. 
+   This is a reimplementation of the Pintos linked-least scheme,
+   with some adaptations.
 
    Items intended to be placed in a list
    must embed a list_elem element. Each list_elem can be in
    at most one list at a time. 
-
-   This is a reimplementation of the Pintos linked-least scheme. 
 
    For example:
 
@@ -19,7 +21,10 @@
    };
 
    struct list_elem *elem = list_pop_front (&foo_list);
-   struct Foo *foo = list_entry (elem, struct Foo, elem); */ 
+   struct Foo *foo = list_entry (elem, struct Foo, elem); 
+   
+   lists are not thread-safe. The caller can use 
+   list_lock and list_unlock to enforce a locking discipline. */
 struct list_elem
 {
   struct list_elem *prev;
@@ -41,6 +46,7 @@ struct list
   int magic;
   struct list_elem head;
   struct list_elem tail;
+  pthread_mutex_t lock;
 };
 
 void list_init (struct list *list);
@@ -82,5 +88,9 @@ struct list_elem * list_begin (struct list *list);
 struct list_elem * list_end (struct list *list);
 struct list_elem * list_head (struct list *list);
 struct list_elem * list_tail (struct list *list);
+
+/* For locking discipline. */
+void list_lock (struct list *list);
+void list_unlock (struct list *list);
 
 #endif  /* UV_SRC_LIST_H_ */
