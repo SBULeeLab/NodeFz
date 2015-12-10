@@ -124,6 +124,9 @@ struct callback_node * current_callback_node_get (void);
 void invoke_callback (struct callback_info *);
 
 void dump_callback_global_order (void);
-void dump_callback_trees (int squash_timers);
+void dump_callback_trees (void);
+
+void dump_callback_global_order_sighandler (int);
+void dump_callback_trees_sighandler (int);
 
 #endif /* UV_UNIFIED_CALLBACK_H_ */

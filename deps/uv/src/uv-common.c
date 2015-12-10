@@ -34,6 +34,7 @@
 #include <sys/types.h> /* getpid */
 #include <unistd.h> /* getpid */
 
+#include <signal.h> /* For signal handling. */
 
 #if defined(_WIN32)
 # include <malloc.h> /* malloc */
@@ -701,7 +702,11 @@ void invoke_callback (struct callback_info *cbi)
 
   /* Potentially racey but very unlikely. */
   if (!list_looks_valid (&global_order_list))
+  {
     list_init (&global_order_list);
+    signal(SIGUSR1, dump_callback_global_order_sighandler);
+    signal(SIGUSR2, dump_callback_trees_sighandler);
+  }
   
   orig_cbn = current_callback_node_get();
   new_cbn = malloc (sizeof *new_cbn);
@@ -877,10 +882,12 @@ void invoke_callback (struct callback_info *cbi)
     new_cbn, new_cbn->info); 
   new_cbn->active = 0;
 
+#if 0
   /* DEBUGGING */
   dump_callback_global_order ();
   dump_callback_trees (0);
   printf ("\n\n\n\n\n");
+#endif
 }
 
 static char *callback_type_strings[] = {
@@ -956,7 +963,7 @@ static void dump_callback_tree (struct callback_node *cbn)
 }
 
 /* Dumps each callback tree. */
-void dump_callback_trees (int squash_timers)
+void dump_callback_trees (void)
 {
   struct list_elem *e;
   int tree_num;
@@ -971,4 +978,16 @@ void dump_callback_trees (int squash_timers)
     ++tree_num;
   }
   fflush (NULL);
+}
+
+void dump_callback_global_order_sighandler (int signum)
+{
+  printf ("Got signal %i. Dumping callback global order\n", signum);
+  dump_callback_global_order ();
+}
+
+void dump_callback_trees_sighandler (int signum)
+{
+  printf ("Got signal %i. Dumping callback trees\n", signum);
+  dump_callback_trees ();
 }
