@@ -189,7 +189,11 @@ static void uv__fsevents_cb(uv_async_t* cb) {
   handle = cb->data;
 
   UV__FSEVENTS_PROCESS(handle, {
+#if UNIFIED_CALLBACK
+    INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, handle->cb, handle, event->path[0] ? event->path : NULL, event->events, 0);
+#else
     handle->cb(handle, event->path[0] ? event->path : NULL, event->events, 0);
+#endif
   });
 }
 

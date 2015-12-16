@@ -354,7 +354,11 @@ void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
   QUEUE_FOREACH(q, &loop->handle_queue) {
     h = QUEUE_DATA(q, uv_handle_t, handle_queue);
     if (h->flags & UV__HANDLE_INTERNAL) continue;
+#ifdef UNIFIED_CALLBACK
+    INVOKE_CALLBACK_2 (UV_WALK_CB, walk_cb, h, arg); 
+#else
     walk_cb(h, arg);
+#endif
   }
 }
 

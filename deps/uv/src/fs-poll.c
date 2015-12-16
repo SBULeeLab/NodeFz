@@ -186,10 +186,7 @@ static void poll_cb(uv_fs_t* req) {
 #ifdef UNIFIED_CALLBACK
       INVOKE_CALLBACK_4 (UV_FS_POLL_CB, ctx->poll_cb, ctx->parent_handle, req->result, &ctx->statbuf, &zero_statbuf);
 #else
-      ctx->poll_cb(ctx->parent_handle,
-                   req->result,
-                   &ctx->statbuf,
-                   &zero_statbuf);
+      ctx->poll_cb(ctx->parent_handle, req->result, &ctx->statbuf, &zero_statbuf);
 #endif
       ctx->busy_polling = req->result;
     }
