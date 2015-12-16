@@ -1035,12 +1035,37 @@ char *callback_type_to_string (enum callback_type type)
   return callback_type_strings[type];
 }
 
-/* Prints callback node CBN using printf. */
-static void dump_callback_node (struct callback_node *cbn, char *prefix)
+/* Prints callback node CBN using printf in graphviz format. 
+   The caller must have prepared the outer graph declaration; we just
+   print node/edge info in graphviz format. */
+static void dump_callback_node_gv (struct callback_node *cbn)
 {
+  int i;
   assert (cbn != NULL);
-  printf ("%s cbn %p info %p type %s level %i parent %p active %i n_children %i\n", 
-    prefix, cbn, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->active, list_size (&cbn->children));
+
+  /* Example listing:
+    1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
+    */
+  printf ("    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %i\\nID %i\"];\n",
+    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, cbn->start, cbn->duration, cbn->id);
+}
+
+/* Prints callback node CBN using printf. 
+   If INDENT, we indent it according to its level. */
+static void dump_callback_node (struct callback_node *cbn, char *prefix, int do_indent)
+{
+  char spaces[512];
+  int i;
+  assert (cbn != NULL);
+  if (do_indent)
+  {
+    memset (spaces, 0, 512);
+    int n_spaces = cbn->level;
+    for (i = 0; i < n_spaces; i++)
+      strcat (spaces, " ");
+  }
+  printf ("%s%s cbn %p id %i info %p type %s level %i parent %p (id %i) active %i n_children %i\n", 
+    do_indent ? spaces : "", prefix, cbn, cbn->id, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children));
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -1059,7 +1084,7 @@ void dump_callback_global_order (void)
   {
     struct callback_node *cbn = list_entry (e, struct callback_node, global_order_elem);
     snprintf (prefix, 64, "Callback %i: ", cbn_num);
-    dump_callback_node (cbn, prefix);
+    dump_callback_node (cbn, prefix, 0);
     cbn_num++;
   }
   fflush (NULL);
@@ -1074,15 +1099,57 @@ static void dump_callback_tree (struct callback_node *cbn)
   struct callback_node *node;
   assert (cbn != NULL);
 
-  dump_callback_node (cbn, "");
+  dump_callback_node (cbn, "", 1);
   child_num = 0;
   for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
   {
     node = list_entry (e, struct callback_node, child_elem);
-    printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node);
+    //printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node);
     dump_callback_tree (node);
     child_num++;
   }
+}
+
+/* Dump the callback tree rooted at CBN in graphviz format.
+   The caller must have prepared the outer graph declaration; we just
+   print node/edge info in graphviz format. */
+static void dump_callback_tree_gv (struct callback_node *cbn)
+{
+  int child_num;
+  struct list_elem *e;
+  struct callback_node *node;
+  assert (cbn != NULL);
+
+  dump_callback_node_gv (cbn);
+  child_num = 0;
+  for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
+  {
+    node = list_entry (e, struct callback_node, child_elem);
+    //printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node);
+    /* Print the relationship between parent and child. */
+    printf ("    %i -> %i;\n", cbn->id, node->id); 
+    dump_callback_tree_gv (node);
+    child_num++;
+  }
+}
+
+/* Returns the size of the tree rooted at CBN (i.e. # callback_nodes). */
+int callback_tree_size (struct callback_node *root)
+{
+  int size; 
+  struct list_elem *e;
+  struct callback_node *node;
+
+  assert(root != NULL);
+
+  size = 1;
+  for (e = list_begin (&root->children); e != list_end (&root->children); e = list_next (e))
+  {
+    node = list_entry (e, struct callback_node, child_elem);
+    size += callback_tree_size (node);
+  }
+
+  return size;
 }
 
 /* Dumps each callback tree. */
@@ -1096,8 +1163,15 @@ void dump_callback_trees (void)
   tree_num = 0;
   for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
   {
+    struct callback_node *root = list_entry (e, struct callback_node, root_elem);
+#if GRAPHVIZ
+    printf ("digraph %i {\n    /* size %i */\n", tree_num, callback_tree_size (root));
+    dump_callback_tree_gv (root);
+    printf ("}\n", tree_num);
+#else
     printf ("Tree %i:\n", tree_num);
-    dump_callback_tree (list_entry (e, struct callback_node, root_elem));
+    dump_callback_tree (root);
+#endif
     ++tree_num;
   }
   fflush (NULL);
