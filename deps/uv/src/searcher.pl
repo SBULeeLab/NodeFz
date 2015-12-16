@@ -35,7 +35,7 @@ for my $f (@files)
       $should_be_hashEnd = 0;
       next;
     }
-    if ($l =~ m/cb\(/ and ($l !~ m/^void/ and $l !~ m/^static/))
+    if ($l =~ m/cb\s*\(/ and ($l !~ m/^void/ and $l !~ m/^static/))
     {
       $prev_line = $l;
       $should_be_hashEnd = 1;
