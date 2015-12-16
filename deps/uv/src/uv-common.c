@@ -712,24 +712,41 @@ void invoke_callback (struct callback_info *cbi)
     signal(SIGUSR2, dump_callback_trees_sighandler);
   }
   
-  orig_cbn = current_callback_node_get();
   new_cbn = malloc (sizeof *new_cbn);
   assert (new_cbn != NULL);
   new_cbn->info = cbi;
-  if (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE)
+
+  /* If CBI is an asynchronous type, extract the orig_cbn at time
+     of registration (if any). */
+  int async_cb = (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE || cbi->type == UV_TIMER_CB);
+  int sync_cb = !async_cb;
+
+  if (sync_cb)
+    /* CBI is synchronous, so it's either a root or a child of an active callback. */
+    orig_cbn = current_callback_node_get();
+  else
   {
-    orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
-    new_cbn->level = orig_cbn->level + 1;
-    new_cbn->parent = orig_cbn;
+    switch (cbi->type)
+    {
+      case UV__WORK_WORK:
+      case UV__WORK_DONE:
+        orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
+        assert (orig_cbn != NULL);
+        break;
+      case UV_TIMER_CB:
+        /* There may not be an orig_cbn if the callback was registered by
+           the initial stack. For example, the longPoll in simple-node.js-mud. */
+        orig_cbn = ((uv_timer_t *) cbi->args[0])->parent;
+        break;
+      default:
+        NOT_REACHED;
+    }
   }
-  else if (cbi->type == UV_TIMER_CB)
+
+  /* Initialize NEW_CBN. */
+  if (orig_cbn)
   {
-    orig_cbn = ((uv_timer_t *) cbi->args[0])->parent;
-    new_cbn->level = orig_cbn->level + 1;
-    new_cbn->parent = orig_cbn;
-  }
-  else if (orig_cbn)
-  {
+    assert (orig_cbn != NULL);
     new_cbn->level = orig_cbn->level + 1;
     new_cbn->parent = orig_cbn;
   }
@@ -738,22 +755,35 @@ void invoke_callback (struct callback_info *cbi)
     new_cbn->level = 0;
     new_cbn->parent = NULL;
   }
+
+  if (new_cbn->parent)
+  {
+    list_lock (&new_cbn->parent->children);
+    list_push_back (&new_cbn->parent->children, &new_cbn->child_elem); 
+    list_unlock (&new_cbn->parent->children);
+  }
+  else
+  {
+    if (!list_looks_valid (&root_list))
+    {
+      /* This initialization can race if being added by a UV__WORK_WORK item, though this seems impossible. */
+      assert (cbi->type != UV__WORK_WORK && cbi->type != UV__WORK_DONE);
+      list_init (&root_list);
+    }
+
+    list_lock (&root_list);
+    list_push_back (&root_list, &new_cbn->root_elem); 
+    list_unlock (&root_list);
+  }
+
+  new_cbn->start = get_relative_time ();
+  new_cbn->duration = -1;
   new_cbn->active = 1;
   list_init (&new_cbn->children);
 
-  if (new_cbn->parent)
-    /* TODO Can race if being added by a UV__WORK_WORK item. */
-    list_push_back (&new_cbn->parent->children, &new_cbn->child_elem); 
-  else
-  {
-    /* TODO Can race if being added by a UV__WORK_WORK item. */
-    if (!list_looks_valid (&root_list))
-      list_init (&root_list);
-    list_push_back (&root_list, &new_cbn->root_elem); 
-  }
-
   list_lock (&global_order_list);
   list_push_back (&global_order_list, &new_cbn->global_order_elem);
+  new_cbn->id = list_size (&global_order_list);
   list_unlock (&global_order_list);
 
   if (new_cbn->parent && new_cbn->parent->info->type == UV__WORK_WORK)
@@ -766,125 +796,214 @@ void invoke_callback (struct callback_info *cbi)
   assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
        || (0 < new_cbn->level && new_cbn->parent != NULL));
 
-#if 0
-  current_callback_node_set (new_cbn);
-#else
   /* TODO If UV__WORK_WORK, can be called in parallel. Matching problem. Bad news bears. Perhaps track per-tid current_callback_node? */
   if (cbi->type != UV__WORK_WORK)
     current_callback_node_set (new_cbn);
-#endif
+
+  uv_handle_t *uvht = NULL;
+  int fileno_rc;
+  uv_os_fd_t fd = -1;
+  char *handle_type;
   switch (cbi->type)
   {
     /* include/uv.h */
     case UV_ALLOC_CB:
-      cbi->cb ((uv_handle_t *) cbi->args[0], (size_t) cbi->args[1], (uv_buf_t *) cbi->args[2]);
+      uvht = (uv_handle_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_handle_t"; 
+      cbi->cb ((uv_handle_t *) cbi->args[0], (size_t) cbi->args[1], (uv_buf_t *) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_READ_CB:
-      cbi->cb ((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]);
+      uvht = (uv_stream_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_stream_t"; 
+      cbi->cb ((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_WRITE_CB:
-      cbi->cb ((uv_write_t *) cbi->args[0], (int) cbi->args[1]);
+      cbi->cb ((uv_write_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to two uv_stream_t's (uv_handle_t)  */
       break;
     case UV_CONNECT_CB:
-      cbi->cb ((uv_connect_t *) cbi->args[0], (int) cbi->args[1]);
+      cbi->cb ((uv_connect_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_SHUTDOWN_CB:
-      cbi->cb ((uv_shutdown_t *) cbi->args[0], (int) cbi->args[1]);
+      cbi->cb ((uv_shutdown_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_CONNECTION_CB:
-      cbi->cb ((uv_stream_t *) cbi->args[0], (int) cbi->args[1]);
+      uvht = (uv_stream_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_stream_t"; 
+      cbi->cb ((uv_stream_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_CLOSE_CB:
-      cbi->cb ((uv_handle_t *) cbi->args[0]);
+      uvht = (uv_handle_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_handle_t"; 
+      cbi->cb ((uv_handle_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_POLL_CB:
-      cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1], (int) cbi->args[2]);
+      uvht = (uv_poll_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_poll_t"; 
+      cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_TIMER_CB:
-      cbi->cb ((uv_timer_t *) cbi->args[0]);
+      uvht = (uv_timer_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_timer_t"; 
+      cbi->cb ((uv_timer_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_ASYNC_CB:
-      cbi->cb ((uv_async_t *) cbi->args[0]);
+      uvht = (uv_async_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_async_t"; 
+      cbi->cb ((uv_async_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_PREPARE_CB:
-      cbi->cb ((uv_prepare_t *) cbi->args[0]);
+      uvht = (uv_prepare_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_prepare_t"; 
+      cbi->cb ((uv_prepare_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_CHECK_CB:
-      cbi->cb ((uv_check_t *) cbi->args[0]);
+      uvht = (uv_check_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_check_t"; 
+      cbi->cb ((uv_check_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_IDLE_CB:
-      cbi->cb ((uv_idle_t *) cbi->args[0]);
+      uvht = (uv_idle_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_idle_t"; 
+      cbi->cb ((uv_idle_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_EXIT_CB:
-      cbi->cb ((uv_process_t *) cbi->args[0], (int64_t) cbi->args[1], (int) cbi->args[2]);
+      uvht = (uv_process_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_process_t"; 
+      cbi->cb ((uv_process_t *) cbi->args[0], (int64_t) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_WALK_CB:
-      cbi->cb ((uv_handle_t *) cbi->args[0], (void *) cbi->args[1]);
+      uvht = (uv_handle_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_handle_t"; 
+      cbi->cb ((uv_handle_t *) cbi->args[0], (void *) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_FS_CB:
-      cbi->cb ((uv_fs_t *) cbi->args[0]);
+      cbi->cb ((uv_fs_t *) cbi->args[0]); /* uv_req_t, no information about handle or parent */
       break;
     case UV_WORK_CB:
-      cbi->cb ((uv_work_t *) cbi->args[0]);
+      cbi->cb ((uv_work_t *) cbi->args[0]); /* uv_req_t, no information about handle or parent */
       break;
     case UV_AFTER_WORK_CB:
-      cbi->cb ((uv_work_t *) cbi->args[0], (int) cbi->args[1]);
+      cbi->cb ((uv_work_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, no information about handle or parent */
       break;
     case UV_GETADDRINFO_CB:
-      cbi->cb ((uv_getaddrinfo_t *) cbi->args[0], (int) cbi->args[1], (struct addrinfo *) cbi->args[2]);
+      cbi->cb ((uv_getaddrinfo_t *) cbi->args[0], (int) cbi->args[1], (struct addrinfo *) cbi->args[2]); /* uv_req_t, no information about handle or parent */
       break;
     case UV_GETNAMEINFO_CB:
-      cbi->cb ((uv_getnameinfo_t *) cbi->args[0], (int) cbi->args[1], (const char *) cbi->args[2], (const char *) cbi->args[3]);
+      cbi->cb ((uv_getnameinfo_t *) cbi->args[0], (int) cbi->args[1], (const char *) cbi->args[2], (const char *) cbi->args[3]); /* uv_req_t, no information about handle or parent */
       break;
     case UV_FS_EVENT_CB:
-      cbi->cb ((uv_fs_event_t *) cbi->args[0], (const char *) cbi->args[1], (int) cbi->args[2], (int) cbi->args[3]);
+      uvht = (uv_fs_event_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_fs_event_t"; 
+      cbi->cb ((uv_fs_event_t *) cbi->args[0], (const char *) cbi->args[1], (int) cbi->args[2], (int) cbi->args[3]); /* uv_handle_t */
       break;
     case UV_FS_POLL_CB:
-      cbi->cb ((uv_fs_poll_t *) cbi->args[0], (int) cbi->args[1], (const uv_stat_t *) cbi->args[2], (const uv_stat_t *) cbi->args[3]);
+      uvht = (uv_fs_poll_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_fs_poll_t"; 
+      cbi->cb ((uv_fs_poll_t *) cbi->args[0], (int) cbi->args[1], (const uv_stat_t *) cbi->args[2], (const uv_stat_t *) cbi->args[3]); /* uv_handle_t */
       break;
     case UV_SIGNAL_CB:
-      cbi->cb ((uv_signal_t *) cbi->args[0], (int) cbi->args[1]);
+      uvht = (uv_signal_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_signal_t"; 
+      cbi->cb ((uv_signal_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_UDP_SEND_CB:
-      cbi->cb ((uv_udp_send_t *) cbi->args[0], (int) cbi->args[1]);
+      cbi->cb ((uv_udp_send_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_udp_t (uv_handle_t) */
       break;
     case UV_UDP_RECV_CB:
-      cbi->cb ((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]);
+      uvht = (uv_udp_t *) cbi->args[0];
+      fileno_rc = uv_fileno (uvht, &fd);
+      if (fileno_rc != 0)
+        fd = -1;
+      handle_type = "uv_udp_t"; 
+      cbi->cb ((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]); /* uv_handle_t */
       break;
     case UV_THREAD_CB:
-      cbi->cb ((void *) cbi->args[0]);
+      cbi->cb ((void *) cbi->args[0]); /* ?? */
       break;
 
     /* include/uv-unix.h */
     case UV__IO_CB:
-      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__io_s *) cbi->args[1], (unsigned int) cbi->args[2]);
+      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__io_s *) cbi->args[1], (unsigned int) cbi->args[2]); /* Global loop */
       break;
     case UV__ASYNC_CB:
-      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__async *) cbi->args[1], (unsigned int) cbi->args[2]);
+      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__async *) cbi->args[1], (unsigned int) cbi->args[2]); /* Global loop */
       break;
 
     /* include/uv-threadpool.h */
     case UV__WORK_WORK:
-      cbi->cb ((struct uv__work *) cbi->args[0]);
+      cbi->cb ((struct uv__work *) cbi->args[0]); /* Knows parent. */
       break;
     case UV__WORK_DONE:
-      cbi->cb ((struct uv__work *) cbi->args[0], (int) cbi->args[1]);
+      cbi->cb ((struct uv__work *) cbi->args[0], (int) cbi->args[1]); /* Knows parent. */
       break;
+
     default:
       mylog ("invoke_callback: ERROR, unsupported type\n");
       assert (0 == 1);
   }
 
-#if 0
-  current_callback_node_set (orig_cbn);
-#else
-  if (cbi->type != UV__WORK_WORK)
-    current_callback_node_set (orig_cbn);
-#endif
+  if (uvht && fileno_rc == 0)
+    mylog ("handle type <%s> fd %i\n", handle_type, fd);
 
   mylog ("invoke_callback: Done with callback_node %p cbi %p\n",
     new_cbn, new_cbn->info); 
   new_cbn->active = 0;
+  new_cbn->duration = get_relative_time () - new_cbn->start;
+  new_cbn->client_id = fd;
+
+  if (sync_cb)
+    current_callback_node_set (orig_cbn);
+  else
+  {
+    /* Async CB. If we're being called synchronously, we can safely say there is no current CB. */ 
+    if (cbi->type != UV__WORK_WORK)
+      current_callback_node_set(NULL);
+  }
 
 #if 0
   /* DEBUGGING */
@@ -994,4 +1113,13 @@ void dump_callback_trees_sighandler (int signum)
 {
   printf ("Got signal %i. Dumping callback trees\n", signum);
   dump_callback_trees ();
+}
+
+/* Returns time relative to the time at which the first CB was invoked. */
+static time_t init_time = 0;
+time_t get_relative_time (void)
+{
+  if (init_time == 0)
+    init_time = time(NULL);
+  return time(NULL) - init_time;
 }

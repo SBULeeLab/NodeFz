@@ -5,6 +5,11 @@
 
 /* Unified callback queue. */
 #define UNIFIED_CALLBACK 1
+#define GRAPHVIZ 1
+
+#ifndef NOT_REACHED
+#define NOT_REACHED assert (0 == 1);
+#endif
 
 #define MAX_CALLBACK_NARGS 5
 enum callback_type
@@ -104,13 +109,21 @@ struct callback_info
   long args[MAX_CALLBACK_NARGS]; /* Must be large enough for the widest arg type. Seems to be 8 bytes. */
 };
 
+time_t get_relative_time (void);
+
 /* Nodes that comprise a callback tree. */
 struct callback_node
 {
   struct callback_info *info; /* Description of this callback. */
   int level; /* What level in the callback tree is it? For root nodes this is 0. */
   struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
+
+  int client_id; /* ID of client incurring this CB. -1 if unknown. */
+  time_t start; /* Time at which callback started. */
+  time_t duration; /* Time at which callback ended. -1 if not yet ended. */
   int active; /* 1 if callback active, 0 if finished. */
+
+  int id; /* Unique ID for this node. */
 
   struct list children; /* Linked list of children. */
   
