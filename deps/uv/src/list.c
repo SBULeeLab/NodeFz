@@ -4,6 +4,9 @@
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
 
+static void list_insert (struct list_elem *, struct list_elem *);
+static struct list_elem * list_remove (struct list_elem *elem);
+
 /* Initialize HEAD and TAIL to be members of an empty list. */
 void list_init (struct list *list)
 {
@@ -18,10 +21,11 @@ void list_init (struct list *list)
   list->tail.prev = &list->head;
 
   pthread_mutex_init (&list->lock, NULL);
+  list->n_elts = 0;
 }
 
 /* Insert NEW just before NEXT. */
-void list_insert (struct list_elem *new_elem, struct list_elem *next)
+static void list_insert (struct list_elem *new_elem, struct list_elem *next)
 {
   assert(new_elem != NULL);
   assert(next != NULL);
@@ -35,7 +39,7 @@ void list_insert (struct list_elem *new_elem, struct list_elem *next)
 }
 
 /* Remove ELEM from its current list. */
-struct list_elem * list_remove (struct list_elem *elem)
+static struct list_elem * list_remove (struct list_elem *elem)
 {
   assert(elem != NULL);
 
@@ -56,6 +60,7 @@ void list_push_back (struct list *list, struct list_elem *elem)
   assert(elem != NULL);
 
   list_insert (elem, list_tail (list));
+  list->n_elts++;
 }
 
 /* Put ELEM at the front of the list. ELEM must not be NULL.
@@ -67,6 +72,7 @@ void list_push_front (struct list *list, struct list_elem *elem)
   assert(elem != NULL);
 
   list_insert (elem, list_begin (list));
+  list->n_elts++;
 }
 
 /* Return the element after ELEM. */
@@ -117,6 +123,8 @@ struct list_elem * list_pop_front (struct list *list)
 
   if (list_empty (list))
     return NULL;
+
+  list->n_elts--;
   return list_remove (list_front (list));
 }
 
@@ -129,6 +137,7 @@ struct list_elem * list_pop_back (struct list *list)
 
   if (list_empty (list))
     return NULL;
+  list->n_elts--;
   return list_remove (list_back (list));
 }
 
@@ -202,7 +211,7 @@ struct list_elem * list_tail (struct list *list)
 }
 
 /* Return the size of the list. */
-int list_size (struct list *list)
+unsigned list_size (struct list *list)
 {
   int size = 0;
   struct list_elem *n;
@@ -210,9 +219,12 @@ int list_size (struct list *list)
   assert(list != NULL);
   assert(list_looks_valid (list));
 
+  /* Verify LIST->N_ELTS is correct. */
   for (n = list_begin (list); n != list_end (list); n = n->next)
     size++;
-  return size;
+  assert (size == list->n_elts);
+
+  return list->n_elts;
 }
 
 /* Return 1 if empty, 0 else. */

@@ -47,21 +47,18 @@ struct list
   struct list_elem head;
   struct list_elem tail;
   pthread_mutex_t lock;
+  unsigned n_elts;
 };
 
 void list_init (struct list *list);
-int list_size (struct list *list);
+unsigned list_size (struct list *list);
 int list_empty (struct list *list);
 int list_looks_valid (struct list *list);
 
 struct list * list_split (struct list *list, int split_size);
 
-void list_insert (struct list_elem *, struct list_elem *);
-struct list_elem * list_remove (struct list_elem *elem);
-
 void list_push_front (struct list *list, struct list_elem *elem);
 void list_push_back (struct list *list, struct list_elem *);
-
 struct list_elem * list_pop_front (struct list *list);
 struct list_elem * list_pop_back (struct list *list);
 
