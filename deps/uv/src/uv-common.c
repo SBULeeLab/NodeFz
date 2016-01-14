@@ -1108,7 +1108,7 @@ void dump_callback_global_order (void)
   int fd;
   char out_file[128];
 
-  snprintf (out_file, 128, "/tmp/callback_global_order_%i", getpid());
+  snprintf (out_file, 128, "/tmp/callback_global_order_%i.txt", getpid());
   printf ("Dumping all %i callbacks in their global order to %s\n", list_size (&global_order_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
@@ -1202,21 +1202,15 @@ void dump_callback_trees (void)
 {
   struct list_elem *e;
   int tree_num, tree_size, meta_size;
-  int fd = -1;
-  char out_file[128];
-
-  snprintf (out_file, 128, "/tmp/callback_trees_%i", getpid());
-  printf ("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
 
 #if GRAPHVIZ
+  int fd = -1;
+  char out_file[128];
+  snprintf (out_file, 128, "/tmp/individual_callback_trees_%i_%i.gv", time(NULL), getpid());
+  printf ("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
+
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
-  if (fd < 0)
-  {
-    printf ("Error, open (%s, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO) failed, returning %i. errno %i: %s\n",
-      out_file, fd, errno, strerror (errno));
-    fflush (NULL);
-    exit (1);
-  }
+  assert (0 <= fd);
 #endif
 
   /* Print as individual trees. */
@@ -1237,8 +1231,15 @@ void dump_callback_trees (void)
 #endif
     ++tree_num;
   }
+  close (fd);
 
 #if GRAPHVIZ
+  snprintf (out_file, 128, "/tmp/meta_callback_trees_%i_%i.gv", time(NULL), getpid());
+  printf ("Dumping the %i callback trees as a meta-tree to %s\n", list_size (&root_list), out_file);
+
+  fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+  assert (0 <= fd);
+
   printf ("Dumping META_TREE\n");
   /* Print as one giant tree with a null root. 
      Nodes use their global ID as a node ID so trees can coexist happily in the same meta-tree. */
@@ -1257,14 +1258,11 @@ void dump_callback_trees (void)
     ++tree_num;
   }
   dprintf (fd, "}\n");
+  close (fd);
 #else
   printf ("No meta tree for you\n");
 #endif
 
-#if GRAPHGIV
-  if (0 <= fd)
-    close (fd);
-#endif
   fflush (NULL);
 }
 
