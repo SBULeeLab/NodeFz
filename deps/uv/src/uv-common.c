@@ -682,9 +682,11 @@ void mylog (const char *format, ...)
 }
 
 /* Unified callback queue. */
+static int unified_callback_initialized = 0;
 static struct list root_list;
 static struct list global_order_list;
 
+/* Sets the current callback node to CBN. */
 static struct callback_node *current_callback_node = NULL;
 void current_callback_node_set (struct callback_node *cbn)
 {
@@ -693,11 +695,35 @@ void current_callback_node_set (struct callback_node *cbn)
     mylog ("current_callback_node_set: Next callback will be a root\n");
 }
 
+/* Retrieves the current callback node, or NULL if no such node. */
 struct callback_node *current_callback_node_get (void)
 {
   return current_callback_node;
 }
 
+/* Returns the CBN associated with the initial stack. */
+static struct callback_node *init_stack_cbn = NULL;
+struct callback_node * get_init_stack_callback_node (void)
+{
+  if (init_stack_cbn == NULL)
+  {
+    init_stack_cbn = malloc (sizeof *init_stack_cbn);
+    assert (init_stack_cbn != NULL);
+
+    init_stack_cbn->info = NULL;
+    init_stack_cbn->level = 0;
+    init_stack_cbn->parent = NULL;
+    init_stack_cbn->client_id = -2;
+    init_stack_cbn->start = 0;
+    init_stack_cbn->duration = 0;
+    init_stack_cbn->active = 1;
+    list_init (&init_stack_cbn->children);
+  }
+
+  return init_stack_cbn;
+}
+
+/* Invoke the callback described by CBI. */
 void invoke_callback (struct callback_info *cbi)
 {
   struct callback_node *orig_cbn, *new_cbn;
@@ -705,11 +731,14 @@ void invoke_callback (struct callback_info *cbi)
   assert (cbi != NULL);  
 
   /* Potentially racey but very unlikely. */
-  if (!list_looks_valid (&global_order_list))
+  if (!unified_callback_initialized)
   {
     list_init (&global_order_list);
+    list_init (&root_list);
     signal(SIGUSR1, dump_callback_global_order_sighandler);
     signal(SIGUSR2, dump_callback_trees_sighandler);
+    signal(SIGINT, dump_all_trees_and_exit_sighandler);
+    unified_callback_initialized = 1;
   }
   
   new_cbn = malloc (sizeof *new_cbn);
@@ -729,6 +758,11 @@ void invoke_callback (struct callback_info *cbi)
     switch (cbi->type)
     {
       case UV__WORK_WORK:
+        orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
+        assert (orig_cbn != NULL);
+        /* We are the direct parent of the UV__WORK_DONE that follows us. */
+        ((struct uv__work *) cbi->args[0])->parent = new_cbn;
+        break;
       case UV__WORK_DONE:
         orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
         assert (orig_cbn != NULL);
@@ -764,13 +798,6 @@ void invoke_callback (struct callback_info *cbi)
   }
   else
   {
-    if (!list_looks_valid (&root_list))
-    {
-      /* This initialization can race if being added by a UV__WORK_WORK item, though this seems impossible. */
-      assert (cbi->type != UV__WORK_WORK && cbi->type != UV__WORK_DONE);
-      list_init (&root_list);
-    }
-
     list_lock (&root_list);
     list_push_back (&root_list, &new_cbn->root_elem); 
     list_unlock (&root_list);
@@ -786,13 +813,15 @@ void invoke_callback (struct callback_info *cbi)
   new_cbn->id = list_size (&global_order_list);
   list_unlock (&global_order_list);
 
+/* This is now normal because we make uV__WORK_DONE the child of the parent UV__WORK_WORK.
   if (new_cbn->parent && new_cbn->parent->info->type == UV__WORK_WORK)
     mylog ("invoke_callback: Child of a UV__WORK_WORK item\n");
+*/
   if (!new_cbn->parent && cbi->type == UV__WORK_WORK)
     mylog ("invoke_callback: root node is a UV__WORK_WORK item??\n");
 
-  mylog ("invoke_callback: invoking callback_node %p cbi %p type %s cb %p level %i parent %p\n",
-    new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
+  mylog ("invoke_callback: invoking callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
+    new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
   assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
        || (0 < new_cbn->level && new_cbn->parent != NULL));
 
@@ -1035,10 +1064,10 @@ char *callback_type_to_string (enum callback_type type)
   return callback_type_strings[type];
 }
 
-/* Prints callback node CBN using printf in graphviz format. 
+/* Prints callback node CBN to FD in graphviz format. 
    The caller must have prepared the outer graph declaration; we just
    print node/edge info in graphviz format. */
-static void dump_callback_node_gv (struct callback_node *cbn)
+static void dump_callback_node_gv (int fd, struct callback_node *cbn)
 {
   int i;
   assert (cbn != NULL);
@@ -1046,7 +1075,7 @@ static void dump_callback_node_gv (struct callback_node *cbn)
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
     */
-  printf ("    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %i\\nID %i\"];\n",
+  dprintf (fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %i\\nID %i\"];\n",
     cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, cbn->start, cbn->duration, cbn->id);
 }
 
@@ -1110,25 +1139,25 @@ static void dump_callback_tree (struct callback_node *cbn)
   }
 }
 
-/* Dump the callback tree rooted at CBN in graphviz format.
+/* Dump the callback tree rooted at CBN to FD in graphviz format.
    The caller must have prepared the outer graph declaration; we just
    print node/edge info in graphviz format. */
-static void dump_callback_tree_gv (struct callback_node *cbn)
+static void dump_callback_tree_gv (int fd, struct callback_node *cbn)
 {
   int child_num;
   struct list_elem *e;
   struct callback_node *node;
   assert (cbn != NULL);
 
-  dump_callback_node_gv (cbn);
+  dump_callback_node_gv (fd, cbn);
   child_num = 0;
   for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
   {
     node = list_entry (e, struct callback_node, child_elem);
     //printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node);
     /* Print the relationship between parent and child. */
-    printf ("    %i -> %i;\n", cbn->id, node->id); 
-    dump_callback_tree_gv (node);
+    dprintf (fd, "    %i -> %i;\n", cbn->id, node->id); 
+    dump_callback_tree_gv (fd, node);
     child_num++;
   }
 }
@@ -1152,28 +1181,61 @@ int callback_tree_size (struct callback_node *root)
   return size;
 }
 
-/* Dumps each callback tree. */
+/* Dumps each callback tree in graphviz format to a file. */
 void dump_callback_trees (void)
 {
   struct list_elem *e;
-  int tree_num;
+  int tree_num, tree_size, meta_size;
+  int fd = -1;
+  char out_file[128];
 
-  printf ("Dumping all %i callback trees\n", list_size (&root_list));
+  snprintf (out_file, 128, "/tmp/callback_trees_%i", getpid());
+  printf ("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
 
+  /* Print as individual trees. */
+  meta_size = 0;
   tree_num = 0;
   for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
   {
     struct callback_node *root = list_entry (e, struct callback_node, root_elem);
 #if GRAPHVIZ
-    printf ("digraph %i {\n    /* size %i */\n", tree_num, callback_tree_size (root));
-    dump_callback_tree_gv (root);
-    printf ("}\n", tree_num);
+    fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    assert (0 <= fd);
+    tree_size = callback_tree_size (root);
+    meta_size += tree_size;
+    dprintf (fd, "digraph %i {\n    /* size %i */\n", tree_num, tree_size);
+    dump_callback_tree_gv (fd, root);
+    dprintf (fd, "}\n\n");
 #else
     printf ("Tree %i:\n", tree_num);
     dump_callback_tree (root);
 #endif
     ++tree_num;
   }
+
+#if GRAPHVIZ
+  printf ("Dumping META_TREE\n");
+  /* Print as one giant tree with a null root. 
+     Nodes use their global ID as a node ID so trees can coexist happily in the same meta-tree. */
+  dprintf (fd, "digraph META_TREE {\n    /* size %i */\n", tree_num, meta_size);
+  dprintf (fd, "  -1 [label=\"meta-root node\"]\n");
+  tree_num = 0;
+  for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
+  {
+    struct callback_node *root = list_entry (e, struct callback_node, root_elem);
+    dprintf (fd, "  subgraph %i {\n    /* size %i */\n", tree_num, tree_size);
+    dump_callback_tree_gv (fd, root);
+    dprintf (fd, "  }\n");
+    dprintf (fd, "  -1 -> %i\n", root->id); /* Link to the meta-root node. */
+    ++tree_num;
+  }
+  dprintf (fd, "}\n");
+#else
+  printf ("No meta tree for you\n");
+#endif
+
+  if (0 <= fd)
+    close (fd);
   fflush (NULL);
 }
 
@@ -1187,6 +1249,16 @@ void dump_callback_trees_sighandler (int signum)
 {
   printf ("Got signal %i. Dumping callback trees\n", signum);
   dump_callback_trees ();
+}
+
+void dump_all_trees_and_exit_sighandler (int signum)
+{
+  printf ("Got signal %i. Dumping all trees and exiting\n", signum);
+  printf ("Callback global order\n");
+  dump_callback_global_order ();
+  printf ("Callback trees\n");
+  dump_callback_trees ();
+  exit (0);
 }
 
 /* Returns time relative to the time at which the first CB was invoked. */

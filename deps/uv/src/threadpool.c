@@ -185,15 +185,25 @@ void uv__work_submit(uv_loop_t* loop,
                      struct uv__work* w,
                      void (*work)(struct uv__work* w),
                      void (*done)(struct uv__work* w, int status)) {
+  int was_current_callback_node = 0;
   uv_once(&once, init_once);
   w->loop = loop;
   w->work = work;
   w->done = done;
 #ifdef UNIFIED_CALLBACK
+  was_current_callback_node = (current_callback_node_get () != NULL);
+  /* If no current callback node, we must still be executing the original stack. */
+  if (!was_current_callback_node)
+    current_callback_node_set (get_init_stack_callback_node ());
   w->parent = current_callback_node_get();
   assert (w->parent != NULL);
 #endif
   post(&w->wq);
+#ifdef UNIFIED_CALLBACK
+  /* If there was no current callback node, we are executing the original stack. Reset current to NULL to avoid polluting children. */
+  if (!was_current_callback_node)
+    current_callback_node_set (NULL);
+#endif
 }
 
 

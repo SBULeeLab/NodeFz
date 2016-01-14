@@ -106,7 +106,7 @@ struct callback_info
 {
   enum callback_type type;
   void (*cb)();
-  long args[MAX_CALLBACK_NARGS]; /* Must be large enough for the widest arg type. Seems to be 8 bytes. */
+  long args[MAX_CALLBACK_NARGS]; /* Must be wide enough for the widest arg type. Seems to be 8 bytes. */
 };
 
 time_t get_relative_time (void);
@@ -118,7 +118,7 @@ struct callback_node
   int level; /* What level in the callback tree is it? For root nodes this is 0. */
   struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
 
-  int client_id; /* ID of client incurring this CB. -1 if unknown. */
+  int client_id; /* ID of client incurring this CB. -1 if unknown. -2 if init stack node. */
   time_t start; /* Time at which callback started. */
   time_t duration; /* Time at which callback ended. -1 if not yet ended. */
   int active; /* 1 if callback active, 0 if finished. */
@@ -134,6 +134,7 @@ struct callback_node
 
 void current_callback_node_set (struct callback_node *);
 struct callback_node * current_callback_node_get (void);
+struct callback_node * get_init_stack_callback_node (void);
 void invoke_callback (struct callback_info *);
 
 void dump_callback_global_order (void);
@@ -141,5 +142,6 @@ void dump_callback_trees (void);
 
 void dump_callback_global_order_sighandler (int);
 void dump_callback_trees_sighandler (int);
+void dump_all_trees_and_exit_sighandler (int);
 
 #endif /* UV_UNIFIED_CALLBACK_H_ */
