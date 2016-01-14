@@ -1079,9 +1079,9 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
     cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, cbn->start, cbn->duration, cbn->id);
 }
 
-/* Prints callback node CBN using printf. 
+/* Prints callback node CBN to FD.
    If INDENT, we indent it according to its level. */
-static void dump_callback_node (struct callback_node *cbn, char *prefix, int do_indent)
+static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix, int do_indent)
 {
   char spaces[512];
   int i;
@@ -1093,8 +1093,9 @@ static void dump_callback_node (struct callback_node *cbn, char *prefix, int do_
     for (i = 0; i < n_spaces; i++)
       strcat (spaces, " ");
   }
-  printf ("%s%s cbn %p id %i info %p type %s level %i parent %p (id %i) active %i n_children %i\n", 
-    do_indent ? spaces : "", prefix, cbn, cbn->id, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children));
+
+  dprintf (fd, "%s%s cbn %p id %i info %p type %s level %i parent %p (id %i) active %i n_children %i client_id %i start %li duration %li\n", 
+    do_indent ? spaces : "", prefix, cbn, cbn->id, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->client_id, cbn->start, cbn->duration);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -1104,37 +1105,52 @@ void dump_callback_global_order (void)
   struct list_elem *e;
   int cbn_num;
   char prefix[64];
+  int fd;
+  char out_file[128];
+
+  snprintf (out_file, 128, "/tmp/callback_global_order_%i", getpid());
+  printf ("Dumping all %i callbacks in their global order to %s\n", list_size (&global_order_list), out_file);
+
+  fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+  if (fd < 0)
+  {
+    printf ("Error, open (%s, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO) failed, returning %i. errno %i: %s\n",
+      out_file, fd, errno, strerror (errno));
+    fflush (NULL);
+    exit (1);
+  }
 
   list_lock (&global_order_list);
 
-  printf ("Dumping all %i callbacks we have invoked, in order\n", list_size (&global_order_list));
   cbn_num = 0;
   for (e = list_begin (&global_order_list); e != list_end (&global_order_list); e = list_next (e))
   {
     struct callback_node *cbn = list_entry (e, struct callback_node, global_order_elem);
     snprintf (prefix, 64, "Callback %i: ", cbn_num);
-    dump_callback_node (cbn, prefix, 0);
+    dump_callback_node (fd, cbn, prefix, 0);
     cbn_num++;
   }
   fflush (NULL);
 
   list_unlock (&global_order_list);
+  close (fd);
 }
 
-static void dump_callback_tree (struct callback_node *cbn)
+/* Dumps the callback tree rooted at CBN to FD. */
+static void dump_callback_tree (int fd, struct callback_node *cbn)
 {
   int child_num;
   struct list_elem *e;
   struct callback_node *node;
   assert (cbn != NULL);
 
-  dump_callback_node (cbn, "", 1);
+  dump_callback_node (fd, cbn, "", 1);
   child_num = 0;
   for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
   {
     node = list_entry (e, struct callback_node, child_elem);
     //printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node);
-    dump_callback_tree (node);
+    dump_callback_tree (fd, node);
     child_num++;
   }
 }
