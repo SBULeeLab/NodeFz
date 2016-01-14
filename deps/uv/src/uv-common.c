@@ -1192,6 +1192,17 @@ void dump_callback_trees (void)
   snprintf (out_file, 128, "/tmp/callback_trees_%i", getpid());
   printf ("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
 
+#if GRAPHVIZ
+  fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+  if (fd < 0)
+  {
+    printf ("Error, open (%s, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO) failed, returning %i. errno %i: %s\n",
+      out_file, fd, errno, strerror (errno));
+    fflush (NULL);
+    exit (1);
+  }
+#endif
+
   /* Print as individual trees. */
   meta_size = 0;
   tree_num = 0;
@@ -1199,8 +1210,6 @@ void dump_callback_trees (void)
   {
     struct callback_node *root = list_entry (e, struct callback_node, root_elem);
 #if GRAPHVIZ
-    fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
-    assert (0 <= fd);
     tree_size = callback_tree_size (root);
     meta_size += tree_size;
     dprintf (fd, "digraph %i {\n    /* size %i */\n", tree_num, tree_size);
@@ -1223,6 +1232,8 @@ void dump_callback_trees (void)
   for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
   {
     struct callback_node *root = list_entry (e, struct callback_node, root_elem);
+    assert (0 <= fd);
+    tree_size = callback_tree_size (root);
     dprintf (fd, "  subgraph %i {\n    /* size %i */\n", tree_num, tree_size);
     dump_callback_tree_gv (fd, root);
     dprintf (fd, "  }\n");
@@ -1234,8 +1245,10 @@ void dump_callback_trees (void)
   printf ("No meta tree for you\n");
 #endif
 
+#if GRAPHGIV
   if (0 <= fd)
     close (fd);
+#endif
   fflush (NULL);
 }
 
@@ -1258,6 +1271,7 @@ void dump_all_trees_and_exit_sighandler (int signum)
   dump_callback_global_order ();
   printf ("Callback trees\n");
   dump_callback_trees ();
+  fflush (NULL);
   exit (0);
 }
 
