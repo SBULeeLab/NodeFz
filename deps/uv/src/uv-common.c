@@ -33,6 +33,7 @@
 
 #include <sys/types.h> /* getpid */
 #include <unistd.h> /* getpid */
+#include <sys/time.h> /* timersub */
 
 #include <signal.h> /* For signal handling. */
 
@@ -714,7 +715,7 @@ struct callback_node * get_init_stack_callback_node (void)
     init_stack_cbn->level = 0;
     init_stack_cbn->parent = NULL;
     init_stack_cbn->client_id = -2;
-    init_stack_cbn->start = 0;
+    init_stack_cbn->relative_start = 0;
     init_stack_cbn->duration = 0;
     init_stack_cbn->active = 1;
     list_init (&init_stack_cbn->children);
@@ -803,7 +804,8 @@ void invoke_callback (struct callback_info *cbi)
     list_unlock (&root_list);
   }
 
-  new_cbn->start = get_relative_time ();
+  new_cbn->relative_start = get_relative_time();
+  assert (gettimeofday (&new_cbn->start, NULL) == 0);
   new_cbn->duration = -1;
   new_cbn->active = 1;
   list_init (&new_cbn->children);
@@ -825,7 +827,10 @@ void invoke_callback (struct callback_info *cbi)
   assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
        || (0 < new_cbn->level && new_cbn->parent != NULL));
 
-  /* TODO If UV__WORK_WORK, can be called in parallel. Matching problem. Bad news bears. Perhaps track per-tid current_callback_node? */
+  /* If UV__WORK_WORK, can be called in parallel, resulting in an unclear current_callback_node. 
+     We resolve the issue by simply not tracking WORK_WORK CBs as active. 
+     TODO In standard Node.js use, they are not expected to register new callbacks of their own, though this should be verified.  
+     To address this, we could perhaps track a per-tid current_callback_node. */
   if (cbi->type != UV__WORK_WORK)
     current_callback_node_set (new_cbn);
 
@@ -1022,14 +1027,22 @@ void invoke_callback (struct callback_info *cbi)
   mylog ("invoke_callback: Done with callback_node %p cbi %p\n",
     new_cbn, new_cbn->info); 
   new_cbn->active = 0;
-  new_cbn->duration = get_relative_time () - new_cbn->start;
+  assert (gettimeofday (&new_cbn->stop, NULL) == 0);
+  /* Must end after it began. This can fail if the system clock is set backward during the callback. */
+  assert (new_cbn->start.tv_sec < new_cbn->stop.tv_sec || new_cbn->start.tv_usec <= new_cbn->stop.tv_usec);
+  struct timeval diff;
+  timersub (&new_cbn->stop, &new_cbn->start, &diff);
+  new_cbn->duration = diff.tv_sec*1000000 + diff.tv_usec;
   new_cbn->client_id = fd;
 
   if (sync_cb)
+    /* Synchronous CB has finished, and the orig_cb is still active. */
     current_callback_node_set (orig_cbn);
   else
   {
-    /* Async CB. If we're being called synchronously, we can safely say there is no current CB. */ 
+    /* Async CB has finished. In general there is no current CB.
+       However, if this callback was potentially concurrent with other callbacks (i.e. a threadpool WORK callback),
+       then we shouldn't modify the current CB. */
     if (cbi->type != UV__WORK_WORK)
       current_callback_node_set(NULL);
   }
@@ -1076,8 +1089,8 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
     */
-  dprintf (fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %i\\nID %i\"];\n",
-    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, cbn->start, cbn->duration, cbn->id);
+  dprintf (fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %lli\\nID %i\"];\n",
+    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, cbn->relative_start, cbn->duration, cbn->id);
 }
 
 /* Prints callback node CBN to FD.
@@ -1095,8 +1108,8 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
       strcat (spaces, " ");
   }
 
-  dprintf (fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start> <%li>> | <duration> <%li>> |\n", 
-    do_indent ? spaces : "", prefix, cbn, cbn->id, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->client_id, cbn->start, cbn->duration);
+  dprintf (fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start> <%li>> | <duration> <%lli>> |\n", 
+    do_indent ? spaces : "", prefix, cbn, cbn->id, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->client_id, cbn->relative_start, cbn->duration);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
