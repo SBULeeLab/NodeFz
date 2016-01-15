@@ -1,0 +1,188 @@
+#!/usr/bin/env perl
+#Author: Jamie Davis <davisjam@vt.edu>
+#Description: Calculates interesting statistics on the "all callbacks" file 
+#             produced by libuv
+
+use strict;
+use warnings;
+
+if (@ARGV != 1)
+{
+  &usage ();
+  exit 1;
+}
+
+my ($file) = @ARGV;
+if (not -f $file)
+{
+  &halt("Error, file <$file> does not exist");
+}
+
+my @lineInfo = &parseFile($file);
+
+my %statistics = &calculateStatistics(\@lineInfo);
+print "Results from $file\n";
+print "-" x (60 + 4 + 20) . "\n";
+printf ("%-60s    %-20s\n", "Statistic", "Value");
+print "-" x (60 + 4 + 20) . "\n";
+for my $key (keys %statistics)
+{
+  printf ("%-60s    %-20s\n", $key, $statistics{$key});
+}
+
+exit 0;
+
+####################
+# Helper functions #
+####################
+
+#input: (\@lineInfo) from parseFile
+#output: (%statMap) key of 'statistics info', with corresponding value
+#calculates interesting statistics on the lines from the input file
+sub calculateStatistics
+{
+  my ($lineInfo) = @_;
+  my @info = @$lineInfo;
+
+  my %statMap;
+  $statMap{"Number of callbacks"} = scalar(@info);
+
+  my @clients = map { $_->{client_id} } @info;
+  $statMap{"Number of clients"} = scalar(&removeDups(@clients));
+
+  my @callbackTypes = map{ $_->{type} } @info;
+  for my $type (&removeDups(@callbackTypes))
+  {
+    $statMap{"Instances of type $type"} = &countElt($type, @callbackTypes);
+  }
+
+  my @nChildren = map { $_->{n_children} } @info;
+  for my $childCount (&removeDups(@nChildren))
+  {
+    $statMap{"Callbacks with $childCount children"} = &countElt($childCount, @nChildren);
+  }
+
+  #per-client statistics
+  for my $client (@clients)
+  {
+    my @clientCBs = grep { $_->{client_id} eq $client } @info;
+    $statMap{"Client $client: number of callbacks"} = scalar(@clientCBs);
+    my @callbackTypes = map{ $_->{type} } @clientCBs;
+    for my $type (&removeDups(@callbackTypes))
+    {
+      $statMap{"Client $client: Instances of type $type"} = &countElt($type, @callbackTypes);
+    }
+  }
+
+  return %statMap;
+}
+
+#input: ($fileToParse)
+#output: (@lineInfo)
+#Converts each line of $fileToParse into a hash with key/value pairs
+#extracted from the line. 
+#Returns a list of the info for each line, expressed as hash refs
+#
+#Lines look like this:
+#Callback 0:  | <cbn> <0x7fb590000900>> | <id> <1>> | <info> <0x7fb5900008c0>> | <type> <UV__WORK_WORK>> | <level> <1>> | <parent> <0x1c439f0>> | <parent_id> <0>> | <active> <0>> | <n_children> <1>> | <client_id> <-1>> | <start> <0>> | <duration> <0>> |
+#Hashes look like this:
+#<parent 0x1c439f0> <start 0> <type UV__WORK_WORK> <parent_id 0> <info 0x7fb5900008c0> <active 0> <level 1> <id 1> <client_id -1> <n_children 1> <cbn 0x7fb590000900> <duration 0>
+sub parseFile
+{
+  my ($file) = @_;
+  &assert((-f $file), "parseFile: Error, no such file <$file>");
+  my @lines = `cat $file`;
+  chomp @lines;
+
+  my @lineInfo;
+  for my $line (@lines)
+  {
+    my %hash;
+    my @spl = split (/\|/, $line);
+    for my $tok (@spl)
+    {
+      if ($tok =~ /<([^>]+)>\s+<([^>]+)>/)
+      {
+        $hash{$1} = $2;
+      }
+    }
+    push @lineInfo, \%hash;
+  }
+
+  #Print what a single line and its hash look like, 
+  #  to keep the comment accurate
+  #print $lines[0] . "\n";
+  #for my $k (keys $lineInfo[0])
+  #{
+  #  print "<$k $lineInfo[0]->{$k}> ";
+  #}
+  #print "\n";
+  return @lineInfo;
+}
+
+#####################
+# Utility functions #
+#####################
+
+#input: ()
+#output: ()
+#prints the usage message
+sub usage
+{
+  print "Description: Compute statistics on the list of callbacks emitted by libuv.
+Usage: $0 file_to_parse\n";
+}
+
+#input: ($msg)
+#output: ()
+#logs $msg and exits
+sub halt
+{
+  my ($msg) = @_;
+  &log($msg);
+  exit 1;
+}
+
+#input: ($msg)
+#output: ()
+#prints $msg to stdout, formatted appropriately. A newline is added.
+sub log
+{
+  my ($msg) = @_;
+  #my $now = localtime;
+  #print "$now: $msg\n";
+  print "$msg\n";
+}
+
+#input: ($condition, $msg)
+#output: ()
+#if ! $condition, halt()'s with $msg
+sub assert
+{
+  my ($cond, $msg) = @_;
+  if (not $cond)
+  {
+    &halt($msg);
+  }
+}
+
+#input: (@list)
+#output: (@uniqueList)
+# returns the unique entries in @list
+sub removeDups
+{
+  my (@list) = @_;
+  my %hash;
+  $hash{$_} = 1 for (@list);
+  return keys %hash;
+}
+
+#input: ($elt, @list)
+#output: ($nInstances)
+#returns the number of instances of $elt in @list
+sub countElt
+{
+  my ($elt, @list) = @_;
+  my @instances = grep { $_ eq $elt } @list;
+  return scalar(@instances);
+}
