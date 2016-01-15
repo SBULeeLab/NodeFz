@@ -813,7 +813,7 @@ void invoke_callback (struct callback_info *cbi)
   new_cbn->id = list_size (&global_order_list);
   list_unlock (&global_order_list);
 
-/* This is now normal because we make uV__WORK_DONE the child of the parent UV__WORK_WORK.
+/* This is now normal because we make UV__WORK_DONE the child of the parent UV__WORK_WORK.
   if (new_cbn->parent && new_cbn->parent->info->type == UV__WORK_WORK)
     mylog ("invoke_callback: Child of a UV__WORK_WORK item\n");
 */
@@ -1066,7 +1066,8 @@ char *callback_type_to_string (enum callback_type type)
 
 /* Prints callback node CBN to FD in graphviz format. 
    The caller must have prepared the outer graph declaration; we just
-   print node/edge info in graphviz format. */
+   print node/edge info in graphviz format. 
+   TODO Increase the amount of information embedded here? */
 static void dump_callback_node_gv (int fd, struct callback_node *cbn)
 {
   int i;
@@ -1094,7 +1095,7 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
       strcat (spaces, " ");
   }
 
-  dprintf (fd, "%s%s cbn %p id %i info %p type %s level %i parent %p (id %i) active %i n_children %i client_id %i start %li duration %li\n", 
+  dprintf (fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start> <%li>> | <duration> <%li>> |\n", 
     do_indent ? spaces : "", prefix, cbn, cbn->id, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->client_id, cbn->start, cbn->duration);
 }
 
@@ -1108,7 +1109,7 @@ void dump_callback_global_order (void)
   int fd;
   char out_file[128];
 
-  snprintf (out_file, 128, "/tmp/callback_global_order_%i.txt", getpid());
+  snprintf (out_file, 128, "/tmp/callback_global_order_%i_%i.txt", time(NULL), getpid());
   printf ("Dumping all %i callbacks in their global order to %s\n", list_size (&global_order_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);

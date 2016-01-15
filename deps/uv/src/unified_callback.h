@@ -119,6 +119,7 @@ struct callback_node
   struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
 
   int client_id; /* ID of client incurring this CB. -1 if unknown. -2 if init stack node. */
+  /* TODO More fine-grained time. */
   time_t start; /* Time at which callback started. */
   time_t duration; /* Time at which callback ended. -1 if not yet ended. */
   int active; /* 1 if callback active, 0 if finished. */
