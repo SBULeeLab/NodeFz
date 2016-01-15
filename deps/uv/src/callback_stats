@@ -22,12 +22,12 @@ my @lineInfo = &parseFile($file);
 
 my %statistics = &calculateStatistics(\@lineInfo);
 print "Results from $file\n";
-print "-" x (60 + 4 + 20) . "\n";
-printf ("%-60s    %-20s\n", "Statistic", "Value");
-print "-" x (60 + 4 + 20) . "\n";
+print "-" x (60 + 4 + 8) . "\n";
+printf ("%-60s    %-8s\n", "Statistic", "Value");
+print "-" x (60 + 4 + 8) . "\n";
 for my $key (keys %statistics)
 {
-  printf ("%-60s    %-20s\n", $key, $statistics{$key});
+  printf ("%-60s    %-8s\n", $key, $statistics{$key});
 }
 
 exit 0;
@@ -53,7 +53,14 @@ sub calculateStatistics
   my @callbackTypes = map{ $_->{type} } @info;
   for my $type (&removeDups(@callbackTypes))
   {
-    $statMap{"Instances of type $type"} = &countElt($type, @callbackTypes);
+    $statMap{"Type $type: instances"} = &countElt($type, @callbackTypes);
+    my @matches = grep { $_->{type} eq $type } @info;
+    my @durations = map { $_->{duration} } @matches;
+    my ($mean, $median, $min, $max) = (&mean(@durations), &median(@durations), &min(@durations), &max(@durations));
+    $statMap{"Type $type: duration mean"}   = $mean;
+    $statMap{"Type $type: duration median"} = $median;
+    $statMap{"Type $type: duration min"}    = $min;
+    $statMap{"Type $type: duration max"}    = $max;
   }
 
   my @nChildren = map { $_->{n_children} } @info;
@@ -70,7 +77,7 @@ sub calculateStatistics
     my @callbackTypes = map{ $_->{type} } @clientCBs;
     for my $type (&removeDups(@callbackTypes))
     {
-      $statMap{"Client $client: Instances of type $type"} = &countElt($type, @callbackTypes);
+      $statMap{"Client $client: Type $type: instances"} = &countElt($type, @callbackTypes);
     }
   }
 
@@ -185,4 +192,65 @@ sub countElt
   my ($elt, @list) = @_;
   my @instances = grep { $_ eq $elt } @list;
   return scalar(@instances);
+}
+
+#input: (@numbers)
+#output: ($min)
+sub min
+{
+  my (@nums) = @_;
+  my $min = $nums[0];
+  for my $n (@nums)
+  {
+    if ($n < $min)
+    {
+      $min = $n;
+    }
+  }
+  return $min;
+}
+
+#input: (@numbers)
+#output: ($max)
+sub max
+{
+  my (@nums) = @_;
+  my $max = $nums[0];
+  for my $n (@nums)
+  {
+    if ($max < $n)
+    {
+      $max = $n;
+    }
+  }
+  return $max;
+}
+
+#input: (@numbers)
+#output: ($mean)
+sub mean
+{
+  my (@nums) = @_;
+  if (not @nums)
+  {
+    return 0;
+  }
+  my $sum = 0;
+  $sum += $_ for (@nums);
+  return $sum / scalar(@nums);
+}
+
+#input: (@numbers)
+#output: ($median)
+#if @numbers is even, returns the left median
+sub median
+{
+  my (@nums) = @_;
+  if (not @nums)
+  {
+    return 0;
+  }
+  @nums = sort @nums;
+  my $index = (scalar(@nums) % 2) ? (scalar(@nums)-1)/2 : scalar(@nums)/2 - 1;
+  return $nums[$index];
 }
