@@ -22,6 +22,7 @@
 #include "uv.h"
 #include "uv-common.h"
 #include "list.h"
+#include "map.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -654,8 +655,6 @@ void mylog (const char *format, ...)
   pid_t my_pid;
   va_list args;
   char indents[512];
-  int i;
-  int generation;
   time_t now;
   char *now_s;
 
@@ -734,6 +733,11 @@ void invoke_callback (struct callback_info *cbi)
   /* Potentially racey but very unlikely. */
   if (!unified_callback_initialized)
   {
+    printf("DEBUG: Testing list\n");
+    list_UT();
+    printf("DEBUG: Testing map\n");
+    map_UT();
+
     list_init (&global_order_list);
     list_init (&root_list);
     signal(SIGUSR1, dump_callback_global_order_sighandler);
@@ -837,7 +841,8 @@ void invoke_callback (struct callback_info *cbi)
   uv_handle_t *uvht = NULL;
   int fileno_rc;
   uv_os_fd_t fd = -1;
-  char *handle_type;
+  char handle_type[64];
+  snprintf(handle_type, 64, "(no handle type)");
   switch (cbi->type)
   {
     /* include/uv.h */
@@ -846,7 +851,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_handle_t"; 
+      strncpy(handle_type, "uv_handle_t", 64); 
       cbi->cb ((uv_handle_t *) cbi->args[0], (size_t) cbi->args[1], (uv_buf_t *) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_READ_CB:
@@ -854,7 +859,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_stream_t"; 
+      strncpy(handle_type, "uv_stream_t", 64); 
       cbi->cb ((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_WRITE_CB:
@@ -871,7 +876,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_stream_t"; 
+      strncpy(handle_type, "uv_stream_t", 64); 
       cbi->cb ((uv_stream_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_CLOSE_CB:
@@ -879,7 +884,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_handle_t"; 
+      strncpy(handle_type, "uv_handle_t", 64); 
       cbi->cb ((uv_handle_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_POLL_CB:
@@ -887,7 +892,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_poll_t"; 
+      strncpy(handle_type, "uv_poll_t", 64); 
       cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_TIMER_CB:
@@ -895,7 +900,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_timer_t"; 
+      strncpy(handle_type, "uv_timer_t", 64); 
       cbi->cb ((uv_timer_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_ASYNC_CB:
@@ -903,7 +908,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_async_t"; 
+      strncpy(handle_type, "uv_async_t", 64); 
       cbi->cb ((uv_async_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_PREPARE_CB:
@@ -911,7 +916,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_prepare_t"; 
+      strncpy(handle_type, "uv_prepare_t", 64); 
       cbi->cb ((uv_prepare_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_CHECK_CB:
@@ -919,7 +924,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_check_t"; 
+      strncpy(handle_type, "uv_check_t", 64); 
       cbi->cb ((uv_check_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_IDLE_CB:
@@ -927,7 +932,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_idle_t"; 
+      strncpy(handle_type, "uv_idle_t", 64); 
       cbi->cb ((uv_idle_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_EXIT_CB:
@@ -935,7 +940,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_process_t"; 
+      strncpy(handle_type, "uv_process_t", 64); 
       cbi->cb ((uv_process_t *) cbi->args[0], (int64_t) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_WALK_CB:
@@ -943,7 +948,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_handle_t"; 
+      strncpy(handle_type, "uv_handle_t", 64); 
       cbi->cb ((uv_handle_t *) cbi->args[0], (void *) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_FS_CB:
@@ -966,7 +971,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_fs_event_t"; 
+      strncpy(handle_type, "uv_fs_event_t", 64); 
       cbi->cb ((uv_fs_event_t *) cbi->args[0], (const char *) cbi->args[1], (int) cbi->args[2], (int) cbi->args[3]); /* uv_handle_t */
       break;
     case UV_FS_POLL_CB:
@@ -974,7 +979,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_fs_poll_t"; 
+      strncpy(handle_type, "uv_fs_poll_t", 64); 
       cbi->cb ((uv_fs_poll_t *) cbi->args[0], (int) cbi->args[1], (const uv_stat_t *) cbi->args[2], (const uv_stat_t *) cbi->args[3]); /* uv_handle_t */
       break;
     case UV_SIGNAL_CB:
@@ -982,7 +987,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_signal_t"; 
+      strncpy(handle_type, "uv_signal_t", 64); 
       cbi->cb ((uv_signal_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_UDP_SEND_CB:
@@ -993,7 +998,7 @@ void invoke_callback (struct callback_info *cbi)
       fileno_rc = uv_fileno (uvht, &fd);
       if (fileno_rc != 0)
         fd = -1;
-      handle_type = "uv_udp_t"; 
+      strncpy(handle_type, "uv_udp_t", 64); 
       cbi->cb ((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]); /* uv_handle_t */
       break;
     case UV_THREAD_CB:
@@ -1024,8 +1029,8 @@ void invoke_callback (struct callback_info *cbi)
   if (uvht && fileno_rc == 0)
     mylog ("handle type <%s> fd %i\n", handle_type, fd);
 
-  mylog ("invoke_callback: Done with callback_node %p cbi %p\n",
-    new_cbn, new_cbn->info); 
+  mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p>\n",
+    new_cbn, new_cbn->info, uvht); 
   new_cbn->active = 0;
   assert (gettimeofday (&new_cbn->stop, NULL) == 0);
   /* Must end after it began. This can fail if the system clock is set backward during the callback. */
@@ -1083,14 +1088,13 @@ char *callback_type_to_string (enum callback_type type)
    TODO Increase the amount of information embedded here? */
 static void dump_callback_node_gv (int fd, struct callback_node *cbn)
 {
-  int i;
   assert (cbn != NULL);
 
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
     */
   dprintf (fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %lli\\nID %i\"];\n",
-    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, cbn->relative_start, cbn->duration, cbn->id);
+    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, (int) cbn->relative_start, cbn->duration, cbn->id);
 }
 
 /* Prints callback node CBN to FD.
@@ -1098,18 +1102,19 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
 static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix, int do_indent)
 {
   char spaces[512];
-  int i;
+  int i, n_spaces;
+
   assert (cbn != NULL);
   if (do_indent)
   {
     memset (spaces, 0, 512);
-    int n_spaces = cbn->level;
+    n_spaces = cbn->level;
     for (i = 0; i < n_spaces; i++)
       strcat (spaces, " ");
   }
 
   dprintf (fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start> <%li>> | <duration> <%lli>> |\n", 
-    do_indent ? spaces : "", prefix, cbn, cbn->id, cbn->info, callback_type_to_string (cbn->info->type), cbn->level, cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->client_id, cbn->relative_start, cbn->duration);
+    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, callback_type_to_string (cbn->info->type), cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->client_id, cbn->relative_start, cbn->duration);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -1122,7 +1127,7 @@ void dump_callback_global_order (void)
   int fd;
   char out_file[128];
 
-  snprintf (out_file, 128, "/tmp/callback_global_order_%i_%i.txt", time(NULL), getpid());
+  snprintf (out_file, 128, "/tmp/callback_global_order_%i_%i.txt", (int) time(NULL), getpid());
   printf ("Dumping all %i callbacks in their global order to %s\n", list_size (&global_order_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
@@ -1163,7 +1168,7 @@ static void dump_callback_tree (int fd, struct callback_node *cbn)
   for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
   {
     node = list_entry (e, struct callback_node, child_elem);
-    //printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node);
+    /* printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
     dump_callback_tree (fd, node);
     child_num++;
   }
@@ -1184,7 +1189,7 @@ static void dump_callback_tree_gv (int fd, struct callback_node *cbn)
   for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
   {
     node = list_entry (e, struct callback_node, child_elem);
-    //printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node);
+    /* printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
     /* Print the relationship between parent and child. */
     dprintf (fd, "    %i -> %i;\n", cbn->id, node->id); 
     dump_callback_tree_gv (fd, node);
@@ -1220,7 +1225,7 @@ void dump_callback_trees (void)
 #if GRAPHVIZ
   int fd = -1;
   char out_file[128];
-  snprintf (out_file, 128, "/tmp/individual_callback_trees_%i_%i.gv", time(NULL), getpid());
+  snprintf (out_file, 128, "/tmp/individual_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
   printf ("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
@@ -1248,7 +1253,7 @@ void dump_callback_trees (void)
   close (fd);
 
 #if GRAPHVIZ
-  snprintf (out_file, 128, "/tmp/meta_callback_trees_%i_%i.gv", time(NULL), getpid());
+  snprintf (out_file, 128, "/tmp/meta_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
   printf ("Dumping the %i callback trees as a meta-tree to %s\n", list_size (&root_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
@@ -1257,7 +1262,7 @@ void dump_callback_trees (void)
   printf ("Dumping META_TREE\n");
   /* Print as one giant tree with a null root. 
      Nodes use their global ID as a node ID so trees can coexist happily in the same meta-tree. */
-  dprintf (fd, "digraph META_TREE {\n    /* size %i */\n", tree_num, meta_size);
+  dprintf (fd, "digraph META_TREE {\n    /* size %i */\n", meta_size);
   dprintf (fd, "  -1 [label=\"meta-root node\"]\n");
   tree_num = 0;
   for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
