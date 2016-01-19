@@ -4,24 +4,55 @@
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
 
+#define LIST_MAGIC 12345678
+
+static struct list_elem * list_tail (struct list *list);
 static void list_insert (struct list_elem *, struct list_elem *);
-static struct list_elem * list_remove (struct list_elem *elem);
+static void list__lock (struct list *list);
+static void list__unlock (struct list *list);
 
 /* Initialize HEAD and TAIL to be members of an empty list. */
 void list_init (struct list *list)
 {
   assert(list != NULL);
 
-  //mylog ("list_init: Initializing list %p (done_list %p)\n", list, &done_list);
+  /* mylog ("list_init: Initializing list %p (done_list %p)\n", list, &done_list); */
   list->magic = LIST_MAGIC;
+
   list->head.next = &list->tail;
   list->head.prev = NULL;
-
   list->tail.next = NULL;
   list->tail.prev = &list->head;
 
   pthread_mutex_init (&list->lock, NULL);
+
+  /* Recursive internal lock. */
+  pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init (&list->_lock, &attr);
+
   list->n_elts = 0;
+}
+
+/* Cleans up LIST. Does not modify any nodes contained in LIST. 
+   You must call list_init again if you with to re-use LIST. */
+void list_destroy (struct list *list)
+{
+  assert(list != NULL);
+  list__lock(list);
+
+  list->magic = 0;
+  list->n_elts = 0;
+  list->head.next = &list->tail;
+  list->head.prev = NULL;
+  list->tail.next = NULL;
+  list->tail.prev = &list->head;
+
+  list__unlock(list);
+
+  pthread_mutex_destroy(&list->lock);
+  pthread_mutex_destroy(&list->_lock);
 }
 
 /* Insert NEW just before NEXT. */
@@ -39,15 +70,27 @@ static void list_insert (struct list_elem *new_elem, struct list_elem *next)
 }
 
 /* Remove ELEM from its current list. */
-static struct list_elem * list_remove (struct list_elem *elem)
+struct list_elem * list_remove (struct list *list, struct list_elem *elem)
 {
+  struct list_elem *pred, *succ; 
+
+  assert(list != NULL);
   assert(elem != NULL);
 
-  struct list_elem *pred = elem->prev;
-  struct list_elem *succ = elem->next;
+  list__lock(list);
+
+  assert(!list_empty(list));
+  pred = elem->prev;
+  assert(pred != NULL);
+  succ = elem->next;
+  assert(succ != NULL);
 
   pred->next = succ;
   succ->prev = pred;
+  list->n_elts--;
+
+  list__unlock(list);
+
   return elem;
 }
 
@@ -56,11 +99,15 @@ static struct list_elem * list_remove (struct list_elem *elem)
 void list_push_back (struct list *list, struct list_elem *elem)
 {
   assert(list != NULL);
-  assert(list_looks_valid (list));
   assert(elem != NULL);
+
+  list__lock(list);
+  assert(list_looks_valid(list));
 
   list_insert (elem, list_tail (list));
   list->n_elts++;
+
+  list__unlock(list);
 }
 
 /* Put ELEM at the front of the list. ELEM must not be NULL.
@@ -68,11 +115,15 @@ void list_push_back (struct list *list, struct list_elem *elem)
 void list_push_front (struct list *list, struct list_elem *elem)
 {
   assert(list != NULL);
-  assert(list_looks_valid (list));
   assert(elem != NULL);
+
+  list__lock(list);
+  assert(list_looks_valid(list));
 
   list_insert (elem, list_begin (list));
   list->n_elts++;
+
+  list__unlock(list);
 }
 
 /* Return the element after ELEM. */
@@ -90,11 +141,15 @@ struct list_elem * list_front (struct list *list)
   struct list_elem *node;
 
   assert(list != NULL);
-  assert(list_looks_valid (list));
+
+  list__lock(list);
+  assert(list_looks_valid(list));
 
   node = list->head.next;
   if (node == &list->tail)
-    return NULL;
+    node = NULL;
+
+  list__unlock(list);
   return node;
 }
 
@@ -107,44 +162,62 @@ struct list_elem * list_back (struct list *list)
   struct list_elem *node;
 
   assert(list != NULL);
-  assert(list_looks_valid (list));
+
+  list__lock(list);
+  assert(list_looks_valid(list));
 
   if (list_empty (list))
-    return NULL;
-  return list->tail.prev;
+    node = NULL;
+  else
+    node = list->tail.prev;
+
+  list__unlock(list);
+  return node;
 }
 
 /* Return the element at the front of the queue, or NULL if empty. 
    Not thread safe. */
 struct list_elem * list_pop_front (struct list *list)
 {
+  struct list_elem *ret;
+
   assert(list != NULL);
-  assert(list_looks_valid (list));
+
+  list__lock(list);
+  assert(list_looks_valid(list));
 
   if (list_empty (list))
-    return NULL;
+    ret = NULL;
+  else
+    ret = list_remove(list, list_front (list));
 
-  list->n_elts--;
-  return list_remove (list_front (list));
+  list__unlock(list);
+  return ret;
 }
 
 /* Return the element at the back of the queue, or NULL if empty. 
    Not thread safe. */
 struct list_elem * list_pop_back (struct list *list)
 {
+  struct list_elem *ret;
   assert(list != NULL);
-  assert(list_looks_valid (list));
+
+  list__lock(list);
+  assert(list_looks_valid(list));
 
   if (list_empty (list))
-    return NULL;
-  list->n_elts--;
-  return list_remove (list_back (list));
+    ret = NULL;
+  else
+    ret = list_remove(list, list_back (list));
+
+  list__unlock(list);
+  return ret;
 }
 
 /* Return the first SPLIT_SIZE elements of LIST in their own dynamically-allocated list.
    The caller is responsible for free'ing the returned list.
    The rest of the LIST remains in LIST. */
-struct list * list_split (struct list *list, int split_size)
+struct list * list_split (struct list *list, unsigned split_size)
 {
   int i;
   struct list_elem *elem = NULL;
@@ -152,7 +225,6 @@ struct list * list_split (struct list *list, int split_size)
   int orig_size;
 
   assert(list != NULL);
-  assert(list_looks_valid (list));
 
   orig_size = list_size (list);
   assert(split_size <= orig_size);
@@ -160,6 +232,9 @@ struct list * list_split (struct list *list, int split_size)
   front_list = (struct list *) malloc (sizeof (struct list));
   assert(front_list != NULL);
   list_init (front_list);
+
+  list__lock(list);
+  assert(list_looks_valid(list));
 
   for (i = 0; i < split_size; i++)
   {
@@ -170,6 +245,8 @@ struct list * list_split (struct list *list, int split_size)
   assert(list_size (front_list) == split_size);
   assert(list_size (front_list) + list_size (list) == orig_size);
 
+  list__unlock(list);
+
   return front_list;
 }
 
@@ -177,18 +254,23 @@ struct list * list_split (struct list *list, int split_size)
   In an empty list, returns the tail. */
 struct list_elem * list_begin (struct list *list)
 {
+  struct list_elem *ret;
   assert(list != NULL);
-  assert(list_looks_valid (list));
 
-  return list->head.next;
+  list__lock(list);
+  assert(list_looks_valid(list));
+
+  ret = list->head.next;
+
+  list__unlock(list);
+
+  return ret;
 }
 
 /* Returns the tail (one past the final element). */
 struct list_elem * list_end (struct list *list)
 {
   assert(list != NULL);
-  assert(list_looks_valid (list));
-
   return list_tail (list);
 }
 
@@ -196,17 +278,13 @@ struct list_elem * list_end (struct list *list)
 struct list_elem * list_head (struct list *list)
 {
   assert(list != NULL);
-  assert(list_looks_valid (list));
-
   return &list->head;
 }
 
 /* Returns the tail of the list. */
-struct list_elem * list_tail (struct list *list)
+static struct list_elem * list_tail (struct list *list)
 {
   assert(list != NULL);
-  assert(list_looks_valid (list));
-
   return &list->tail;
 }
 
@@ -217,12 +295,16 @@ unsigned list_size (struct list *list)
   struct list_elem *n;
 
   assert(list != NULL);
-  assert(list_looks_valid (list));
 
-  /* Verify LIST->N_ELTS is correct. */
+  list__lock(list);
+  assert(list_looks_valid(list));
+
+  /* DEBUG: Verify LIST->N_ELTS is correct. */
   for (n = list_begin (list); n != list_end (list); n = n->next)
     size++;
   assert (size == list->n_elts);
+
+  list__unlock(list);
 
   return list->n_elts;
 }
@@ -231,9 +313,19 @@ unsigned list_size (struct list *list)
 int list_empty (struct list *list)
 {
   assert(list != NULL);
-  assert(list_looks_valid (list));
 
-  return (list->head.next == &list->tail);
+  list__lock(list);
+  assert(list_looks_valid(list));
+
+  int empty = (list->head.next == &list->tail);
+  if (empty)
+    assert(0 == list->n_elts);
+  else
+    assert(0 < list->n_elts);
+
+  list__unlock(list);
+
+  return empty;
 }
 
 /* Return 1 if initialized LIST looks valid, 0 else. */
@@ -242,6 +334,7 @@ int list_looks_valid (struct list *list)
   int is_valid; 
 
   assert(list != NULL);
+  list__lock(list);
 
   is_valid = 1;
   /* Magic must be correct. */
@@ -253,17 +346,99 @@ int list_looks_valid (struct list *list)
   /* Head's next and tail's prev should not be null. */
   if (list->head.next == NULL || list->tail.prev == NULL)
     is_valid = 0;
+
+  list__unlock(list);
+
   return is_valid;
 }
 
+/* For external locking. */
 void list_lock (struct list *list)
 {
   assert(list != NULL);
-  pthread_mutex_lock (&list->lock);
+  pthread_mutex_lock(&list->lock);
 }
 
+/* For external locking. */
 void list_unlock (struct list *list)
 {
   assert(list != NULL);
   pthread_mutex_unlock (&list->lock);
+}
+
+/* For internal locking. */
+static void list__lock (struct list *list)
+{
+  assert(list != NULL);
+  pthread_mutex_lock(&list->_lock);
+}
+
+/* For internal locking. */
+static void list__unlock (struct list *list)
+{
+  assert(list != NULL);
+  pthread_mutex_unlock (&list->_lock);
+}
+
+/* Unit test for the list class. */
+void list_UT (void)
+{
+  struct list l;
+  unsigned i, n_entries;
+  struct list_elem *e;
+
+  struct UT_elem
+  {
+    unsigned info;
+    struct list_elem elem;
+  } entries[100];
+  struct UT_elem *entry;
+
+  n_entries = 100;
+
+  /* Create and destroy an empty list. */
+  list_init(&l);
+  assert(list_looks_valid(&l) == 1);
+  assert(list_size(&l) == 0);
+  assert(list_empty(&l) == 1);
+
+  list_destroy(&l);
+  assert(list_looks_valid(&l) == 0);
+
+  /* Create and populate a list. Iterate over it. */
+  list_init(&l);
+  for (i = 0; i < n_entries; i++)
+  {
+    entries[i].info = i;
+    list_push_back(&l, &entries[i].elem);
+    assert(list_size(&l) == i+1);
+  }
+
+   i = 0;
+   for (e = list_begin (&l); e != list_end (&l); e = list_next (e))
+   {
+      entry = list_entry(e, struct UT_elem, elem);
+      assert(entry->info == i);
+      assert(entry == &entries[i]);
+      i++;
+   } 
+
+   i = n_entries-1;
+   while (!list_empty(&l))
+   {
+     assert(list_size(&l) == i+1);
+
+     e = list_pop_back(&l);
+     entry = list_entry(e, struct UT_elem, elem);
+
+     assert(entry->info == i);
+     assert(entry == &entries[i]);
+     i--;
+   }
+
+   list_lock(&l);
+   list_unlock(&l);
+
+   list_destroy(&l);
+
 }
