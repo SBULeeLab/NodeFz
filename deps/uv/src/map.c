@@ -325,3 +325,17 @@ void map_UT (void)
 
   map_destroy(m);
 }
+
+/* Hash BUF of LEN bytes. */
+unsigned map_hash (void *buf, unsigned len)
+{ 
+  unsigned i, hash;
+  char *bufc;
+
+  bufc = buf;
+  /* Source: http://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c */
+  hash = 0;
+  for (i = 0; i < len; i++)
+    hash = bufc[i] + (hash << 6) + (hash << 16) - hash;
+  return hash;
+}

@@ -27,6 +27,9 @@ void * map_remove (struct map *map, int key, int *found);
 void map_lock (struct map *map);
 void map_unlock (struct map *map);
 
+/* If you wish to construct a hash table. Hash BUF of LEN. */
+unsigned map_hash (void *buf, unsigned len); 
+
 /* Tests all of the map APIs. */
 void map_UT (void);
 
