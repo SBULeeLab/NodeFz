@@ -30,11 +30,38 @@ for my $key (keys %statistics)
   printf ("%-60s    %-8s\n", $key, $statistics{$key});
 }
 
+my @schedule = &calculateCompleteSchedule(\@lineInfo);
+
+my @clientSchedule = grep { 0 <= $_ } @schedule;
+print "Complete client event schedule\n";
+for my $event (@clientSchedule)
+{
+  print "  $event\n";
+}
+
+#TODO I AM HERE
+#my @schedule = &calculateClientInputSchedule(\@lineInfo);
+#print "Client event schedule\n";
+#@schedule = grep { 0 <= $_ } @schedule;
+#for my $event (@schedule)
+#{
+#  print "  $event\n";
+#}
+
 exit 0;
 
 ####################
 # Helper functions #
 ####################
+
+#input: (\@lineInfo) from parseFile
+#output: (@schedule) The client ID associated with each event in order.
+sub calculateCompleteSchedule
+{
+  my ($lineInfo) = @_;
+  my @info = @$lineInfo;
+  return map{ $_->{client_id} } @info;
+}
 
 #input: (\@lineInfo) from parseFile
 #output: (%statMap) key of 'statistics info', with corresponding value
