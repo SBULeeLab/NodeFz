@@ -55,6 +55,9 @@ int uv_timer_init(uv_loop_t* loop, uv_timer_t* handle) {
   uv__handle_init(loop, (uv_handle_t*)handle, UV_TIMER);
   handle->timer_cb = NULL;
   handle->repeat = 0;
+#if UNIFIED_CALLBACK
+  handle->parent = NULL;
+#endif
   return 0;
 }
 
@@ -78,6 +81,13 @@ int uv_timer_start(uv_timer_t* handle,
   handle->timer_cb = cb;
   handle->timeout = clamped_timeout;
   handle->repeat = repeat;
+#if UNIFIED_CALLBACK
+  /* Might not be NULL due to the way repeating timers are implemented. 
+     The parent of a repeating timer is set in uv__run_timers. */
+  if (handle->parent == NULL)
+    handle->parent = current_callback_node_get();
+#endif
+
   /* start_id is the second index to be compared in uv__timer_cmp() */
   handle->start_id = handle->loop->timer_counter++;
 
@@ -163,7 +173,12 @@ void uv__run_timers(uv_loop_t* loop) {
     uv_timer_stop(handle);
     uv_timer_again(handle);
 #if UNIFIED_CALLBACK
+    /* Declares and sets new variable callback_cbn. */
     INVOKE_CALLBACK_1(UV_TIMER_CB, handle->timer_cb, handle);
+    /* If repeating: Now that we've invoked the callback (creating a CBN in the process), set the parent CBN of the timer to the CBN we just created. 
+       In other words, this timer is a child of the previous timer. It couldn't exist without it! */
+    if(handle->repeat)
+      handle->parent = callback_cbn;
 #else
     handle->timer_cb(handle);
 #endif
