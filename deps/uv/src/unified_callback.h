@@ -2,6 +2,8 @@
 #define UV_UNIFIED_CALLBACK_H_
 
 #include "list.h"
+#include <sys/types.h> /* struct sockaddr_storage */
+#include <sys/socket.h>
 
 /* Unified callback queue. */
 #define UNIFIED_CALLBACK 1
@@ -53,6 +55,36 @@ enum callback_type
   CALLBACK_TYPE_MAX
 };
 
+/* Nodes that comprise a callback tree. */
+struct callback_node
+{
+  struct callback_info *info; /* Description of this callback. */
+  int level; /* What level in the callback tree is it? For root nodes this is 0. */
+  struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
+
+  int client_id; /* My internal ID of client incurring this CB. -1 if unknown. -2 if init stack node. */
+  struct sockaddr_storage *client_addr; /* Info about the client. */
+
+  time_t relative_start; /* Seconds since program began. */
+  struct timeval start;
+  struct timeval stop;
+  long long duration; /* Number of microseconds elapsed. */
+  int active; /* 1 if callback active, 0 if finished. */
+
+  int id; /* Unique ID for this node. */
+
+  struct list children; /* Linked list of children. */
+  
+  struct list_elem global_order_elem; /* For inclusion in the global callback order. */
+  struct list_elem child_elem; /* For inclusion in parent's list of children. */
+  struct list_elem root_elem; /* For root nodes: inclusion in list of root nodes. */
+};
+
+void current_callback_node_set (struct callback_node *);
+struct callback_node * current_callback_node_get (void);
+struct callback_node * get_init_stack_callback_node (void);
+struct callback_node * invoke_callback (struct callback_info *);
+
 char * callback_type_to_string (enum callback_type);
 
 #define INIT_CBI(cb_type, cb_p) \
@@ -81,25 +113,27 @@ char * callback_type_to_string (enum callback_type);
   PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3) \
   cbi_p->args[4] = (long) arg4;
 
-/* Macros to invoke a callback, with 0-5 args. */
+/* Macros to invoke a callback, with 0-5 args.
+   The internally-generated callback node describing the 
+   invoked callback is set to callback_cbn. */
 #define INVOKE_CALLBACK_0(type, cb) \
   PREP_CBI_0(type, cb) \
-  invoke_callback(cbi_p);
+  struct callback_node *callback_cbn = invoke_callback(cbi_p);
 #define INVOKE_CALLBACK_1(type, cb, arg0) \
   PREP_CBI_1(type, cb, arg0) \
-  invoke_callback(cbi_p);
+  struct callback_node *callback_cbn = invoke_callback(cbi_p);
 #define INVOKE_CALLBACK_2(type, cb, arg0, arg1) \
   PREP_CBI_2(type, cb, arg0, arg1) \
-  invoke_callback(cbi_p);
+  struct callback_node *callback_cbn = invoke_callback(cbi_p);
 #define INVOKE_CALLBACK_3(type, cb, arg0, arg1, arg2) \
   PREP_CBI_3(type, cb, arg0, arg1, arg2) \
-  invoke_callback(cbi_p);
+  struct callback_node *callback_cbn = invoke_callback(cbi_p);
 #define INVOKE_CALLBACK_4(type, cb, arg0, arg1, arg2, arg3) \
   PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3) \
-  invoke_callback(cbi_p);
+  struct callback_node *callback_cbn = invoke_callback(cbi_p);
 #define INVOKE_CALLBACK_5(type, cb, arg0, arg1, arg2, arg3, arg4) \
   PREP_CBI_5(type, cb, arg0, arg1, arg2, arg3, arg4) \
-  invoke_callback(cbi_p);
+  struct callback_node *callback_cbn = invoke_callback(cbi_p);
 
 /* Description of a callback. */
 struct callback_info
@@ -110,34 +144,6 @@ struct callback_info
 };
 
 time_t get_relative_time (void);
-
-/* Nodes that comprise a callback tree. */
-struct callback_node
-{
-  struct callback_info *info; /* Description of this callback. */
-  int level; /* What level in the callback tree is it? For root nodes this is 0. */
-  struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
-
-  int client_id; /* ID of client incurring this CB. -1 if unknown. -2 if init stack node. */
-  time_t relative_start; /* Seconds since program began. */
-  struct timeval start;
-  struct timeval stop;
-  long long duration; /* Number of microseconds elapsed. */
-  int active; /* 1 if callback active, 0 if finished. */
-
-  int id; /* Unique ID for this node. */
-
-  struct list children; /* Linked list of children. */
-  
-  struct list_elem global_order_elem; /* For inclusion in the global callback order. */
-  struct list_elem child_elem; /* For inclusion in parent's list of children. */
-  struct list_elem root_elem; /* For root nodes: inclusion in list of root nodes. */
-};
-
-void current_callback_node_set (struct callback_node *);
-struct callback_node * current_callback_node_get (void);
-struct callback_node * get_init_stack_callback_node (void);
-void invoke_callback (struct callback_info *);
 
 void dump_callback_global_order (void);
 void dump_callback_trees (void);

@@ -44,6 +44,9 @@
 # include <net/if.h> /* if_nametoindex */
 #endif
 
+/* For determining peer info. */
+#include <sys/types.h>
+#include <sys/socket.h>
 
 typedef struct {
   uv_malloc_func local_malloc;
@@ -681,10 +684,50 @@ void mylog (const char *format, ...)
   fflush (NULL);
 }
 
-/* Unified callback queue. */
+/* Tracking the unified callback queue. */
 static int unified_callback_initialized = 0;
 static struct list root_list;
 static struct list global_order_list;
+
+/* A two-hash system allows us to maintain "nice" internal client IDs 1, 2, 3, ... . */
+/* hash(sockaddr_storage) -> addr_hash_to_id_entry */
+static struct map *addr_hash_to_id;
+/* unique client ID -> hash(sockaddr_storage) */
+static struct map *id_to_addr_hash;
+struct addr_hash_to_id_entry
+{
+  int id;
+  struct sockaddr_storage addr;
+};
+
+/* CBN has a real client ID. 
+   Propagate (bubble) this up the tree, all the way up to the
+   root node. */
+static void bubble_client_id (struct callback_node *cbn)
+{
+  struct callback_node *cur, *par;
+  assert(cbn != NULL);
+  assert(0 <= cbn->client_id);
+
+  cur = cbn;
+  par = cbn->parent;
+  while(par != NULL)
+  {
+    if (par->client_id < 0)
+    {
+      /* Update and climb the tree. */
+      par->client_id = cur->client_id;
+      cur = par;
+      par = par->parent;
+    }
+    else if (par->client_id == cur->client_id)
+      /* No need to climb higher, parent already knows. */
+      break;
+    else
+      /* Parent's ID must either have been unknown or have matched. */
+      NOT_REACHED;
+  }
+}
 
 /* Sets the current callback node to CBN. */
 static struct callback_node *current_callback_node = NULL;
@@ -707,8 +750,9 @@ struct callback_node * get_init_stack_callback_node (void)
 {
   if (init_stack_cbn == NULL)
   {
-    init_stack_cbn = malloc (sizeof *init_stack_cbn);
-    assert (init_stack_cbn != NULL);
+    init_stack_cbn = malloc(sizeof *init_stack_cbn);
+    assert(init_stack_cbn != NULL);
+    memset(init_stack_cbn, 0, sizeof *init_stack_cbn);
 
     init_stack_cbn->info = NULL;
     init_stack_cbn->level = 0;
@@ -723,8 +767,123 @@ struct callback_node * get_init_stack_callback_node (void)
   return init_stack_cbn;
 }
 
-/* Invoke the callback described by CBI. */
-void invoke_callback (struct callback_info *cbi)
+/* Returns the ID of the client described in CLIENT_ENTRY.
+   If the corresponding client is already in addr_hash_to_id, we return that ID and free CLIENT_ENTRY.
+   Otherwise we add a new entry to addr_hash_to_id and id_to_addr_hash and return the new ID. 
+   The ID is also embedded in CLIENT_ENTRY->ID.
+   If there is not a connected client, we return -1 to signify unknown. */
+int lookup_or_add_client (struct addr_hash_to_id_entry *client_entry)
+{
+  struct addr_hash_to_id_entry *map_entry;
+  int addr_hash, client_id, found;
+
+  assert(client_entry != NULL);
+  /* If already present, return the ID. Else register in the map with a new ID. */ 
+  addr_hash = map_hash (&client_entry->addr, sizeof client_entry->addr);
+  assert(addr_hash != 0); /* There must be something in addr. */
+  client_entry->id = map_size(addr_hash_to_id);
+
+  if ((map_entry = map_lookup(addr_hash_to_id, addr_hash, &found)) != NULL)
+  {
+    client_id = map_entry->id;
+    printf("Existing client\n");
+    free(client_entry);
+  }
+  else
+  {
+    client_id = client_entry->id;
+    map_insert(id_to_addr_hash, client_id, addr_hash);
+    map_insert(addr_hash_to_id, addr_hash, client_entry);
+    printf("New client\n");
+  }
+
+  return client_id;
+}
+
+/* Compute the client ID based on a uv_tcp_t*.
+   Returns the client ID, possibly modifying addr_hash_to_id.
+   If no discernible client, returns -1. */
+int get_client_id (uv_tcp_t *client)
+{
+  char host[INET6_ADDRSTRLEN];
+  char service[64];
+  socklen_t addr_len;
+  int err, found, client_id, addr_hash;
+  struct addr_hash_to_id_entry *new_entry, *map_entry;
+
+  assert(client != NULL);
+
+  new_entry = malloc(sizeof *new_entry);
+  assert(new_entry != NULL);
+  memset(new_entry, 0, sizeof *new_entry);
+  addr_len = sizeof new_entry->addr;
+
+  /* If we are not yet connected to CLIENT, CLIENT may not yet know the peer name. For example, on UV_CONNECTION_CB, the server has received an incoming connection, but uv_accept() may not yet have been called. In the case of UV_CONNECTION_CB, CLIENT->ACCEPTED_FD contains the ID of the connecting client, and we can use that instead. */
+  err = uv_tcp_getpeername(client, &new_entry->addr, &addr_len);
+  if (err != 0)
+  {
+    err = uv_tcp_getpeername_direct(client->accepted_fd, &new_entry->addr, &addr_len);
+    if (err != 0)
+      return -1;
+  }
+
+  client_id = lookup_or_add_client(new_entry);
+
+  /* Describe what we found. */
+  addr_hash = map_lookup(id_to_addr_hash, client_id, &found);
+  assert(found == 1);
+
+  map_entry = map_lookup(addr_hash_to_id, addr_hash, &found);
+  assert(found == 1);
+
+  err = getnameinfo(&map_entry->addr, addr_len, host, sizeof(host), service, sizeof(service), NI_NUMERICHOST|NI_NUMERICSERV);
+  if (err != 0)
+  { 
+    printf ("get_client_id: Error, getnameinfo failed: %s\n", gai_strerror(err));
+    assert(err == 0);
+  }
+
+  printf("get_client_id: Client: %i -> %i -> %s:%s (id %i)\n", client_id, addr_hash, host, service, client_id);
+
+  return client_id;
+}
+
+/* Compute the client ID based on a raw FD.
+   Returns the client ID, possibly modifying addr_hash_to_id.
+   If no discernible client, returns -1. */
+int get_client_id_direct (int fd)
+{
+  char host[INET6_ADDRSTRLEN];
+  char service[64];
+  socklen_t addr_len;
+  int err, found;
+  unsigned key;
+  int client_id;
+  struct addr_hash_to_id_entry *new_entry, *map_entry;
+
+  if (fd < 0)
+    return -1;
+
+  new_entry = malloc(sizeof *new_entry);
+  assert(new_entry != NULL);
+  memset(new_entry, 0, sizeof *new_entry);
+  addr_len = sizeof new_entry->addr;
+
+  /* If we are not yet connected to CLIENT, we may not know the peer name. For example, on UV_CONNETION_CB, the server has received an incoming connection, but uv_accept() may not yet have been called. */
+  err = uv_tcp_getpeername_direct(fd, &new_entry->addr, &addr_len);
+  if (err != 0)
+    return -1;
+
+  err = getnameinfo(&new_entry->addr, addr_len, host, sizeof(host), service, sizeof(service), NI_NUMERICHOST|NI_NUMERICSERV);
+  assert(err == 0);
+
+  client_id = lookup_or_add_client(new_entry);
+  return client_id;
+}
+
+/* Invoke the callback described by CBI. 
+   Returns the CBN allocated for the callback. */
+struct callback_node * invoke_callback (struct callback_info *cbi)
 {
   struct callback_node *orig_cbn, *new_cbn;
 
@@ -740,6 +899,10 @@ void invoke_callback (struct callback_info *cbi)
 
     list_init (&global_order_list);
     list_init (&root_list);
+    addr_hash_to_id = map_create();
+    assert(addr_hash_to_id != NULL);
+    id_to_addr_hash = map_create();
+    assert(id_to_addr_hash != NULL);
     signal(SIGUSR1, dump_callback_global_order_sighandler);
     signal(SIGUSR2, dump_callback_trees_sighandler);
     signal(SIGINT, dump_all_trees_and_exit_sighandler);
@@ -748,6 +911,8 @@ void invoke_callback (struct callback_info *cbi)
   
   new_cbn = malloc (sizeof *new_cbn);
   assert (new_cbn != NULL);
+  memset(new_cbn, 0, sizeof *new_cbn);
+
   new_cbn->info = cbi;
 
   /* If CBI is an asynchronous type, extract the orig_cbn at time
@@ -773,7 +938,8 @@ void invoke_callback (struct callback_info *cbi)
         assert (orig_cbn != NULL);
         break;
       case UV_TIMER_CB:
-        /* There may not be an orig_cbn if the callback was registered by
+        /* A uv_timer_t* is a uv_handle_t. 
+           There may not be an orig_cbn if the callback was registered by
            the initial stack. For example, the longPoll in simple-node.js-mud. */
         orig_cbn = ((uv_timer_t *) cbi->args[0])->parent;
         break;
@@ -788,11 +954,22 @@ void invoke_callback (struct callback_info *cbi)
     assert (orig_cbn != NULL);
     new_cbn->level = orig_cbn->level + 1;
     new_cbn->parent = orig_cbn;
+#if 1
+    new_cbn->client_id = -1;
+#else
+    new_cbn->client_id = orig_cbn->client_id;
+    new_cbn->client_addr = orig_cbn->client_addr;
+#endif
   }
   else
   {
     new_cbn->level = 0;
     new_cbn->parent = NULL;
+    /* Unknown until later on in the function. */
+    new_cbn->client_id = -1;
+    new_cbn->client_addr = (struct sockaddr_storage *) malloc(sizeof *new_cbn->client_addr);
+    assert(new_cbn->client_addr != NULL);
+    memset(new_cbn->client_addr, 0, sizeof *new_cbn->client_addr);
   }
 
   if (new_cbn->parent)
@@ -800,6 +977,8 @@ void invoke_callback (struct callback_info *cbi)
     list_lock (&new_cbn->parent->children);
     list_push_back (&new_cbn->parent->children, &new_cbn->child_elem); 
     list_unlock (&new_cbn->parent->children);
+    /* By default, inherit client id from parent. */
+    new_cbn->client_id = new_cbn->parent->client_id;
   }
   else
   {
@@ -819,12 +998,12 @@ void invoke_callback (struct callback_info *cbi)
   new_cbn->id = list_size (&global_order_list);
   list_unlock (&global_order_list);
 
-/* This is now normal because we make UV__WORK_DONE the child of the parent UV__WORK_WORK.
-  if (new_cbn->parent && new_cbn->parent->info->type == UV__WORK_WORK)
-    mylog ("invoke_callback: Child of a UV__WORK_WORK item\n");
-*/
   if (!new_cbn->parent && cbi->type == UV__WORK_WORK)
+  {
+    /* Not clear how this can happen. Probably an error. */
     mylog ("invoke_callback: root node is a UV__WORK_WORK item??\n");
+    assert(0 == 1);
+  }
 
   mylog ("invoke_callback: invoking callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
     new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
@@ -839,8 +1018,6 @@ void invoke_callback (struct callback_info *cbi)
     current_callback_node_set (new_cbn);
 
   uv_handle_t *uvht = NULL;
-  int fileno_rc;
-  uv_os_fd_t fd = -1;
   char handle_type[64];
   snprintf(handle_type, 64, "(no handle type)");
   switch (cbi->type)
@@ -848,106 +1025,82 @@ void invoke_callback (struct callback_info *cbi)
     /* include/uv.h */
     case UV_ALLOC_CB:
       uvht = (uv_handle_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
       strncpy(handle_type, "uv_handle_t", 64); 
       cbi->cb ((uv_handle_t *) cbi->args[0], (size_t) cbi->args[1], (uv_buf_t *) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_READ_CB:
-      uvht = (uv_stream_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_stream_t", 64); 
+      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
       cbi->cb ((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_WRITE_CB:
-      cbi->cb ((uv_write_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to two uv_stream_t's (uv_handle_t)  */
+      /* Pointer to the stream where this write request is running. */
+      uvht = (uv_handle_t *) ((uv_write_t *) cbi->args[0])->handle;
+      strncpy(handle_type, "uv_stream_t", 64); 
+      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
+      cbi->cb ((uv_write_t *) cbi->args[0], (int) cbi->args[1]); /* uv_write_t, has pointer to two uv_stream_t's (uv_handle_t)  */
       break;
     case UV_CONNECT_CB:
+      uvht = (uv_handle_t *) ((uv_connect_t *) cbi->args[0])->handle;
+      strncpy(handle_type, "uv_stream_t", 64); 
+      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
       cbi->cb ((uv_connect_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_SHUTDOWN_CB:
+      uvht = (uv_handle_t *) ((uv_shutdown_t *) cbi->args[0])->handle;
+      strncpy(handle_type, "uv_stream_t", 64); 
+      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
       cbi->cb ((uv_shutdown_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_CONNECTION_CB:
-      uvht = (uv_stream_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_stream_t", 64); 
+      new_cbn->client_id = get_client_id((uv_stream_t *)uvht);
       cbi->cb ((uv_stream_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_CLOSE_CB:
       uvht = (uv_handle_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
       strncpy(handle_type, "uv_handle_t", 64); 
       cbi->cb ((uv_handle_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_POLL_CB:
-      uvht = (uv_poll_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_poll_t", 64); 
       cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_TIMER_CB:
-      uvht = (uv_timer_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_timer_t", 64); 
       cbi->cb ((uv_timer_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_ASYNC_CB:
-      uvht = (uv_async_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_async_t", 64); 
       cbi->cb ((uv_async_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_PREPARE_CB:
-      uvht = (uv_prepare_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_prepare_t", 64); 
       cbi->cb ((uv_prepare_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_CHECK_CB:
-      uvht = (uv_check_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_check_t", 64); 
       cbi->cb ((uv_check_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_IDLE_CB:
-      uvht = (uv_idle_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_idle_t", 64); 
       cbi->cb ((uv_idle_t *) cbi->args[0]); /* uv_handle_t */
       break;
     case UV_EXIT_CB:
-      uvht = (uv_process_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_process_t", 64); 
       cbi->cb ((uv_process_t *) cbi->args[0], (int64_t) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_WALK_CB:
       uvht = (uv_handle_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
       strncpy(handle_type, "uv_handle_t", 64); 
       cbi->cb ((uv_handle_t *) cbi->args[0], (void *) cbi->args[1]); /* uv_handle_t */
       break;
@@ -967,26 +1120,17 @@ void invoke_callback (struct callback_info *cbi)
       cbi->cb ((uv_getnameinfo_t *) cbi->args[0], (int) cbi->args[1], (const char *) cbi->args[2], (const char *) cbi->args[3]); /* uv_req_t, no information about handle or parent */
       break;
     case UV_FS_EVENT_CB:
-      uvht = (uv_fs_event_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_fs_event_t", 64); 
       cbi->cb ((uv_fs_event_t *) cbi->args[0], (const char *) cbi->args[1], (int) cbi->args[2], (int) cbi->args[3]); /* uv_handle_t */
       break;
     case UV_FS_POLL_CB:
-      uvht = (uv_fs_poll_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_fs_poll_t", 64); 
       cbi->cb ((uv_fs_poll_t *) cbi->args[0], (int) cbi->args[1], (const uv_stat_t *) cbi->args[2], (const uv_stat_t *) cbi->args[3]); /* uv_handle_t */
       break;
     case UV_SIGNAL_CB:
-      uvht = (uv_signal_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_signal_t", 64); 
       cbi->cb ((uv_signal_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
       break;
@@ -994,10 +1138,7 @@ void invoke_callback (struct callback_info *cbi)
       cbi->cb ((uv_udp_send_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_udp_t (uv_handle_t) */
       break;
     case UV_UDP_RECV_CB:
-      uvht = (uv_udp_t *) cbi->args[0];
-      fileno_rc = uv_fileno (uvht, &fd);
-      if (fileno_rc != 0)
-        fd = -1;
+      uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_udp_t", 64); 
       cbi->cb ((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]); /* uv_handle_t */
       break;
@@ -1026,8 +1167,16 @@ void invoke_callback (struct callback_info *cbi)
       assert (0 == 1);
   }
 
-  if (uvht && fileno_rc == 0)
-    mylog ("handle type <%s> fd %i\n", handle_type, fd);
+  if (new_cbn->parent != NULL && 0 <= new_cbn->parent->client_id && new_cbn->parent->client_id != new_cbn->client_id)
+  {
+    printf ("Interesting: cbn's client ID does not match its parent's.\n");
+    assert(0 == 1);
+  }
+
+  if (0 <= new_cbn->client_id)
+    bubble_client_id(new_cbn);
+
+  mylog ("handle type <%s>\n", handle_type);
 
   mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p>\n",
     new_cbn, new_cbn->info, uvht); 
@@ -1038,7 +1187,6 @@ void invoke_callback (struct callback_info *cbi)
   struct timeval diff;
   timersub (&new_cbn->stop, &new_cbn->start, &diff);
   new_cbn->duration = diff.tv_sec*1000000 + diff.tv_usec;
-  new_cbn->client_id = fd;
 
   if (sync_cb)
     /* Synchronous CB has finished, and the orig_cb is still active. */
@@ -1047,7 +1195,8 @@ void invoke_callback (struct callback_info *cbi)
   {
     /* Async CB has finished. In general there is no current CB.
        However, if this callback was potentially concurrent with other callbacks (i.e. a threadpool WORK callback),
-       then we shouldn't modify the current CB. */
+         then we shouldn't modify the current CB. 
+         In this case we correspondingly did not set this node as the current CBN above. */
     if (cbi->type != UV__WORK_WORK)
       current_callback_node_set(NULL);
   }
@@ -1058,6 +1207,7 @@ void invoke_callback (struct callback_info *cbi)
   dump_callback_trees (0);
   printf ("\n\n\n\n\n");
 #endif
+  return new_cbn;
 }
 
 static char *callback_type_strings[] = {
@@ -1093,8 +1243,8 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
     */
-  dprintf (fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %lli\\nID %i\"];\n",
-    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, (int) cbn->relative_start, cbn->duration, cbn->id);
+  dprintf (fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %lli\\nID %i\\nclient ID %i\"];\n",
+    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, (int) cbn->relative_start, cbn->duration, cbn->id, cbn->client_id);
 }
 
 /* Prints callback node CBN to FD.
@@ -1254,7 +1404,7 @@ void dump_callback_trees (void)
 
 #if GRAPHVIZ
   snprintf (out_file, 128, "/tmp/meta_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
-  printf ("Dumping the %i callback trees as a meta-tree to %s\n", list_size (&root_list), out_file);
+  printf ("Dumping the %i callback trees as a meta-tree to %s\n  dot -Tdot %s -o /tmp/graph.dot\n  xdot /tmp/graph.dot\n", list_size (&root_list), out_file, out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   assert (0 <= fd);
