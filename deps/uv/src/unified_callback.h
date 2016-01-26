@@ -62,16 +62,32 @@ struct callback_node
   int level; /* What level in the callback tree is it? For root nodes this is 0. */
   struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
 
-  int client_id; /* My internal ID of client incurring this CB. -1 if unknown. -2 if init stack node. */
-  struct sockaddr_storage *client_addr; /* Info about the client. */
+  /* These fields are to track our internal ID of the client incurring this CB. 
+     The first client has ID 0, the second ID 1, ... -1 == unknown. -2 == originating from the initial stack. 
+     Trees from the initial stack will all have ID -2. 
+     Subsequent trees will begin with orig_client_id = true_client_id = -1 (unknown).
+     Once the client ID is discovered, the tree will be "colored" with that ID. 
+     The discovering node will have discovered_client_id == 1.
+
+     For trees originating from the initial stack, the color is always known.
+     For trees originating from client input, the color is discovered "at some point".
+       Nodes with (orig_client_id, true_client_id, discovered_client_id) = (-1, !-1, 0) were originally "colorless" -- the color (i.e. the client) had not yet been discovered.
+       The node with (orig_client_id, true_client_id, discovered_client_id) = (-1, !-1, 0) was the node that discovered the color (i.e. the client). This discovery is made with a CONNECTION_CB or a READ_CB.
+       Nodes with (orig_client_id, true_client_id) = (!-1, !-1) were in generations with the color (i.e. the client) already known.
+     */
+  int orig_client_id; /* The original ID inherited from the parent. */
+  int true_client_id; /* The true ID. */
+  int discovered_client_id; /* Whether or not this node "discovered" the client ID. */
+
+  struct sockaddr_storage *peer_info; /* Info about the peer associated with this node. The root of a tree allocates this, and descendants share it. The discovered_client_id node sets it. */ 
 
   time_t relative_start; /* Seconds since program began. */
   struct timeval start;
   struct timeval stop;
-  long long duration; /* Number of microseconds elapsed. */
+  unsigned long duration; /* Number of microseconds elapsed. */
   int active; /* 1 if callback active, 0 if finished. */
 
-  int id; /* Unique ID for this node. */
+  int id; /* Unique ID for this node. This is the index of the node in global_order_list, i.e. the order in which it was evaluated relative to the other nodes. */
 
   struct list children; /* Linked list of children. */
   

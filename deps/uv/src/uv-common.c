@@ -703,43 +703,63 @@ static int unified_callback_initialized = 0;
 static struct list root_list;
 static struct list global_order_list;
 
-/* A two-hash system allows us to maintain "nice" internal client IDs 1, 2, 3, ... . */
-/* hash(sockaddr_storage) -> addr_hash_to_id_entry */
-static struct map *addr_hash_to_id;
-/* unique client ID -> hash(sockaddr_storage) */
-static struct map *id_to_addr_hash;
-struct addr_hash_to_id_entry
-{
-  int id;
-  struct sockaddr_storage addr;
-};
+/* We identify unique clients based on the associated 'peer info' (struct sockaddr).
+   A map 'peer -> client ID' tells us whether a given peer is an already-known client.
+   A map 'client ID -> peer' gives us information about the internal client ID 1, 2, 3, ... . */
+/* hash(sockaddr_storage) -> (void *) client ID */
+static struct map *peer_info_to_id;
+/* client ID -> (void *) &sockaddr_storage */
+static struct map *id_to_peer_info;
 
-/* CBN has a real client ID. 
-   Propagate (bubble) this up the tree, all the way up to the
-   root node. */
-static void bubble_client_id (struct callback_node *cbn)
+/* Printing nodes with colors based on client ID. */
+#define RESERVED_COLORS 2 /* To accommodate true_client_id -2 (initial stack), and -1 (unknown). */
+/* graphviz notation: node [style="filled" colorscheme="SVG" color="aliceblue"] */
+char *graphviz_colorscheme = "SVG";
+char *graphviz_colors[] = { "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki", "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "grey", "green", "greenyellow", "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue", "purple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen", "steelblue", "tan", "teal", "thistle", "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen" }; /* ~150 colors. */
+
+/* Returns 1 if CBN is a root node, else 0. */
+static int cbn_is_root (const struct callback_node *cbn)
 {
-  struct callback_node *cur, *par;
   assert(cbn != NULL);
-  assert(0 <= cbn->client_id);
+  return (cbn->parent == NULL);
+}
 
-  cur = cbn;
-  par = cbn->parent;
-  while(par != NULL)
+/* Returns 1 if we know the peer info of CBN already, else 0. */
+static int cbn_have_peer_info (const struct callback_node *cbn)
+{
+  assert(cbn != NULL);
+  return !is_zeros(cbn->peer_info, sizeof *cbn->peer_info);
+}
+
+/* Return the root of the callback-node tree containing CBN. */
+static struct callback_node * cbn_get_root (struct callback_node *cbn)
+{
+  assert(cbn != NULL);
+  while (!cbn_is_root(cbn))
+    cbn = cbn->parent;
+  return cbn;
+}
+
+/* The color (i.e. CLIENT_ID) of the tree rooted at CBN has been discovered.
+   Color CBN and all of its descendants this color. */
+static void cbn_color_tree (struct callback_node *cbn, int client_id)
+{
+  struct callback_node *child;
+  struct list_elem *e;
+  assert(cbn != NULL);
+
+  /* If CBN is already colored, its descendants must also be colored due to inheritance. */
+  if (cbn->true_client_id == client_id)
+    return;
+
+  /* Color CBN. */
+  cbn->true_client_id = client_id;
+
+  /* Color descendants. */
+  for (e = list_begin(&cbn->children); e != list_end(&cbn->children); e = list_next(e))
   {
-    if (par->client_id < 0)
-    {
-      /* Update and climb the tree. */
-      par->client_id = cur->client_id;
-      cur = par;
-      par = par->parent;
-    }
-    else if (par->client_id == cur->client_id)
-      /* No need to climb higher, parent already knows. */
-      break;
-    else
-      /* Parent's ID must either have been unknown or have matched. */
-      NOT_REACHED;
+    child = list_entry (e, struct callback_node, child_elem);
+    cbn_color_tree(child, client_id);
   }
 }
 
@@ -1019,21 +1039,47 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     assert(0 == 1);
   }
 
-  mylog ("invoke_callback: invoking callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
+  mylog ("invoke_callback: getting ready to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
     new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
   assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
        || (0 < new_cbn->level && new_cbn->parent != NULL));
 
-  /* If UV__WORK_WORK, can be called in parallel, resulting in an unclear current_callback_node. 
+  /* If UV__WORK_WORK, being called by the threadpool, resulting in an unclear current_callback_node. 
      We resolve the issue by simply not tracking WORK_WORK CBs as active. 
-     TODO In standard Node.js use, they are not expected to register new callbacks of their own, though this should be verified.  
-     To address this, we could perhaps track a per-tid current_callback_node. */
+     TODO We could perhaps use a map to track a per-tid current_callback_node. */
   if (cbi->type != UV__WORK_WORK)
     current_callback_node_set (new_cbn);
 
-  uv_handle_t *uvht = NULL;
-  char handle_type[64];
+  uvht = NULL;
   snprintf(handle_type, 64, "(no handle type)");
+
+  /* Attempt to discover the client ID associated with this callback. */
+  if (new_cbn->true_client_id == -1)
+  {
+    mylog("Looking for peer info\n");
+    got_peer_info = look_for_peer_info(cbi, new_cbn, &uvht);
+    if (got_peer_info)
+    {
+      mylog("Found peer info\n");
+      /* We determined the peer info. Convert to ID and color the tree. */
+      new_cbn->discovered_client_id = 1;
+      new_cbn->true_client_id = get_client_id(new_cbn->peer_info);
+      assert(0 <= new_cbn->true_client_id);
+
+      root = cbn_get_root(new_cbn);
+      cbn_color_tree(root, new_cbn->true_client_id);
+
+      if (uvht != NULL)
+        /* Embed the peer_info for this handle. Used to identify the client on CLOSE_CB. 
+           Per nodejs-mud tests, the handle can be re-used on different clients. 
+           I'm assuming that this does not happen unsafely, since I cannot imagine how
+           it would work if the same handle could be used to talk to two different clients concurrently. 
+           However, this is a potential source of error. */
+        uvht->peer_info = new_cbn->peer_info;
+    }
+  }
+
+  /* Invoke the callback. */
   switch (cbi->type)
   {
     /* include/uv.h */
@@ -1045,32 +1091,27 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     case UV_READ_CB:
       uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_stream_t", 64); 
-      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
       cbi->cb ((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]); /* uv_handle_t */
       break;
     case UV_WRITE_CB:
       /* Pointer to the stream where this write request is running. */
       uvht = (uv_handle_t *) ((uv_write_t *) cbi->args[0])->handle;
       strncpy(handle_type, "uv_stream_t", 64); 
-      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
       cbi->cb ((uv_write_t *) cbi->args[0], (int) cbi->args[1]); /* uv_write_t, has pointer to two uv_stream_t's (uv_handle_t)  */
       break;
     case UV_CONNECT_CB:
       uvht = (uv_handle_t *) ((uv_connect_t *) cbi->args[0])->handle;
       strncpy(handle_type, "uv_stream_t", 64); 
-      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
       cbi->cb ((uv_connect_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_SHUTDOWN_CB:
       uvht = (uv_handle_t *) ((uv_shutdown_t *) cbi->args[0])->handle;
       strncpy(handle_type, "uv_stream_t", 64); 
-      new_cbn->client_id = get_client_id((uv_stream_t *) uvht);
       cbi->cb ((uv_shutdown_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_CONNECTION_CB:
       uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_stream_t", 64); 
-      new_cbn->client_id = get_client_id((uv_stream_t *)uvht);
       cbi->cb ((uv_stream_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
       break;
     case UV_CLOSE_CB:
@@ -1181,15 +1222,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       assert (0 == 1);
   }
 
-  if (new_cbn->parent != NULL && 0 <= new_cbn->parent->client_id && new_cbn->parent->client_id != new_cbn->client_id)
-  {
-    printf ("Interesting: cbn's client ID does not match its parent's.\n");
-    assert(0 == 1);
-  }
-
-  if (0 <= new_cbn->client_id)
-    bubble_client_id(new_cbn);
-
   mylog ("handle type <%s>\n", handle_type);
 
   mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p>\n",
@@ -1257,8 +1289,8 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
     */
-  dprintf (fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i duration %lli\\nID %i\\nclient ID %i\"];\n",
-    cbn->id, cbn->client_id, callback_type_to_string (cbn->info->type), cbn->active, (int) cbn->relative_start, cbn->duration, cbn->id, cbn->client_id);
+  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i (s) duration %lu (ms)\\nID %i\\nclient ID %i\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start, cbn->duration, cbn->id, cbn->true_client_id, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_COLORS]);
 }
 
 /* Prints callback node CBN to FD.
@@ -1277,48 +1309,51 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
       strcat (spaces, " ");
   }
 
-  dprintf (fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start> <%li>> | <duration> <%lli>> |\n", 
-    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, callback_type_to_string (cbn->info->type), cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->client_id, cbn->relative_start, cbn->duration);
+  dprintf(fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start> <%li>> | <duration> <%li>> |\n", 
+    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->true_client_id, cbn->relative_start, cbn->duration);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
    Locks and unlocks GLOBAL_ORDER_LIST. */
-void dump_callback_global_order (void)
+void dump_callback_globalorder (void)
 {
   struct list_elem *e;
   int cbn_num;
   char prefix[64];
   int fd;
   char out_file[128];
+  struct callback_node *cbn;
 
-  snprintf (out_file, 128, "/tmp/callback_global_order_%i_%i.txt", (int) time(NULL), getpid());
-  printf ("Dumping all %i callbacks in their global order to %s\n", list_size (&global_order_list), out_file);
+  snprintf(out_file, 128, "/tmp/callback_global_order_%i_%i.txt", (int) time(NULL), getpid());
+  printf("Dumping all %i callbacks in their global order to %s\n", list_size (&global_order_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   if (fd < 0)
   {
-    printf ("Error, open (%s, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO) failed, returning %i. errno %i: %s\n",
+    printf("Error, open (%s, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO) failed, returning %i. errno %i: %s\n",
       out_file, fd, errno, strerror (errno));
-    fflush (NULL);
+    fflush(NULL);
     exit (1);
   }
 
-  list_lock (&global_order_list);
+  list_lock(&global_order_list);
 
   cbn_num = 0;
-  for (e = list_begin (&global_order_list); e != list_end (&global_order_list); e = list_next (e))
+  for (e = list_begin(&global_order_list); e != list_end(&global_order_list); e = list_next(e))
   {
-    struct callback_node *cbn = list_entry (e, struct callback_node, global_order_elem);
-    snprintf (prefix, 64, "Callback %i: ", cbn_num);
+    assert(e != NULL);
+    cbn = list_entry (e, struct callback_node, global_order_elem);
+    snprintf(prefix, 64, "Callback %i: ", cbn_num);
     dump_callback_node (fd, cbn, prefix, 0);
     cbn_num++;
   }
-  fflush (NULL);
+  fflush(NULL);
 
-  list_unlock (&global_order_list);
-  close (fd);
+  list_unlock(&global_order_list);
+  close(fd);
 }
 
+#if 0
 /* Dumps the callback tree rooted at CBN to FD. */
 static void dump_callback_tree (int fd, struct callback_node *cbn)
 {
@@ -1329,14 +1364,15 @@ static void dump_callback_tree (int fd, struct callback_node *cbn)
 
   dump_callback_node (fd, cbn, "", 1);
   child_num = 0;
-  for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
+  for (e = list_begin(&cbn->children); e != list_end(&cbn->children); e = list_next(e))
   {
     node = list_entry (e, struct callback_node, child_elem);
-    /* printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
+    /* printf("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
     dump_callback_tree (fd, node);
     child_num++;
   }
 }
+#endif
 
 /* Dump the callback tree rooted at CBN to FD in graphviz format.
    The caller must have prepared the outer graph declaration; we just
@@ -1428,6 +1464,10 @@ void dump_callback_trees (void)
      Nodes use their global ID as a node ID so trees can coexist happily in the same meta-tree. */
   dprintf (fd, "digraph META_TREE {\n    /* size %i */\n", meta_size);
   dprintf (fd, "  -1 [label=\"meta-root node\"]\n");
+     Nodes use their global ID as a node ID so trees can coexist happily in the same meta-tree. 
+     Using ordering="out" seems to make each node be placed by global ID order (i.e. in the same order in which they arrive). We'll see how well this works more generally... */
+  dprintf(fd, "digraph META_TREE {\n    graph [ordering=\"out\"]\n     /* size %i */\n", meta_size);
+  dprintf(fd, "  -1 [label=\"meta-root node\"]\n");
   tree_num = 0;
   for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
   {
