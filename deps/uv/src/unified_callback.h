@@ -81,7 +81,7 @@ struct callback_node
 
   struct sockaddr_storage *peer_info; /* Info about the peer associated with this node. The root of a tree allocates this, and descendants share it. The discovered_client_id node sets it. */ 
 
-  time_t relative_start; /* Seconds since program began. */
+  unsigned long relative_start; /* Microseconds since program began. */
   struct timeval start;
   struct timeval stop;
   unsigned long duration; /* Number of microseconds elapsed. */

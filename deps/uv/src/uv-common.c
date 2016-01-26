@@ -1439,13 +1439,26 @@ char *callback_type_to_string (enum callback_type type)
    TODO Increase the amount of information embedded here? */
 static void dump_callback_node_gv (int fd, struct callback_node *cbn)
 {
+  char client_info[256];
+  struct uv_nameinfo nameinfo;
   assert (cbn != NULL);
 
+  if (cbn->true_client_id == -2)
+    snprintf(client_info, 256, "initial stack");
+  else if (cbn->true_client_id == -1)
+    snprintf(client_info, 256, "unknown (internal?)");
+  else
+  {
+    assert(cbn_have_peer_info(cbn));
+    addr_getnameinfo(cbn->peer_info, &nameinfo);
+    snprintf(client_info, 256, "%s [port %s]", nameinfo.host, nameinfo.service);
+  }
+
   /* Example listing:
-    1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
-    */
-  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %i (s) duration %lu (ms)\\nID %i\\nclient ID %i\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
-    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start, cbn->duration, cbn->id, cbn->true_client_id, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_COLORS]);
+    1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 5 (ms)\nID 1..."];
+  */
+  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %lu (ms) duration %lu (ms)\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, cbn->relative_start, cbn->duration, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_COLORS]);
 }
 
 /* Prints callback node CBN to FD.
@@ -1464,7 +1477,7 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
       strcat (spaces, " ");
   }
 
-  dprintf(fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start> <%li>> | <duration> <%li>> |\n", 
+  dprintf(fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start (us)> <%lu>> | <duration (us)> <%lu>> |\n", 
     do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->true_client_id, cbn->relative_start, cbn->duration);
 }
 
@@ -1665,11 +1678,28 @@ void dump_all_trees_and_exit_sighandler (int signum)
   exit (0);
 }
 
-/* Returns time relative to the time at which the first CB was invoked. */
-static time_t init_time = 0;
+/* Returns time in microseconds (us) relative to the time at which the first CB was invoked. */
+static unsigned long init_time = 0;
 time_t get_relative_time (void)
 {
+  struct timeval tv;
+  unsigned long now, diff;
+
+  assert(gettimeofday(&tv, NULL) == 0);
+  now = tv.tv_sec*1000000 + tv.tv_usec;
+
   if (init_time == 0)
-    init_time = time(NULL);
-  return time(NULL) - init_time;
+  {
+    init_time = now;
+    return 0;
+  }
+  else
+  {
+    diff = now - init_time;
+    if (init_time <= now)
+      return diff;
+    else
+      /* Too close to call it. */
+      return 0;
+  }
 }
