@@ -657,7 +657,6 @@ void mylog (const char *format, ...)
 {
   pid_t my_pid;
   va_list args;
-  char indents[512];
   time_t now;
   char *now_s;
 
@@ -671,20 +670,19 @@ void mylog (const char *format, ...)
     strncat (indents, "  ", 512);
 
   my_pid = getpid ();
-  printf ("%s %s gen %i process %i: ", indents, now_s, generation, my_pid);
+  printf("%s %s gen %i process %i: ", indents, now_s, generation, my_pid);
 #else
   my_pid = getpid ();
-  printf ("%s process %i: ", now_s, my_pid);
+  printf("%s process %i: ", now_s, my_pid);
 #endif
 
   va_start(args, format);
   vprintf(format, args);
   va_end(args);
 
-  fflush (NULL);
+  fflush(NULL);
 }
 
-/* Tracking the unified callback queue. */
 int has_init_stack_finished = 0;
 /* Note that we've entered the main libuv loop. Call at most once. */
 void signal_init_stack_finished(void)
@@ -699,7 +697,47 @@ int init_stack_finished(void)
 {
   return has_init_stack_finished;
 }
+
+/* For convenience with addr_getnameinfo. */
+struct uv_nameinfo
+{
+  char host[INET6_ADDRSTRLEN];
+  char service[64];
+};
+
+/* Static functions added for unified callback. */
+
+/* Callback nodes. */
+static int cbn_have_peer_info (const struct callback_node *cbn);
+static int cbn_is_root (const struct callback_node *cbn);
+static struct callback_node * cbn_get_root (struct callback_node *cbn);
+static void cbn_color_tree (struct callback_node *cbn, int client_id);
+static int cbn_have_peer_info (const struct callback_node *cbn);
+
+/* Peer addresses and clients. */
+static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP);
+static void get_peer_info (uv_handle_t *client, struct sockaddr_storage *peer_info);
+static int get_client_id (struct sockaddr_storage *addr);
+
+static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo *nameinfo);
+static unsigned addr_calc_hash (struct sockaddr_storage *addr);
+
+/* Misc. */
+static void init_unified_callback (void);
+static int is_zeros (void *buffer, size_t size);
+static void print_buf (void *buffer, size_t size);
+
+/* Output. */
+static void dump_callback_node_gv (int fd, struct callback_node *cbn);
+static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix, int do_indent);
+static void dump_callback_tree_gv (int fd, struct callback_node *cbn);
+#if 0
+static void dump_callback_tree (int fd, struct callback_node *cbn);
+#endif
+
+/* Variables for tracking the unified callback queue. */
 static int unified_callback_initialized = 0;
+
 static struct list root_list;
 static struct list global_order_list;
 
@@ -782,6 +820,9 @@ struct callback_node *current_callback_node_get (void)
 static struct callback_node *init_stack_cbn = NULL;
 struct callback_node * get_init_stack_callback_node (void)
 {
+  if (!unified_callback_initialized)
+    init_unified_callback();
+
   if (init_stack_cbn == NULL)
   {
     init_stack_cbn = malloc(sizeof *init_stack_cbn);
@@ -791,157 +832,254 @@ struct callback_node * get_init_stack_callback_node (void)
     init_stack_cbn->info = NULL;
     init_stack_cbn->level = 0;
     init_stack_cbn->parent = NULL;
-    init_stack_cbn->client_id = -2;
+
+    init_stack_cbn->orig_client_id = -2;
+    init_stack_cbn->true_client_id = -2;
+    init_stack_cbn->discovered_client_id = 1;
+
     init_stack_cbn->relative_start = 0;
     init_stack_cbn->duration = 0;
     init_stack_cbn->active = 1;
-    list_init (&init_stack_cbn->children);
+    list_init(&init_stack_cbn->children);
+
+    /* Add to global order list and to root list. */
+    list_lock(&global_order_list);
+    list_lock(&root_list);
+
+    list_push_back(&global_order_list, &init_stack_cbn->global_order_elem);
+    init_stack_cbn->id = list_size (&global_order_list);
+
+    list_push_back(&root_list, &init_stack_cbn->root_elem); 
+
+    list_unlock(&global_order_list);
+    list_unlock(&root_list);
   }
 
   return init_stack_cbn;
 }
 
-/* Returns the ID of the client described in CLIENT_ENTRY.
-   If the corresponding client is already in addr_hash_to_id, we return that ID and free CLIENT_ENTRY.
-   Otherwise we add a new entry to addr_hash_to_id and id_to_addr_hash and return the new ID. 
-   The ID is also embedded in CLIENT_ENTRY->ID.
-   If there is not a connected client, we return -1 to signify unknown. */
-int lookup_or_add_client (struct addr_hash_to_id_entry *client_entry)
+/* Returns 1 if BUFFER is all 0's, else 0. */
+static int is_zeros (void *buffer, size_t size)
 {
-  struct addr_hash_to_id_entry *map_entry;
-  int addr_hash, client_id, found;
+  size_t i;
+  char *buffer_c;
+  assert(buffer != NULL);
 
-  assert(client_entry != NULL);
-  /* If already present, return the ID. Else register in the map with a new ID. */ 
-  addr_hash = map_hash (&client_entry->addr, sizeof client_entry->addr);
-  assert(addr_hash != 0); /* There must be something in addr. */
-  client_entry->id = map_size(addr_hash_to_id);
-
-  if ((map_entry = map_lookup(addr_hash_to_id, addr_hash, &found)) != NULL)
+  buffer_c = buffer;
+  for (i = 0; i < size; i++)
   {
-    client_id = map_entry->id;
+    if (buffer_c[i] != 0)
+      return 0;
+  }
+  return 1;
+}
+
+/* Prints BUFFER of SIZE rendered as chars. Adds a newline at the end. */
+static void print_buf (void *buffer, size_t size)
+{
+  size_t i;
+  char *buffer_c;
+  assert(buffer != NULL);
+
+  printf ("Printing %p of size %lu\n", buffer, (unsigned long) size);
+
+  buffer_c = buffer;
+  for (i = 0; i < size; i++)
+    printf("%c", buffer_c[i]);
+  printf("\n");
+}
+
+/* Populate NAMEINFO using getnameinfo on ADDR. */
+static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo *nameinfo)
+{
+  socklen_t addr_len;
+  int err;
+
+  assert(addr != NULL);
+  assert(nameinfo != NULL);
+
+  addr_len = sizeof *addr;
+
+  err = getnameinfo((struct sockaddr *) addr, addr_len, nameinfo->host, sizeof(nameinfo->host), nameinfo->service, sizeof(nameinfo->service), NI_NUMERICHOST|NI_NUMERICSERV);
+  if (err != 0)
+  { 
+    printf("get_peer_info: Error, getnameinfo failed (family %i AF_UNSPEC %i AF_INET %i AF_INET6 %i): %i: %s\n", ((struct sockaddr *) addr)->sa_family, AF_UNSPEC, AF_INET, AF_INET6, err, gai_strerror(err));
+    print_buf(addr, sizeof *addr);
+    fflush(NULL);
+    assert(err == 0); /* ??? */
+  }
+
+  return;
+}
+
+
+/* Compute a hash of ADDR for use as a key to peer_info_to_id.
+   We classify all traffic with the same IP as from the same client. */
+static unsigned addr_calc_hash (struct sockaddr_storage *addr)
+{
+  struct uv_nameinfo nameinfo;
+  unsigned hash;
+
+  assert(addr != NULL);
+
+  memset(&nameinfo, 0, sizeof nameinfo);
+  addr_getnameinfo(addr, &nameinfo);
+  hash = map_hash(nameinfo.host, sizeof nameinfo.host);
+
+  return hash;
+}
+
+/* Sets PEER_INFO based on the provided uv_handle_t*.
+   Use in conjunction with get_client_id.
+   We can only compute the client ID when the handle encodes it.
+   If no discernible client, does not modify PEER_INFO. */
+static void get_peer_info (uv_handle_t *client, struct sockaddr_storage *peer_info)
+{
+  int err;
+  socklen_t addr_len;
+
+  assert(client != NULL);
+  assert(peer_info != NULL);
+
+  addr_len = sizeof *peer_info;
+
+  switch (client->type) {
+    case UV_TCP:
+      /* If we are not yet connected to CLIENT, CLIENT may not yet know the peer name. 
+         For example, on UV_CONNECTION_CB, the server has received an incoming connection, but uv_accept() may not yet have been called. 
+         In the case of UV_CONNECTION_CB, CLIENT->ACCEPTED_FD contains the ID of the connecting client, and we can use that instead. */
+      err = uv_tcp_getpeername((const uv_tcp_t *) client, (struct sockaddr *) peer_info, (int *) &addr_len);
+      if (err != 0)
+        err = uv_tcp_getpeername_direct(((uv_tcp_t *) client)->accepted_fd, (struct sockaddr *) peer_info, (int *) &addr_len);
+      break;
+    default:
+      break;
+  }
+  return;
+}
+
+/* Returns the ID of the client described by ADDR.
+   If the corresponding client is already in peer_info_to_id, we return that ID.
+   Otherwise we add a new entry to peer_info_to_id and id_to_peer_info and return the new ID. */
+static int get_client_id (struct sockaddr_storage *addr)
+{
+  struct uv_nameinfo nameinfo;
+  int addr_hash, next_client_id, found, client_id, *entry;
+
+  assert(addr != NULL);
+  assert(!is_zeros(addr, sizeof *addr));
+
+  addr_hash = addr_calc_hash(addr);
+  assert(addr_hash != 0); /* There must be something in ADDR. */
+
+  next_client_id = map_size(peer_info_to_id);
+
+  entry = map_lookup(peer_info_to_id, addr_hash, &found);
+  if (found)
+  {
+    client_id = (int) entry;
     printf("Existing client\n");
-    free(client_entry);
   }
   else
   {
-    client_id = client_entry->id;
-    map_insert(id_to_addr_hash, client_id, addr_hash);
-    map_insert(addr_hash_to_id, addr_hash, client_entry);
+    client_id = next_client_id;
+    map_insert(id_to_peer_info, client_id, (void *) addr);
+    map_insert(peer_info_to_id, addr_hash, (void *) client_id);
     printf("New client\n");
   }
 
+  /* Print the client's info. */
+  addr_getnameinfo(addr, &nameinfo);
+  printf("get_peer_info: Client: %i -> %i -> %s:%s (id %i)\n", client_id, addr_hash, nameinfo.host, nameinfo.service, client_id);
+
   return client_id;
 }
 
-/* Compute the client ID based on a uv_tcp_t*.
-   Returns the client ID, possibly modifying addr_hash_to_id.
-   If no discernible client, returns -1. */
-int get_client_id (uv_tcp_t *client)
+/* Initialize the data structures for the unified callback code. */
+static void init_unified_callback (void)
 {
-  char host[INET6_ADDRSTRLEN];
-  char service[64];
-  socklen_t addr_len;
-  int err, found, client_id, addr_hash;
-  struct addr_hash_to_id_entry *new_entry, *map_entry;
+  if (unified_callback_initialized)
+    return;
 
-  assert(client != NULL);
+  printf("DEBUG: Testing list\n");
+  list_UT();
+  printf("DEBUG: Testing map\n");
+  map_UT();
 
-  new_entry = malloc(sizeof *new_entry);
-  assert(new_entry != NULL);
-  memset(new_entry, 0, sizeof *new_entry);
-  addr_len = sizeof new_entry->addr;
+  list_init(&global_order_list);
+  list_init(&root_list);
+  peer_info_to_id = map_create();
+  assert(peer_info_to_id != NULL);
+  id_to_peer_info = map_create();
+  assert(id_to_peer_info != NULL);
+  signal(SIGUSR1, dump_callback_global_order_sighandler);
+  signal(SIGUSR2, dump_callback_trees_sighandler);
+  signal(SIGINT, dump_all_trees_and_exit_sighandler);
+  unified_callback_initialized = 1;
+}
 
-  /* If we are not yet connected to CLIENT, CLIENT may not yet know the peer name. For example, on UV_CONNECTION_CB, the server has received an incoming connection, but uv_accept() may not yet have been called. In the case of UV_CONNECTION_CB, CLIENT->ACCEPTED_FD contains the ID of the connecting client, and we can use that instead. */
-  err = uv_tcp_getpeername(client, &new_entry->addr, &addr_len);
-  if (err != 0)
+/* Look for the peer info for CBI, and update CBN->peer_info if possible.
+   Returns 1 if we got the peer info, else 0. 
+   Do not call this if we already know the peer info. */
+static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP)
+{
+  uv_handle_t *uvht;
+
+  assert(cbi != NULL);
+  assert(cbn != NULL);
+  assert(uvhtPP != NULL);
+  /* Should not be looking for peer info if we already have it. */
+  assert(!cbn_have_peer_info(cbn));
+
+  *uvhtPP = NULL;
+  switch (cbi->type)
   {
-    err = uv_tcp_getpeername_direct(client->accepted_fd, &new_entry->addr, &addr_len);
-    if (err != 0)
-      return -1;
+    /* TODO Don't check if status is UV_ECANCELED -- see uv_close. */
+    case UV_CONNECT_CB:
+      *uvhtPP = (uv_handle_t *) ((uv_connect_t *) cbi->args[0])->handle;
+      break;
+    case UV_CONNECTION_CB:
+      *uvhtPP = (uv_handle_t *) cbi->args[0];
+      break;
+    case UV_READ_CB:
+      *uvhtPP = (uv_handle_t *) cbi->args[0];
+      break;
+    case UV_UDP_RECV_CB:
+      /* UDP already knows the associated peer. cbi->args[3] is a struct sockaddr_storage * (see uv__udp_recvmsg). */
+      memcpy(cbn->peer_info, (const struct sockaddr_storage *) cbi->args[3], sizeof *cbn->peer_info);
+      break;
+    case UV_CLOSE_CB:
+      /* Attempt to retrieve the peer_info from the handle. If we previously identified the peer associated with this handle, we embedded the peer info in it already. */
+      uvht = (uv_handle_t *) cbi->args[0];
+      if (uvht != NULL && uvht->peer_info != NULL)
+        memcpy(cbn->peer_info, (const struct sockaddr_storage *) uvht->peer_info, sizeof *cbn->peer_info);
+    default:
+      /* Cannot determine peer info. */
+      break;
   }
 
-  client_id = lookup_or_add_client(new_entry);
-
-  /* Describe what we found. */
-  addr_hash = map_lookup(id_to_addr_hash, client_id, &found);
-  assert(found == 1);
-
-  map_entry = map_lookup(addr_hash_to_id, addr_hash, &found);
-  assert(found == 1);
-
-  err = getnameinfo(&map_entry->addr, addr_len, host, sizeof(host), service, sizeof(service), NI_NUMERICHOST|NI_NUMERICSERV);
-  if (err != 0)
-  { 
-    printf ("get_client_id: Error, getnameinfo failed: %s\n", gai_strerror(err));
-    assert(err == 0);
-  }
-
-  printf("get_client_id: Client: %i -> %i -> %s:%s (id %i)\n", client_id, addr_hash, host, service, client_id);
-
-  return client_id;
-}
-
-/* Compute the client ID based on a raw FD.
-   Returns the client ID, possibly modifying addr_hash_to_id.
-   If no discernible client, returns -1. */
-int get_client_id_direct (int fd)
-{
-  char host[INET6_ADDRSTRLEN];
-  char service[64];
-  socklen_t addr_len;
-  int err, found;
-  unsigned key;
-  int client_id;
-  struct addr_hash_to_id_entry *new_entry, *map_entry;
-
-  if (fd < 0)
-    return -1;
-
-  new_entry = malloc(sizeof *new_entry);
-  assert(new_entry != NULL);
-  memset(new_entry, 0, sizeof *new_entry);
-  addr_len = sizeof new_entry->addr;
-
-  /* If we are not yet connected to CLIENT, we may not know the peer name. For example, on UV_CONNETION_CB, the server has received an incoming connection, but uv_accept() may not yet have been called. */
-  err = uv_tcp_getpeername_direct(fd, &new_entry->addr, &addr_len);
-  if (err != 0)
-    return -1;
-
-  err = getnameinfo(&new_entry->addr, addr_len, host, sizeof(host), service, sizeof(service), NI_NUMERICHOST|NI_NUMERICSERV);
-  assert(err == 0);
-
-  client_id = lookup_or_add_client(new_entry);
-  return client_id;
+  if (*uvhtPP != NULL)
+    /* We got a handle. Extract the peer info from it, if possible. */
+    get_peer_info(*uvhtPP, cbn->peer_info);
+  return cbn_have_peer_info(cbn);
 }
 
 /* Invoke the callback described by CBI. 
    Returns the CBN allocated for the callback. */
 struct callback_node * invoke_callback (struct callback_info *cbi)
 {
-  struct callback_node *orig_cbn, *new_cbn;
+  struct callback_node *orig_cbn, *new_cbn, *root;
+  uv_handle_t *uvht; 
+  char handle_type[64];
+  int async_cb, sync_cb, got_peer_info;
+  struct timeval diff;
 
   assert (cbi != NULL);  
 
-  /* Potentially racey but very unlikely. */
+  /* Potentially racey (concurrently called from thread pool)? 
+     Seems like that would violate how libuv is supposed to work though. */
   if (!unified_callback_initialized)
-  {
-    printf("DEBUG: Testing list\n");
-    list_UT();
-    printf("DEBUG: Testing map\n");
-    map_UT();
-
-    list_init (&global_order_list);
-    list_init (&root_list);
-    addr_hash_to_id = map_create();
-    assert(addr_hash_to_id != NULL);
-    id_to_addr_hash = map_create();
-    assert(id_to_addr_hash != NULL);
-    signal(SIGUSR1, dump_callback_global_order_sighandler);
-    signal(SIGUSR2, dump_callback_trees_sighandler);
-    signal(SIGINT, dump_all_trees_and_exit_sighandler);
-    unified_callback_initialized = 1;
-  }
+    init_unified_callback();
   
   new_cbn = malloc (sizeof *new_cbn);
   assert (new_cbn != NULL);
@@ -951,8 +1089,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   /* If CBI is an asynchronous type, extract the orig_cbn at time
      of registration (if any). */
-  int async_cb = (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE || cbi->type == UV_TIMER_CB);
-  int sync_cb = !async_cb;
+  async_cb = (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE || cbi->type == UV_TIMER_CB);
+  sync_cb = !async_cb;
 
   if (sync_cb)
     /* CBI is synchronous, so it's either a root or a child of an active callback. */
@@ -963,74 +1101,80 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     {
       case UV__WORK_WORK:
         orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
-        assert (orig_cbn != NULL);
-        /* We are the direct parent of the UV__WORK_DONE that follows us. */
+        /* Make ourselves the direct parent of the UV__WORK_DONE that follows us. */
         ((struct uv__work *) cbi->args[0])->parent = new_cbn;
         break;
       case UV__WORK_DONE:
+        /* Parent is the UV__WORK_WORK that preceded us. */
         orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
-        assert (orig_cbn != NULL);
+        assert(orig_cbn->info->type == UV__WORK_WORK);
         break;
       case UV_TIMER_CB:
         /* A uv_timer_t* is a uv_handle_t. 
-           There may not be an orig_cbn if the callback was registered by
-           the initial stack. For example, the longPoll in simple-node.js-mud. */
+           TODO There may not be an orig_cbn if the timer was registered by 
+             internal Node code (e.g. for garbage collection). I have not seen this yet. */
         orig_cbn = ((uv_timer_t *) cbi->args[0])->parent;
         break;
       default:
         NOT_REACHED;
     }
+    assert(orig_cbn != NULL);
   }
 
   /* Initialize NEW_CBN. */
   if (orig_cbn)
   {
     assert (orig_cbn != NULL);
-    new_cbn->level = orig_cbn->level + 1;
     new_cbn->parent = orig_cbn;
-#if 1
+    new_cbn->level = new_cbn->parent->level + 1;
+#if 0
     new_cbn->client_id = -1;
 #else
-    new_cbn->client_id = orig_cbn->client_id;
-    new_cbn->client_addr = orig_cbn->client_addr;
+    /* Inherit client ID. */
+    new_cbn->orig_client_id = new_cbn->parent->true_client_id;
+    new_cbn->true_client_id = new_cbn->parent->true_client_id;
+    new_cbn->discovered_client_id = 0;
+    new_cbn->peer_info = orig_cbn->peer_info;
 #endif
   }
   else
   {
     new_cbn->level = 0;
     new_cbn->parent = NULL;
-    /* Unknown until later on in the function. */
-    new_cbn->client_id = -1;
-    new_cbn->client_addr = (struct sockaddr_storage *) malloc(sizeof *new_cbn->client_addr);
-    assert(new_cbn->client_addr != NULL);
-    memset(new_cbn->client_addr, 0, sizeof *new_cbn->client_addr);
+
+    /* Unknown until (possibly) later on in the function. */
+    new_cbn->orig_client_id = -1;
+    new_cbn->true_client_id = -1;
+    new_cbn->discovered_client_id = 0;
+
+    new_cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *new_cbn->peer_info);
+    assert(new_cbn->peer_info != NULL);
+    memset(new_cbn->peer_info, 0, sizeof *new_cbn->peer_info);
   }
 
   if (new_cbn->parent)
   {
-    list_lock (&new_cbn->parent->children);
-    list_push_back (&new_cbn->parent->children, &new_cbn->child_elem); 
-    list_unlock (&new_cbn->parent->children);
-    /* By default, inherit client id from parent. */
-    new_cbn->client_id = new_cbn->parent->client_id;
+    list_lock(&new_cbn->parent->children);
+    list_push_back(&new_cbn->parent->children, &new_cbn->child_elem); 
+    list_unlock(&new_cbn->parent->children);
   }
   else
   {
-    list_lock (&root_list);
-    list_push_back (&root_list, &new_cbn->root_elem); 
-    list_unlock (&root_list);
+    list_lock(&root_list);
+    list_push_back(&root_list, &new_cbn->root_elem); 
+    list_unlock(&root_list);
   }
 
   new_cbn->relative_start = get_relative_time();
-  assert (gettimeofday (&new_cbn->start, NULL) == 0);
+  assert(gettimeofday(&new_cbn->start, NULL) == 0);
   new_cbn->duration = -1;
   new_cbn->active = 1;
-  list_init (&new_cbn->children);
+  list_init(&new_cbn->children);
 
-  list_lock (&global_order_list);
-  list_push_back (&global_order_list, &new_cbn->global_order_elem);
+  list_lock(&global_order_list);
+  list_push_back(&global_order_list, &new_cbn->global_order_elem);
   new_cbn->id = list_size (&global_order_list);
-  list_unlock (&global_order_list);
+  list_unlock(&global_order_list);
 
   if (!new_cbn->parent && cbi->type == UV__WORK_WORK)
   {
@@ -1195,6 +1339,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     case UV_UDP_RECV_CB:
       uvht = (uv_handle_t *) cbi->args[0];
       strncpy(handle_type, "uv_udp_t", 64); 
+      /* Peer info is in the sockaddr_storage of cbi->args[3]. */
       cbi->cb ((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]); /* uv_handle_t */
       break;
     case UV_THREAD_CB:
@@ -1230,7 +1375,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   assert (gettimeofday (&new_cbn->stop, NULL) == 0);
   /* Must end after it began. This can fail if the system clock is set backward during the callback. */
   assert (new_cbn->start.tv_sec < new_cbn->stop.tv_sec || new_cbn->start.tv_usec <= new_cbn->stop.tv_usec);
-  struct timeval diff;
   timersub (&new_cbn->stop, &new_cbn->start, &diff);
   new_cbn->duration = diff.tv_sec*1000000 + diff.tv_usec;
 
@@ -1249,9 +1393,9 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
 #if 0
   /* DEBUGGING */
-  dump_callback_global_order ();
+  dump_callback_globalorder();
   dump_callback_trees (0);
-  printf ("\n\n\n\n\n");
+  printf("\n\n\n\n\n");
 #endif
   return new_cbn;
 }
@@ -1386,12 +1530,12 @@ static void dump_callback_tree_gv (int fd, struct callback_node *cbn)
 
   dump_callback_node_gv (fd, cbn);
   child_num = 0;
-  for (e = list_begin (&cbn->children); e != list_end (&cbn->children); e = list_next (e))
+  for (e = list_begin(&cbn->children); e != list_end(&cbn->children); e = list_next(e))
   {
     node = list_entry (e, struct callback_node, child_elem);
-    /* printf ("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
+    /* printf("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
     /* Print the relationship between parent and child. */
-    dprintf (fd, "    %i -> %i;\n", cbn->id, node->id); 
+    dprintf(fd, "    %i -> %i;\n", cbn->id, node->id); 
     dump_callback_tree_gv (fd, node);
     child_num++;
   }
@@ -1407,7 +1551,7 @@ int callback_tree_size (struct callback_node *root)
   assert(root != NULL);
 
   size = 1;
-  for (e = list_begin (&root->children); e != list_end (&root->children); e = list_next (e))
+  for (e = list_begin(&root->children); e != list_end(&root->children); e = list_next(e))
   {
     node = list_entry (e, struct callback_node, child_elem);
     size += callback_tree_size (node);
@@ -1425,8 +1569,8 @@ void dump_callback_trees (void)
 #if GRAPHVIZ
   int fd = -1;
   char out_file[128];
-  snprintf (out_file, 128, "/tmp/individual_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
-  printf ("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
+  snprintf(out_file, 128, "/tmp/individual_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
+  printf("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   assert (0 <= fd);
@@ -1435,80 +1579,78 @@ void dump_callback_trees (void)
   /* Print as individual trees. */
   meta_size = 0;
   tree_num = 0;
-  for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
+  for (e = list_begin(&root_list); e != list_end(&root_list); e = list_next(e))
   {
     struct callback_node *root = list_entry (e, struct callback_node, root_elem);
 #if GRAPHVIZ
     tree_size = callback_tree_size (root);
     meta_size += tree_size;
-    dprintf (fd, "digraph %i {\n    /* size %i */\n", tree_num, tree_size);
+    dprintf(fd, "digraph %i {\n    /* size %i */\n", tree_num, tree_size);
     dump_callback_tree_gv (fd, root);
-    dprintf (fd, "}\n\n");
+    dprintf(fd, "}\n\n");
 #else
-    printf ("Tree %i:\n", tree_num);
+    printf("Tree %i:\n", tree_num);
     dump_callback_tree (root);
 #endif
     ++tree_num;
   }
-  close (fd);
+  close(fd);
 
 #if GRAPHVIZ
-  snprintf (out_file, 128, "/tmp/meta_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
-  printf ("Dumping the %i callback trees as a meta-tree to %s\n  dot -Tdot %s -o /tmp/graph.dot\n  xdot /tmp/graph.dot\n", list_size (&root_list), out_file, out_file);
+  snprintf(out_file, 128, "/tmp/meta_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
+  printf("Dumping the %i callback trees as a meta-tree to %s\n  dot -Tdot %s -o /tmp/graph.dot\n  xdot /tmp/graph.dot\n", list_size (&root_list), out_file, out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   assert (0 <= fd);
 
-  printf ("Dumping META_TREE\n");
+  printf("Dumping META_TREE\n");
   /* Print as one giant tree with a null root. 
-     Nodes use their global ID as a node ID so trees can coexist happily in the same meta-tree. */
-  dprintf (fd, "digraph META_TREE {\n    /* size %i */\n", meta_size);
-  dprintf (fd, "  -1 [label=\"meta-root node\"]\n");
      Nodes use their global ID as a node ID so trees can coexist happily in the same meta-tree. 
      Using ordering="out" seems to make each node be placed by global ID order (i.e. in the same order in which they arrive). We'll see how well this works more generally... */
   dprintf(fd, "digraph META_TREE {\n    graph [ordering=\"out\"]\n     /* size %i */\n", meta_size);
   dprintf(fd, "  -1 [label=\"meta-root node\"]\n");
   tree_num = 0;
-  for (e = list_begin (&root_list); e != list_end (&root_list); e = list_next (e))
+  for (e = list_begin(&root_list); e != list_end(&root_list); e = list_next(e))
   {
     struct callback_node *root = list_entry (e, struct callback_node, root_elem);
     assert (0 <= fd);
     tree_size = callback_tree_size (root);
-    dprintf (fd, "  subgraph %i {\n    /* size %i */\n", tree_num, tree_size);
+    dprintf(fd, "  subgraph %i {\n    /* size %i */\n", tree_num, tree_size);
     dump_callback_tree_gv (fd, root);
-    dprintf (fd, "  }\n");
-    dprintf (fd, "  -1 -> %i\n", root->id); /* Link to the meta-root node. */
+    dprintf(fd, "  }\n");
+    dprintf(fd, "  -1 -> %i\n", root->id); /* Link to the meta-root node. */
     ++tree_num;
   }
-  dprintf (fd, "}\n");
-  close (fd);
+  dprintf(fd, "}\n");
+  close(fd);
 #else
-  printf ("No meta tree for you\n");
+  printf("No meta tree for you\n");
 #endif
 
-  fflush (NULL);
+  fflush(NULL);
 }
 
 void dump_callback_global_order_sighandler (int signum)
 {
-  printf ("Got signal %i. Dumping callback global order\n", signum);
-  dump_callback_global_order ();
+  printf("Got signal %i. Dumping callback global order\n", signum);
+  dump_callback_globalorder();
 }
 
 void dump_callback_trees_sighandler (int signum)
 {
-  printf ("Got signal %i. Dumping callback trees\n", signum);
+  printf("Got signal %i. Dumping callback trees\n", signum);
   dump_callback_trees ();
 }
 
 void dump_all_trees_and_exit_sighandler (int signum)
 {
-  printf ("Got signal %i. Dumping all trees and exiting\n", signum);
-  printf ("Callback global order\n");
-  dump_callback_global_order ();
-  printf ("Callback trees\n");
+  printf("Got signal %i. Dumping all trees and exiting\n", signum);
+  printf("Callback global order\n");
+  dump_callback_globalorder();
+  fflush(NULL);
+  printf("Callback trees\n");
   dump_callback_trees ();
-  fflush (NULL);
+  fflush(NULL);
   exit (0);
 }
 

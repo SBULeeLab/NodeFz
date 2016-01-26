@@ -81,12 +81,6 @@ int uv_timer_start(uv_timer_t* handle,
   handle->timer_cb = cb;
   handle->timeout = clamped_timeout;
   handle->repeat = repeat;
-#if UNIFIED_CALLBACK
-  /* Might not be NULL due to the way repeating timers are implemented. 
-     The parent of a repeating timer is set in uv__run_timers. */
-  if (handle->parent == NULL)
-    handle->parent = current_callback_node_get();
-#endif
 
   /* start_id is the second index to be compared in uv__timer_cmp() */
   handle->start_id = handle->loop->timer_counter++;
@@ -94,7 +88,16 @@ int uv_timer_start(uv_timer_t* handle,
   heap_insert((struct heap*) &handle->loop->timer_heap,
               (struct heap_node*) &handle->heap_node,
               timer_less_than);
-  uv__handle_start(handle);
+  uv__handle_start(handle); /* This sets handle->parent, but we want to notice timers on the initial stack, too. */
+
+#if UNIFIED_CALLBACK
+  /* Might not be NULL; the parent of a repeating timer (itself) is set in uv__run_timers (because that's where we get the CBN associated with the parent). */
+  if (handle->parent == NULL)
+    handle->parent = current_callback_node_get();
+  if (handle->parent == NULL && !init_stack_finished())
+    handle->parent = get_init_stack_callback_node();
+  assert(handle->parent != NULL);
+#endif
 
   return 0;
 }
@@ -173,12 +176,15 @@ void uv__run_timers(uv_loop_t* loop) {
     uv_timer_stop(handle);
     uv_timer_again(handle);
 #if UNIFIED_CALLBACK
-    /* Declares and sets new variable callback_cbn. */
+    /* Declares and sets new variable callback_cbn, which is the CBN we just generated and ran. */
     INVOKE_CALLBACK_1(UV_TIMER_CB, handle->timer_cb, handle);
     /* If repeating: Now that we've invoked the callback (creating a CBN in the process), set the parent CBN of the timer to the CBN we just created. 
        In other words, this timer is a child of the previous timer. It couldn't exist without it! */
-    if(handle->repeat)
+    if (handle->repeat)
+    {
       handle->parent = callback_cbn;
+      assert(handle->parent != NULL);
+    }
 #else
     handle->timer_cb(handle);
 #endif

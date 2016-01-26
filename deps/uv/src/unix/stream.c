@@ -40,6 +40,8 @@
 # include <sys/time.h>
 # include <sys/select.h>
 
+#include "uv-common.h"
+
 /* Forward declaration */
 typedef struct uv__stream_select_s uv__stream_select_t;
 
@@ -83,6 +85,8 @@ void uv__stream_init(uv_loop_t* loop,
   stream->accepted_fd = -1;
   stream->queued_fds = NULL;
   stream->delayed_error = 0;
+  stream->parent = NULL;
+  stream->peer_info = NULL;
   QUEUE_INIT(&stream->write_queue);
   QUEUE_INIT(&stream->write_completed_queue);
   stream->write_queue_size = 0;
@@ -443,7 +447,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
   if (stream->connect_req) {
     uv__req_unregister(stream->loop, stream->connect_req);
 #if UNIFIED_CALLBACK
-    //printf ("uv__stream_destroy: destroying a connection\n");
+    /* printf ("uv__stream_destroy: destroying a connection\n"); */
     INVOKE_CALLBACK_2(UV_CONNECT_CB, stream->connect_req->cb, stream->connect_req, -ECANCELED);
 #else
     stream->connect_req->cb(stream->connect_req, -ECANCELED);
@@ -462,7 +466,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
      */
     uv__req_unregister(stream->loop, stream->shutdown_req);
 #if UNIFIED_CALLBACK
-    //printf ("uv__stream_destroy: shutting down a connection\n");
+    /* printf ("uv__stream_destroy: shutting down a connection\n"); */
     INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, stream->shutdown_req->cb, stream->shutdown_req, -ECANCELED);
 #else
     stream->shutdown_req->cb(stream->shutdown_req, -ECANCELED);
@@ -553,7 +557,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       }
 
 #if UNIFIED_CALLBACK
-      //printf ("uv__server_io: accepting new connection failed\n");
+      /* printf ("uv__server_io: accepting new connection failed\n"); */
       INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, stream, err);
 #else
       stream->connection_cb(stream, err);
@@ -564,7 +568,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;
 #if UNIFIED_CALLBACK
-    //printf ("uv__server_io: accepted new connection\n");
+    /* printf ("uv__server_io: accepted new connection\n"); */
     INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, stream, 0);
 #else
     stream->connection_cb(stream, 0);
@@ -648,6 +652,7 @@ done:
     if (err == 0)
       uv__io_start(server->loop, &server->io_watcher, UV__POLLIN);
   }
+
   return err;
 }
 
@@ -1375,7 +1380,7 @@ static void uv__stream_connect(uv_stream_t* stream) {
   if (req->cb)
   {
 #if UNIFIED_CALLBACK
-    //printf ("uv__stream_connect: connecting\n");
+    /* printf ("uv__stream_connect: connecting\n"); */
     INVOKE_CALLBACK_2(UV_CONNECT_CB, req->cb, req, error);
 #else
     req->cb(req, error);

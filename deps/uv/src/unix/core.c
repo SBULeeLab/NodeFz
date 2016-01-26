@@ -260,6 +260,9 @@ static void uv__finish_close(uv_handle_t* handle) {
   if (handle->close_cb) {
 #if UNIFIED_CALLBACK
     INVOKE_CALLBACK_1 (UV_CLOSE_CB, handle->close_cb, handle);
+    /* We no longer need to remember the peer, since it was already used
+       in invoke_callback. */
+    handle->peer_info = NULL;
 #else
     handle->close_cb(handle);
 #endif
