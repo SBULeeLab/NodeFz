@@ -75,6 +75,8 @@
 #include <sys/ioctl.h>
 #endif
 
+#include "uv-common.h"
+
 static int uv__run_pending(uv_loop_t* loop);
 
 /* Verify that uv_buf_t is ABI-compatible with struct iovec. */
@@ -373,6 +375,10 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   return r;
 }
 
+void uv_init_stack_finished(void)
+{
+  signal_init_stack_finished();
+}
 
 void uv_update_time(uv_loop_t* loop) {
   uv__update_time(loop);

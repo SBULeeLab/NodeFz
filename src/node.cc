@@ -3921,6 +3921,8 @@ static void StartNodeInstance(void* arg) {
     {
       SealHandleScope seal(isolate);
       bool more;
+      /* Tell libuv that we're done resolving the initial stack. */
+      uv_init_stack_finished();
       do {
         v8::platform::PumpMessageLoop(default_platform, isolate);
         more = uv_run(env->event_loop(), UV_RUN_ONCE);

@@ -685,6 +685,20 @@ void mylog (const char *format, ...)
 }
 
 /* Tracking the unified callback queue. */
+int has_init_stack_finished = 0;
+/* Note that we've entered the main libuv loop. Call at most once. */
+void signal_init_stack_finished(void)
+{
+  assert(has_init_stack_finished == 0);
+  has_init_stack_finished = 1;
+  printf("The initial stack has finished!\n");
+}
+
+/* Returns 1 if we've entered the main libuv loop, 0 else. */
+int init_stack_finished(void)
+{
+  return has_init_stack_finished;
+}
 static int unified_callback_initialized = 0;
 static struct list root_list;
 static struct list global_order_list;

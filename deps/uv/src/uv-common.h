@@ -229,5 +229,7 @@ void incr_generation ();
 int get_generation ();
 void mylog (const char *format, ...);
 
+void signal_init_stack_finished(void);
+int init_stack_finished(void);
 
 #endif /* UV_COMMON_H_ */
