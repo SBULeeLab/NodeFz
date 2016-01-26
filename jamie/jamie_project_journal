@@ -482,3 +482,184 @@ C. Record network inputs (connections, client data, etc.) and feed that into sub
 4. Question: Node.js uses a lot of external modules. Are these pure JS? Do they interact with libuv? Do they run JS code in the thread pool "work" or just as "done" (e.g. database requests/callbacks)? (single-threaded vs. multi-threaded event driven)
 
 5. Plan to attend ASPLOS Apr. 2-6 '16 in Atlanta.
+
+-----------
+
+15 Dec 2015
+
+1.
+I've implemented a unified callback mechanism in an attempt to avoid the issues related to fork.
+jamie@suwarna7-Lenovo-K450e:~/Desktop/node_project/node/deps/uv$ git branch
+  master
+* unified_callback
+  uv_reordering
+
+I construct a tree of dependencies between callbacks based on the currently-executing CB.
+I'm working on verifying the result. The graphviz library and the xdot viewer for it look useful.
+
+-----------
+
+16 Dec 2015
+
+1. I added a bit more information to a 'struct callback_node'. Now on USR2, the trees are printed 
+in graphviz's DOT language for easy visualization. Looks good.
+
+2. The tree looks OK but there's no information about cause and effect. 
+In the MUD Node.js project, when a client makes a move it triggers messages to the other clients.
+However, the subsequent messages are not children of the client CB.
+If I can figure out when the fds of the client CBs are triggered, I can include the info about "who tickled me"
+and expand my "cause and effect" picture.
+
+-----------
+
+17 Dec 2015
+
+1. I set the WORK_WORK CBN as the parent of the subsequent WORK_DONE CBN.
+2. Now dumping all trees in one meta-tree on receipt of SIGUSR2.
+3. Trying to analyze the generated CB tree to determine why there are
+   so many WORK_* CBs. It looks like there are some internally-generated
+   work items chained together to implement readFile. Perhaps it's 
+   open-read-close or something. Presumably a library thing.
+4. It seems that responding to a client causes Node (V8?) to generate a TIMER_CB. Not sure why. Presumably a library thing.
+
+-----------
+
+13 Jan 2015
+
+1. Checked on the clients associated with the 6 benchmarks. Lowering the
+start window to 5 seconds made this more friendly on MUD, though not sure
+if this is going to be bad for others. URL is no good, Dr. Lee is working
+on it.
+2. Refreshed self on status of code base
+3. On SIGINT, dump both visualizations (global callback order and tree view) and exit(0)
+4. Unified callback: async calls in init stack
+   
+   Problem: If the application makes an async call in the initial
+   stack (as done in the Micro '15 benchmarks code with an IO
+   to an output file), then we didn't have a parent. We assumed async
+   calls (to the threadpool ) would always have a parent.
+   
+   Solution: When submitting work to the threadpool, if there is no
+   active CBN then we assume we're in the initial stack. Add a special
+   function to return a dummy CBN in this case.
+5. Now printing the full tree output to a file in /tmp rather than to stdout. This will allow chaining more readily.
+
+-----------
+
+14 Jan 2015
+
+1. On MUD, verified that the number of callback trees is roughly a function of the number of clients. This is good, since it means that I'm not getting totally bogus-looking numbers.
+2. Now printing global callback order to a file, along with client ID and start/duration (in seconds since epoch).
+3. Discovered that using the fd associated with a handle as a "client id" will not work. In MUD, for example, handles are opened and closed for each http request -- so 5 requests from 8 clients yields 40 open-and-closed handles. The fds will be re-used. Instead we need to really know the client IP and port. Perhaps this can be stored in the "void* uv_handle_t.data" field of a handle when the handle is created by Node.js? Alternatively, more specific subclasses of a handle DO know this info. For example a uv_udp_t has uv_udp_getsockname() for this purpose. Some investigation required.
+
+-----------
+
+15 Jan 2015
+
+1. Wrote a callback statistics calculator, callback_stats. The callback_stats utility calculates interesting statistics on the "all callbacks" file produced by libuv. This can be used to characterize the behavior of Node.js applications, or of a single application across different inputs.
+
+Sample output is below. Note that it is "bogus" in the sense that client calculations are still incorrect (see NEXT STEPS).
+However, the total count of callbacks and the per-type counts are accurate.
+
+jamie@suwarna7-Lenovo-K450e:~/bin$ ./callback_stats /tmp/callback_global_order_1452867867_24003.txt
+Results from /tmp/callback_global_order_1452867867_24003.txt
+------------------------------------------------------------------------------------
+Statistic                                                       Value               
+------------------------------------------------------------------------------------
+Instances of type UV_READ_CB                                    80                  
+Client -1: Instances of type UV_ASYNC_CB                        3                   
+Instances of type UV__WORK_WORK                                 3                   
+Client 12: Instances of type UV_CONNECTION_CB                   40                  
+Client 11: Instances of type UV_READ_CB                         80                  
+Instances of type UV__IO_CB                                     206                 
+Client -1: Instances of type UV_TIMER_CB                        1                   
+Client -1: Instances of type UV__WORK_DONE                      3                   
+Instances of type UV__WORK_DONE                                 3                   
+Client -1: Instances of type UV_FS_CB                           3                   
+Instances of type UV__ASYNC_CB                                  3                   
+Client -1: Instances of type UV__WORK_WORK                      3                   
+Callbacks with 0 children                                       327                 
+Instances of type UV_CONNECTION_CB                              40                  
+Client 12: number of callbacks                                  40                  
+Instances of type UV_ALLOC_CB                                   80                  
+Client 11: number of callbacks                                  160                 
+Instances of type UV_TIMER_CB                                   1                   
+Client -1: Instances of type UV_CLOSE_CB                        40                  
+Instances of type UV_FS_CB                                      3                   
+Client -1: Instances of type UV__IO_CB                          206                 
+Client -1: Instances of type UV__ASYNC_CB                       3                   
+Instances of type UV_CLOSE_CB                                   40                  
+Client 11: Instances of type UV_ALLOC_CB                        80                  
+Client -1: number of callbacks                                  262                 
+Callbacks with 1 children                                       55                  
+Callbacks with 2 children                                       80                  
+Number of callbacks                                             462                 
+Instances of type UV_ASYNC_CB                                   3                   
+Number of clients                                               3     
+
+-----------
+
+18 Jan 2015
+
+1. Made lists thread-safe internally.
+2. Developed a map class for future use. It does not appear to be immediately relevant but "you never know". I thought it would be useful but then I came up with a better approach.
+3. Determined that with a tcp handle I can identify the IP and (port? socket?) of the client. This information can be inherited by children. See notes from 1/18.
+
+-----------
+
+19 Jan 2015
+
+1. Debug map class. Debug list class. Add unit tests for each. Commit changes.
+2. Make an offline backup of progress so far.
+3. Work on client_id. Experiment with lets-chat to see what another set of trees looks like.
+  .dot files:
+  ls /tmp/*clients.dot
+    /tmp/lets-chat_clients.dot  /tmp/lets-chat_manual_clients.dot  /tmp/mud_clients.dot
+
+-----------
+
+20 Jan 2015
+
+1. Implement two client ID maps. The first map is <internal client ID -> hash(sockaddr)>, and the second is <hash(sockaddr) -> "struct sockaddr">. In invoke_callback, if a stream is available then we can (unsafely!) obtain the struct sockaddr associated with it. From this we can determine the client ID. The client ID is based on a hash of the client's IP address and port number.
+
+  On the utility of this approach: 
+    mud: The http request embeds the client ID. Each move triggers a new http request (connection) that uses a new port, which causes each user's moves to manifest as a different client. This seems like an inefficient implementation to me. However, the point here is that the application can do "whatever it wants", and this may compromise attempts to identify clients at the framework level.
+    lets-chat: There are some unknown client IDs going on here, but the implementation overall has all chat traffic from a user routed through the same connection. I have not tried clicking other buttons. For example, if I start a new chat room, does libuv still know it's me, or does it think I'm a new user?
+
+  A general solution here would be to have one IP per client, and to reduce the client ID to a computation solely based on IP address. This seems like a workable approach, though at the moment it's not good because of the way clients work.
+  Another approach would be application-level annotation. This would be undesirable.
+
+2. In progress: once one node in a tree knows its client ID, the entire tree is marked as belonging to that client.
+
+3. Enhance callback_stats to extract and print the "complete schedule" -- the order in which client-driven callbacks (i.e. callbacks that originated from a client).
+
+-----------
+
+21 Jan 2015
+
+1. Think carefully about replayability and tree structures.
+2. First draft of correct timer inheritance.
+
+-----------
+
+25 Jan 2015
+
+1. Correct timer inheritance.
+2. Color nodes based on client ID.
+3. Improved detection of client ID.
+4. Add new API uv_init_stack_done so that libuv can distinguish between CBs registered/executed
+   in the initial stack vs. those triggered by client input.
+
+-----------
+
+26 Jan 2015
+
+1. Debugging/committing of the 25 Jan. changes.
+2. Fix misc compilation warnings.
+
+-----------
+
+NEXT STEPS:
+- Capture check, prepare, and idle callback registration and inheritance. See src/unix/loop-watcher.c
+- See TODOs in the commits from 20 Jan.
+- callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
