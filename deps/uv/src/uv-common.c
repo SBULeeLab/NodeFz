@@ -1089,7 +1089,9 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   /* If CBI is an asynchronous type, extract the orig_cbn at time
      of registration (if any). */
-  async_cb = (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE || cbi->type == UV_TIMER_CB);
+  async_cb = (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE || 
+              cbi->type == UV_TIMER_CB || 
+              cbi->type == UV_PREPARE_CB || cbi->type == UV_CHECK_CB || cbi->type == UV_IDLE_CB);
   sync_cb = !async_cb;
 
   if (sync_cb)
@@ -1100,20 +1102,29 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     switch (cbi->type)
     {
       case UV__WORK_WORK:
+        /* See src/threadpool.c */
         orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
         /* Make ourselves the direct parent of the UV__WORK_DONE that follows us. */
         ((struct uv__work *) cbi->args[0])->parent = new_cbn;
         break;
       case UV__WORK_DONE:
-        /* Parent is the UV__WORK_WORK that preceded us. */
+        /* See src/threadpool.c
+           Parent is the UV__WORK_WORK that preceded us. */
         orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
         assert(orig_cbn->info->type == UV__WORK_WORK);
         break;
       case UV_TIMER_CB:
-        /* A uv_timer_t* is a uv_handle_t. 
+        /* See src/unix/timer.c
+           A uv_timer_t* is a uv_handle_t. 
            TODO There may not be an orig_cbn if the timer was registered by 
              internal Node code (e.g. for garbage collection). I have not seen this yet. */
         orig_cbn = ((uv_timer_t *) cbi->args[0])->parent;
+        break;
+      /* See src/unix/loop-watcher.c */
+      case UV_PREPARE_CB:
+      case UV_CHECK_CB:
+      case UV_IDLE_CB:
+        orig_cbn = ((uv_handle_t *) cbi->args[0])->parent;
         break;
       default:
         NOT_REACHED;

@@ -656,10 +656,9 @@ Number of clients                                               3
 
 1. Debugging/committing of the 25 Jan. changes.
 2. Fix misc compilation warnings.
+3. Capture check, prepare, and idle callback registration and inheritance. See src/unix/loop-watcher.c
 
 -----------
 
 NEXT STEPS:
-- Capture check, prepare, and idle callback registration and inheritance. See src/unix/loop-watcher.c
-- See TODOs in the commits from 20 Jan.
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.

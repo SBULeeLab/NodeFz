@@ -3879,6 +3879,23 @@ Environment* CreateEnvironment(Isolate* isolate,
   return env;
 }
 
+#if 0
+static void foo_prepare (uv_prepare_t *prepare)
+{
+  printf("foo_prepare: This is my prepare_cb. Hello world\n");
+}
+
+static void foo_check (uv_check_t *check)
+{
+  printf("foo_check: This is my check_cb. Hello world\n");
+}
+
+static void foo_idle (uv_idle_t *idle)
+{
+  printf("foo_idle: This is my idle_cb. Hello world\n");
+  sleep(1);
+}
+#endif
 
 // Entry point for new node instances, also called directly for the main
 // node instance.
@@ -3921,6 +3938,21 @@ static void StartNodeInstance(void* arg) {
     {
       SealHandleScope seal(isolate);
       bool more;
+
+#if 0
+      uv_prepare_t prepare;
+      uv_prepare_init(env->event_loop(), &prepare);
+      uv_prepare_start(&prepare, foo_prepare);
+
+      uv_check_t check;
+      uv_check_init(env->event_loop(), &check);
+      uv_check_start(&check, foo_check);
+
+      uv_idle_t idle;
+      uv_idle_init(env->event_loop(), &idle);
+      uv_idle_start(&idle, foo_idle);
+#endif
+
       /* Tell libuv that we're done resolving the initial stack. */
       uv_init_stack_finished();
       do {
