@@ -38,7 +38,7 @@
     uv__handle_start(handle);                                                 \
     if (handle->parent == NULL)                                               \
       handle->parent = current_callback_node_get();                           \
-    if (handle->parent == NULL && !init_stack_finished())                     \
+    if (handle->parent == NULL && uv__init_stack_active())                    \
       handle->parent = get_init_stack_callback_node();                        \
     assert(handle->parent != NULL);                                           \
     return 0;                                                                 \

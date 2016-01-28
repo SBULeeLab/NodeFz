@@ -193,7 +193,7 @@ void uv__work_submit(uv_loop_t* loop,
 #ifdef UNIFIED_CALLBACK
   /* We are being registered. Parent is either an active callback, or this work is being submitted by the initial stack. */
   w->parent = current_callback_node_get();
-  if (w->parent == NULL && !init_stack_finished())
+  if (w->parent == NULL && uv__init_stack_active())
     w->parent = get_init_stack_callback_node();
   assert (w->parent != NULL);
 #endif

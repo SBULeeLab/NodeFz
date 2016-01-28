@@ -230,7 +230,12 @@ void incr_generation ();
 int get_generation ();
 void mylog (const char *format, ...);
 
-void signal_init_stack_finished(void);
-int init_stack_finished(void);
+void uv__mark_init_stack_begin (void);
+void uv__mark_init_stack_end (void);
+int uv__init_stack_active (void);
+
+void uv__mark_uv_run_begin (void);
+void uv__mark_uv_run_end (void);
+int uv__uv_run_active (void);
 
 #endif /* UV_COMMON_H_ */

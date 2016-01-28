@@ -3011,7 +3011,11 @@ void LoadEnvironment(Environment* env) {
   env->SetMethod(env->process_object(), "_rawDebug", RawDebug);
 
   Local<Value> arg = env->process_object();
+  printf("node::LoadEnvironment: f->Call\n");
+  uv_mark_init_stack_begin();
   f->Call(global, 1, &arg);
+  uv_mark_init_stack_end();
+  printf("node::LoadEnvironment: Done with f\n");
 }
 
 static void PrintHelp();
@@ -3927,7 +3931,9 @@ static void StartNodeInstance(void* arg) {
     if (instance_data->use_debug_agent())
       StartDebug(env, debug_wait_connect);
 
+    printf("node::StartNodeInstance: Loading the environment\n");
     LoadEnvironment(env);
+    printf("node::StartNodeInstance: Done loading the environment\n");
 
     env->set_trace_sync_io(trace_sync_io);
 
@@ -3953,8 +3959,6 @@ static void StartNodeInstance(void* arg) {
       uv_idle_start(&idle, foo_idle);
 #endif
 
-      /* Tell libuv that we're done resolving the initial stack. */
-      uv_init_stack_finished();
       do {
         v8::platform::PumpMessageLoop(default_platform, isolate);
         more = uv_run(env->event_loop(), UV_RUN_ONCE);
@@ -3997,6 +4001,7 @@ static void StartNodeInstance(void* arg) {
 }
 
 int Start(int argc, char** argv) {
+  printf("node::Start: entry\n");
   PlatformInit();
 
   CHECK_GT(argc, 0);
@@ -4016,6 +4021,7 @@ int Start(int argc, char** argv) {
   V8::SetEntropySource(crypto::EntropySource);
 #endif
 
+  printf("node::Start: Initializing V8\n");
   const int thread_pool_size = 4;
   default_platform = v8::platform::CreateDefaultPlatform(thread_pool_size);
   V8::InitializePlatform(default_platform);
@@ -4030,8 +4036,10 @@ int Start(int argc, char** argv) {
                                    exec_argc,
                                    exec_argv,
                                    use_debug_agent);
+    printf("node::Start: Calling StartNodeInstance\n");
     StartNodeInstance(&instance_data);
     exit_code = instance_data.exit_code();
+    printf("node::Start: node instance exited with %i\n", exit_code);
   }
   V8::Dispose();
 

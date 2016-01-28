@@ -332,6 +332,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int r;
   int ran_pending;
 
+  uv__mark_uv_run_begin();
+
   r = uv__loop_alive(loop);
   if (!r)
     uv__update_time(loop);
@@ -375,13 +377,21 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   if (loop->stop_flag != 0)
     loop->stop_flag = 0;
 
+  uv__mark_uv_run_end();
+
   return r;
 }
 
-void uv_init_stack_finished(void)
+void uv_mark_init_stack_begin(void)
 {
-  signal_init_stack_finished();
+  uv__mark_init_stack_begin();
 }
+
+void uv_mark_init_stack_end(void)
+{
+  uv__mark_init_stack_end();
+}
+
 
 void uv_update_time(uv_loop_t* loop) {
   uv__update_time(loop);

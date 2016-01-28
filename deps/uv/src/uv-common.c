@@ -683,19 +683,61 @@ void mylog (const char *format, ...)
   fflush(NULL);
 }
 
-int has_init_stack_finished = 0;
-/* Note that we've entered the main libuv loop. Call at most once. */
-void signal_init_stack_finished(void)
+int init_stack_active = 0;
+
+/* Note that we've begun the initial application stack. 
+   Call once prior to invoking the application code. */
+void uv__mark_init_stack_begin (void)
 {
-  assert(has_init_stack_finished == 0);
-  has_init_stack_finished = 1;
-  printf("The initial stack has finished!\n");
+  /* Call at most once. */
+  static int init_stack_marked = 0;
+  assert(!init_stack_marked);
+  init_stack_marked = 1;
+
+  assert(!init_stack_active);
+  init_stack_active = 1;
+  printf("uv__mark_init_stack_begin: inital stack has begun\n");
 }
 
-/* Returns 1 if we've entered the main libuv loop, 0 else. */
-int init_stack_finished(void)
+/* Note that we've finished the initial application stack. 
+   Call once after the initial stack is complete. 
+   Pair with uv__mark_init_stack_begin. */
+void uv__mark_init_stack_end (void)
 {
-  return has_init_stack_finished;
+  assert(init_stack_active);
+  init_stack_active = 0;
+  printf("uv__mark_init_stack_end: inital stack has ended\n");
+}
+
+/* Returns non-zero if we're in the application's initial stack, else 0. */
+int uv__init_stack_active (void)
+{
+  return init_stack_active;
+}
+
+int uv_run_active = 0;
+
+/* Note that we've entered libuv's uv_run loop. */
+void uv__mark_uv_run_begin (void)
+{
+  assert(!uv_run_active);
+  uv_run_active = 1;
+  printf("uv__mark_uv_run_begin: uv_run has begun\n");
+}
+
+/* Note that we've finished the libuv uv_run loop.
+   Pair with uv__mark_uv_run_begin. */
+void uv__mark_uv_run_end (void)
+{
+  assert(uv_run_active);
+  uv_run_active = 0;
+  printf("uv__mark_uv_run_end: uv_run has ended\n");
+}
+
+/* Returns non-zero if we're in the application's initial stack, else 0. */
+int uv__uv_run_active (void)
+{
+  return uv_run_active;
 }
 
 /* For convenience with addr_getnameinfo. */
