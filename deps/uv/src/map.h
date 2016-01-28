@@ -19,7 +19,7 @@ unsigned map_size (struct map *map);
 int map_empty (struct map *map);
 int map_looks_valid (struct map *map);
 
-void map_insert (struct map *map, int key, void *value);
+void map_insert (struct map *map, int key, const void *value);
 void * map_lookup (struct map *map, int key, int *found);
 void * map_remove (struct map *map, int key, int *found);
 

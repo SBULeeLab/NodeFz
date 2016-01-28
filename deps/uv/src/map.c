@@ -119,7 +119,7 @@ int map_looks_valid (struct map *map)
 }
 
 /* Add an element with <KEY, VALUE> to MAP. */
-void map_insert (struct map *map, int key, void *value)
+void map_insert (struct map *map, int key, const void *value)
 {
   struct list_elem *le;
   struct map_elem *me, *new_me;
