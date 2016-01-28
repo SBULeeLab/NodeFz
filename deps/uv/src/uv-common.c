@@ -740,6 +740,82 @@ int uv__uv_run_active (void)
   return uv_run_active;
 }
 
+/* Maps CB (address) -> struct callback_origin *. 
+   As V8 will perform JIT compilation and GC, the address of a CB 
+   is only valid until it is "used up". 
+   If uv__register_callback is called with a CB already in the map,
+   we discard the previous entry; we will have already recorded the
+   origin in the appropriate CBN as needed. */
+struct map *callback_to_origin_map;
+
+/* Call from any libuv function that is passed a user callback.
+   At callback registration time we can determine the origin. 
+   If CB is NULL, CB will never be called, and we ignore it. */
+void uv__register_callback (void *cb, enum callback_type cb_type)
+{
+  static pthread_t registering_thread = -1;
+  struct callback_node *cbn;
+  struct callback_origin *co;
+  enum callback_origin_type origin;
+
+  if (cb == NULL)
+    return;
+
+  /* Are callbacks ever registered by more than one thread? */
+  if (registering_thread == -1)
+    registering_thread = pthread_self();
+  assert(registering_thread == pthread_self());
+
+  co = (struct callback_origin *) malloc(sizeof *co);
+  assert(co != NULL);
+  memset(co, 0, sizeof *co);
+
+  /* Initial stack active -> USER.
+
+     If a uv_run is active, the source can be any of NODE_INTERNAL, LIBUV_INTERNAL, and USER.
+     We inherit the current callback node's origin if there is one.
+     If we're in uv_run and there's no active callback, the source must in LIBUV_INTERNAL (does this ever happen?).
+
+     Neither init stack nor uv_run -> NODEJS_INTERNAL. */
+  if (uv__init_stack_active())
+    origin = USER;
+  else if (uv__uv_run_active())
+  {
+    cbn = current_callback_node_get();
+    if (cbn != NULL)
+      origin = cbn->info->origin;
+    else
+    {
+      origin = LIBUV_INTERNAL;
+      assert(0 == 1); /* Does this ever happen? */
+    }
+  }
+  else
+    origin = NODEJS_INTERNAL;
+
+  co->cb = cb;
+  co->type = cb_type;
+  co->origin = origin;
+  map_insert(callback_to_origin_map, (int) cb, co);
+}
+
+/* Returns the origin of CB. 
+   You must have called uv__register_callback on CB first. 
+   Asserts if CB is NULL or if CB was not registered. */
+struct callback_origin * uv__callback_origin (void *cb)
+{
+  struct callback_origin *co;
+  int found;
+
+  assert(cb != NULL);
+  found = 0;
+
+  co = (struct callback_origin *) map_lookup(callback_to_origin_map, (int) cb, &found);
+  assert(found);
+  assert(co != NULL);
+  return co;
+}
+
 /* For convenience with addr_getnameinfo. */
 struct uv_nameinfo
 {
@@ -1011,6 +1087,7 @@ static int get_client_id (struct sockaddr_storage *addr)
   assert(addr != NULL);
   assert(!is_zeros(addr, sizeof *addr));
 
+  found = 0;
   addr_hash = addr_calc_hash(addr);
   assert(addr_hash != 0); /* There must be something in ADDR. */
 
@@ -1050,13 +1127,20 @@ static void init_unified_callback (void)
 
   list_init(&global_order_list);
   list_init(&root_list);
+
   peer_info_to_id = map_create();
   assert(peer_info_to_id != NULL);
+
   id_to_peer_info = map_create();
   assert(id_to_peer_info != NULL);
+
+  callback_to_origin_map = map_create();
+  assert(callback_to_origin_map != NULL);
+
   signal(SIGUSR1, dump_callback_global_order_sighandler);
   signal(SIGUSR2, dump_callback_trees_sighandler);
   signal(SIGINT, dump_all_trees_and_exit_sighandler);
+
   unified_callback_initialized = 1;
 }
 

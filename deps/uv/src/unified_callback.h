@@ -13,10 +13,20 @@
 #define NOT_REACHED assert (0 == 1);
 #endif
 
+enum callback_origin_type
+{
+  /* Callbacks can be registered by one of these sources. 
+     Note that we assume that libuv never registers callbacks on its own.
+     This is my understanding of the libuv documentation. */
+  NODEJS_INTERNAL,
+  LIBUV_INTERNAL,
+  USER
+};
+
 #define MAX_CALLBACK_NARGS 5
 enum callback_type
 {
-  /* include/uv.h */
+  /* include/uv.h; see also the libuv documentation. */
   CALLBACK_TYPE_MIN = 0,
   UV_ALLOC_CB = CALLBACK_TYPE_MIN,
   UV_READ_CB,
@@ -54,6 +64,14 @@ enum callback_type
   UV__WORK_DONE,
   CALLBACK_TYPE_MAX
 };
+
+struct callback_origin
+{
+  enum callback_origin_type origin;
+  enum callback_type type;
+  void (*cb)();
+};
+
 
 /* Nodes that comprise a callback tree. */
 struct callback_node
@@ -103,58 +121,65 @@ struct callback_node * invoke_callback (struct callback_info *);
 
 char * callback_type_to_string (enum callback_type);
 
-#define INIT_CBI(cb_type, cb_p) \
+/* Instantiate a struct callback_info * named cbi_p. */
+#define INIT_CBI(_cb_type, _cb_p)                      \
   struct callback_info *cbi_p = malloc(sizeof *cbi_p); \
-  assert(cbi_p != NULL); \
-  memset(cbi_p, 0, sizeof(*cbi_p)); \
-  cbi_p->type = cb_type; \
-  cbi_p->cb = cb_p;
+  assert(cbi_p != NULL);                               \
+  memset(cbi_p, 0, sizeof(*cbi_p));                    \
+  cbi_p->type = (_cb_type);                            \
+  cbi_p->cb = (_cb_p);                                    
 
 /* Macros to prep a CBI for invoke_callback, with 0-5 args. */
-#define PREP_CBI_0(type, cb) \
-  INIT_CBI(type, cb)
-#define PREP_CBI_1(type, cb, arg0) \
-  PREP_CBI_0(type, cb) \
+#define PREP_CBI_0(_type, _cb)                             \
+  INIT_CBI(_type, _cb)                                     \
+  /* Determine the origin of the CB, add it to cbi_p. */   \
+  struct callback_origin *co = uv__callback_origin(_cb);   \
+  assert(co != NULL);                                      \
+  cbi_p->origin = co->origin;                              \
+  assert(cbi_p->type == co->type);
+#define PREP_CBI_1(type, cb, arg0)                         \
+  PREP_CBI_0(type, cb)                                     \
   cbi_p->args[0] = (long) arg0;
-#define PREP_CBI_2(type, cb, arg0, arg1) \
-  PREP_CBI_1(type, cb, arg0) \
+#define PREP_CBI_2(type, cb, arg0, arg1)                   \
+  PREP_CBI_1(type, cb, arg0)                               \
   cbi_p->args[1] = (long) arg1;
-#define PREP_CBI_3(type, cb, arg0, arg1, arg2) \
-  PREP_CBI_2(type, cb, arg0, arg1) \
+#define PREP_CBI_3(type, cb, arg0, arg1, arg2)             \
+  PREP_CBI_2(type, cb, arg0, arg1)                         \
   cbi_p->args[2] = (long) arg2;
-#define PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3) \
-  PREP_CBI_3(type, cb, arg0, arg1, arg2) \
+#define PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3)       \
+  PREP_CBI_3(type, cb, arg0, arg1, arg2)                   \
   cbi_p->args[3] = (long) arg3;
 #define PREP_CBI_5(type, cb, arg0, arg1, arg2, arg3, arg4) \
-  PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3) \
+  PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3)             \
   cbi_p->args[4] = (long) arg4;
 
 /* Macros to invoke a callback, with 0-5 args.
    The internally-generated callback node describing the 
    invoked callback is set to callback_cbn. */
-#define INVOKE_CALLBACK_0(type, cb) \
-  PREP_CBI_0(type, cb) \
+#define INVOKE_CALLBACK_0(type, cb)                               \
+  PREP_CBI_0(type, cb)                                            \
   struct callback_node *callback_cbn = invoke_callback(cbi_p);
-#define INVOKE_CALLBACK_1(type, cb, arg0) \
-  PREP_CBI_1(type, cb, arg0) \
+#define INVOKE_CALLBACK_1(type, cb, arg0)                         \
+  PREP_CBI_1(type, cb, arg0)                                      \
   struct callback_node *callback_cbn = invoke_callback(cbi_p);
-#define INVOKE_CALLBACK_2(type, cb, arg0, arg1) \
-  PREP_CBI_2(type, cb, arg0, arg1) \
+#define INVOKE_CALLBACK_2(type, cb, arg0, arg1)                   \
+  PREP_CBI_2(type, cb, arg0, arg1)                                \
   struct callback_node *callback_cbn = invoke_callback(cbi_p);
-#define INVOKE_CALLBACK_3(type, cb, arg0, arg1, arg2) \
-  PREP_CBI_3(type, cb, arg0, arg1, arg2) \
+#define INVOKE_CALLBACK_3(type, cb, arg0, arg1, arg2)             \
+  PREP_CBI_3(type, cb, arg0, arg1, arg2)                          \
   struct callback_node *callback_cbn = invoke_callback(cbi_p);
-#define INVOKE_CALLBACK_4(type, cb, arg0, arg1, arg2, arg3) \
-  PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3) \
+#define INVOKE_CALLBACK_4(type, cb, arg0, arg1, arg2, arg3)       \
+  PREP_CBI_4(type, cb, arg0, arg1, arg2, arg3)                    \
   struct callback_node *callback_cbn = invoke_callback(cbi_p);
 #define INVOKE_CALLBACK_5(type, cb, arg0, arg1, arg2, arg3, arg4) \
-  PREP_CBI_5(type, cb, arg0, arg1, arg2, arg3, arg4) \
+  PREP_CBI_5(type, cb, arg0, arg1, arg2, arg3, arg4)              \
   struct callback_node *callback_cbn = invoke_callback(cbi_p);
 
 /* Description of a callback. */
 struct callback_info
 {
   enum callback_type type;
+  enum callback_origin_type origin;
   void (*cb)();
   long args[MAX_CALLBACK_NARGS]; /* Must be wide enough for the widest arg type. Seems to be 8 bytes. */
 };

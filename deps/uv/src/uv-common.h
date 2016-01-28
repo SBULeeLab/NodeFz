@@ -230,6 +230,7 @@ void incr_generation ();
 int get_generation ();
 void mylog (const char *format, ...);
 
+/* davisjam: New APIs for instrumentation. */ 
 void uv__mark_init_stack_begin (void);
 void uv__mark_init_stack_end (void);
 int uv__init_stack_active (void);
@@ -237,5 +238,8 @@ int uv__init_stack_active (void);
 void uv__mark_uv_run_begin (void);
 void uv__mark_uv_run_end (void);
 int uv__uv_run_active (void);
+
+void uv__register_callback (void *cb, enum callback_type);
+struct callback_origin * uv__callback_origin (void *cb);
 
 #endif /* UV_COMMON_H_ */
