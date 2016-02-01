@@ -818,8 +818,6 @@ static void cbn_start (struct callback_node *cbn)
 /* Mark CBN as inactive and set its stop and duration fields. */
 static void cbn_stop (struct callback_node *cbn)
 {
-  struct timespec diff;
-
   assert(cbn != NULL);
   assert(cbn->active);
 
@@ -1272,10 +1270,10 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
    Returns the CBN allocated for the callback. */
 struct callback_node * invoke_callback (struct callback_info *cbi)
 {
-  struct callback_node *orig_cbn, *new_cbn, *root;
+  struct callback_node *orig_cbn, *new_cbn;
   uv_handle_t *uvht; 
   char handle_type[64];
-  int async_cb, sync_cb, got_peer_info;
+  int async_cb, sync_cb;
 
   assert (cbi != NULL);  
 
@@ -1305,48 +1303,44 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     new_cbn->discovered_client_id = 0;
   }
 
-  if (new_cbn->parent)
-  {
-    list_lock(&new_cbn->parent->children);
-    list_push_back(&new_cbn->parent->children, &new_cbn->child_elem); 
-    list_unlock(&new_cbn->parent->children);
-  }
-  else
-  {
-    list_lock(&root_list);
-    list_push_back(&root_list, &new_cbn->root_elem); 
-    list_unlock(&root_list);
-  }
-
-  cbn_start(new_cbn);
-  list_init(&new_cbn->children);
-
+  /* Atomically update metadata structures. 
+     Prevents races in the order of a parent's children vs. global order. */
   list_lock(&global_order_list);
+
+  if (new_cbn->parent)
+    list_push_back(&new_cbn->parent->children, &new_cbn->child_elem); 
+  else
+    list_push_back(&root_list, &new_cbn->root_elem); 
+
   list_push_back(&global_order_list, &new_cbn->global_order_elem);
   new_cbn->id = list_size (&global_order_list);
-  list_unlock(&global_order_list);
 
   if (!new_cbn->parent && cbi->type == UV__WORK_WORK)
     /* Not clear how this can happen. Probably an error. */
     NOT_REACHED;
 
-  mylog ("invoke_callback: getting ready to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
-    new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
-  assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
-       || (0 < new_cbn->level && new_cbn->parent != NULL));
-
-  /* If UV__WORK_WORK, being called by the threadpool, resulting in an unclear current_callback_node. 
-     We resolve the issue by simply not tracking WORK_WORK CBs as active. 
-     TODO We could perhaps use a map to track a per-tid current_callback_node. */
-  if (cbi->type != UV__WORK_WORK)
-    current_callback_node_set (new_cbn);
-
   /* Attempt to discover the client ID associated with this callback. */
   if (new_cbn->true_client_id == ID_UNKNOWN)
     cbn_discover_id(new_cbn);
 
+  list_unlock(&global_order_list);
+
+  /* If UV__WORK_WORK, being called by the threadpool, setting the CBN would result in an unclear current_callback_node. 
+     We resolve the issue by simply not tracking WORK_WORK CBs as active. 
+     TODO This assumes that WORK_WORK CBs never register CBs of their own. Is this safe?
+     We could use a map to track a per-tid current_callback_node. */
+  if (cbi->type != UV__WORK_WORK)
+    current_callback_node_set (new_cbn);
+
+  mylog ("invoke_callback: about to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
+    new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
+  assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
+       || (0 < new_cbn->level && new_cbn->parent != NULL));
+
   uvht = NULL;
   snprintf(handle_type, 64, "(no handle type)");
+
+  cbn_start(new_cbn);
   /* Invoke the callback. */
   switch (cbi->type)
   {
@@ -1490,12 +1484,12 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       mylog ("invoke_callback: ERROR, unsupported type\n");
       NOT_REACHED;
   }
+  cbn_stop(new_cbn);
 
   mylog ("handle type <%s>\n", handle_type);
 
   mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p>\n",
     new_cbn, new_cbn->info, uvht); 
-  cbn_stop(new_cbn);
 
   if (sync_cb)
     /* Synchronous CB has finished, and the orig_cb is still active. */
@@ -1569,7 +1563,7 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 10s50ns\nID 1..."];
   */
   dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
-    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
 }
 
 /* Prints callback node CBN to FD.
@@ -1589,7 +1583,7 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
   }
 
   dprintf(fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <relative start> <%is %lins>> | <duration> <%is %lins>> |\n", 
-    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->true_client_id, cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, cbn->duration.tv_sec, cbn->duration.tv_nsec);
+    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->true_client_id, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -1809,13 +1803,16 @@ static void calc_relative_time (struct timespec *start, struct timespec *res)
 
 /* Call from any libuv function that is passed a user callback.
    At callback registration time we can determine the origin. 
-   If CB is NULL, CB will never be called, and we ignore it. */
+   If CB is NULL, CB will never be called, and we ignore it. 
+
+   May be called concurrently due to threadpool. Thread safe. */
 void uv__register_callback (void *cb, enum callback_type cb_type)
 {
   static pthread_t registering_thread = -1;
   struct callback_node *cbn;
   struct callback_origin *co;
   enum callback_origin_type origin;
+  int key;
 
   if (cb == NULL)
     return;
@@ -1824,7 +1821,7 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
     init_unified_callback();
 
   /* Are callbacks ever registered by more than one thread? */
-  if (registering_thread == -1)
+  if ((int) registering_thread == -1)
     registering_thread = pthread_self();
   assert(registering_thread == pthread_self());
 
@@ -1858,7 +1855,8 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
   co->cb = cb;
   co->type = cb_type;
   co->origin = origin;
-  map_insert(callback_to_origin_map, (int) cb, co);
+  key = (int) (long) cb;
+  map_insert(callback_to_origin_map, key, co);
 }
 
 /* Returns the origin of CB.
@@ -1881,12 +1879,15 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
 struct callback_origin * uv__callback_origin (void *cb)
 {
   struct callback_origin *co;
+  int key;
   int found;
 
   assert(cb != NULL);
   found = 0;
+  
+  key = (int) (long) cb;
 
-  co = (struct callback_origin *) map_lookup(callback_to_origin_map, (int) cb, &found);
+  co = (struct callback_origin *) map_lookup(callback_to_origin_map, key, &found);
   if (!found)
   {
     /* See comments above the function. */
@@ -2002,7 +2003,7 @@ static int cbn_discover_id (struct callback_node *cbn)
   else
   {
     origin = uv__callback_origin(cbn->info->cb);
-    if (INTERNAL_CALLBACK_WRAPPERS_MAX < origin)
+    if (INTERNAL_CALLBACK_WRAPPERS_MAX < (unsigned long) origin)
     {
       assert(origin->type == cbn->info->type);
       /* Callbacks originating internally can be colored. */

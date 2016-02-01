@@ -94,8 +94,7 @@ struct list_elem * list_remove (struct list *list, struct list_elem *elem)
   return elem;
 }
 
-/* Put ELEM at the end of the list. ELEM must not be NULL.
-   Not thread safe. */
+/* Put ELEM at the end of the list. ELEM must not be NULL. */
 void list_push_back (struct list *list, struct list_elem *elem)
 {
   assert(list != NULL);
@@ -110,8 +109,7 @@ void list_push_back (struct list *list, struct list_elem *elem)
   list__unlock(list);
 }
 
-/* Put ELEM at the front of the list. ELEM must not be NULL.
-   Not thread safe. */
+/* Put ELEM at the front of the list. ELEM must not be NULL. */
 void list_push_front (struct list *list, struct list_elem *elem)
 {
   assert(list != NULL);
@@ -175,8 +173,7 @@ struct list_elem * list_back (struct list *list)
   return node;
 }
 
-/* Return the element at the front of the queue, or NULL if empty. 
-   Not thread safe. */
+/* Return the element at the front of the queue, or NULL if empty. */
 struct list_elem * list_pop_front (struct list *list)
 {
   struct list_elem *ret;
@@ -195,8 +192,7 @@ struct list_elem * list_pop_front (struct list *list)
   return ret;
 }
 
-/* Return the element at the back of the queue, or NULL if empty. 
-   Not thread safe. */
+/* Return the element at the back of the queue, or NULL if empty. */
 struct list_elem * list_pop_back (struct list *list)
 {
   struct list_elem *ret;
