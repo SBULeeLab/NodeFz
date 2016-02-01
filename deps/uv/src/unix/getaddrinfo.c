@@ -103,6 +103,10 @@ static void uv__getaddrinfo_work(struct uv__work* w) {
   req->retcode = uv__getaddrinfo_translate_error(err);
 }
 
+void * uv_uv__getaddrinfo_work_ptr (void)
+{
+  return (void *) uv__getaddrinfo_work;
+}
 
 static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   uv_getaddrinfo_t* req;
@@ -139,6 +143,11 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   }
 }
 
+void * uv_uv__getaddrinfo_done_ptr (void)
+{
+  return (void *) uv__getaddrinfo_done;
+}
+
 
 int uv_getaddrinfo(uv_loop_t* loop,
                    uv_getaddrinfo_t* req,
@@ -162,6 +171,10 @@ int uv_getaddrinfo(uv_loop_t* loop,
 
   if (buf == NULL)
     return -ENOMEM;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(cb, UV_GETADDRINFO_CB);
+#endif
 
   uv__req_init(loop, req, UV_GETADDRINFO);
   req->loop = loop;

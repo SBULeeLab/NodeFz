@@ -65,6 +65,10 @@ int uv_fs_poll_start(uv_fs_poll_t* handle,
   if (uv__is_active(handle))
     return 0;
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(cb, UV_POLL_CB);
+#endif
+
   loop = handle->loop;
   len = strlen(path);
   ctx = uv__calloc(1, sizeof(*ctx) + len);

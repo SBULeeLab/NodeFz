@@ -60,6 +60,7 @@
 
 #define INIT(subtype)                                                         \
   do {                                                                        \
+    uv__register_callback(cb, UV_FS_CB);                                      \
     req->type = UV_FS;                                                        \
     if (cb != NULL)                                                           \
       uv__req_init(loop, req, UV_FS);                                         \
@@ -892,7 +893,6 @@ static void uv__fs_work(struct uv__work* w) {
   }
 }
 
-
 static void uv__fs_done(struct uv__work* w, int status) {
   uv_fs_t* req;
 
@@ -909,6 +909,16 @@ static void uv__fs_done(struct uv__work* w, int status) {
 #else
   req->cb(req);
 #endif
+}
+
+void * uv_uv__fs_work_ptr (void)
+{
+  return (void *) uv__fs_work;
+}
+
+void * uv_uv__fs_done_ptr (void)
+{
+  return (void *) uv__fs_done;
 }
 
 

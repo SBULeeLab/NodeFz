@@ -69,6 +69,10 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 static void uv__write_callbacks(uv_stream_t* stream);
 static size_t uv__write_req_size(uv_write_t* req);
 
+void * uv_uv__stream_io_ptr (void)
+{
+  return (void *) uv__stream_io;
+}
 
 void uv__stream_init(uv_loop_t* loop,
                      uv_stream_t* stream,
@@ -588,6 +592,10 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
 }
 
+void * uv_uv__server_io_ptr (void)
+{
+  return (void *) uv__server_io;
+}
 
 #undef UV_DEC_BACKLOG
 
@@ -659,6 +667,10 @@ done:
 
 int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
   int err;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback((void *) cb, UV_CONNECTION_CB);
+#endif
 
   switch (stream->type) {
   case UV_TCP:
@@ -1270,6 +1282,10 @@ int uv_shutdown(uv_shutdown_t* req, uv_stream_t* stream, uv_shutdown_cb cb) {
 
   assert(uv__stream_fd(stream) >= 0);
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback((void *) cb, UV_SHUTDOWN_CB);
+#endif
+
   /* Initialize request */
   uv__req_init(stream->loop, req, UV_SHUTDOWN);
   req->handle = stream;
@@ -1428,6 +1444,10 @@ int uv_write2(uv_write_t* req,
       return -EBADF;
   }
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback((void *) cb, UV_WRITE_CB);
+#endif
+
   /* It's legal for write_queue_size > 0 even when the write_queue is empty;
    * it means there are error-state requests in the write_completed_queue that
    * will touch up write_queue_size later, see also uv__write_req_finish().
@@ -1558,6 +1578,11 @@ int uv_read_start(uv_stream_t* stream,
 
   if (stream->flags & UV_CLOSING)
     return -EINVAL;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback((void *) alloc_cb, UV_ALLOC_CB);
+  uv__register_callback((void *) read_cb, UV_READ_CB);
+#endif
 
   /* The UV_STREAM_READING flag is irrelevant of the state of the tcp - it just
    * expresses the desired state of the user.

@@ -37,10 +37,29 @@ static void uv__async_event(uv_loop_t* loop,
                             struct uv__async* w,
                             unsigned int nevents);
 static int uv__async_eventfd(void);
+static void uv__async_io(uv_loop_t* loop,
+                         uv__io_t* w,
+                         unsigned int events);
+static void uv__async_event(uv_loop_t* loop,
+                            struct uv__async* w,
+                            unsigned int nevents);
 
+void * uv_uv__async_io_ptr (void)
+{
+  return (void *) uv__async_io;
+}
+
+void * uv_uv__async_event_ptr (void)
+{
+  return (void *) uv__async_event;
+}
 
 int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   int err;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(async_cb, UV_ASYNC_CB);
+#endif
 
   err = uv__async_start(loop, &loop->async_watcher, uv__async_event);
   if (err)
@@ -96,7 +115,6 @@ static void uv__async_event(uv_loop_t* loop,
 #endif
   }
 }
-
 
 static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   struct uv__async* wa;

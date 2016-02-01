@@ -71,6 +71,10 @@ int uv_timer_start(uv_timer_t* handle,
   if (cb == NULL)
     return -EINVAL;
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(cb, UV_TIMER_CB);
+#endif
+
   if (uv__is_active(handle))
     uv_timer_stop(handle);
 

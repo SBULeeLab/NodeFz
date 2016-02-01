@@ -53,6 +53,11 @@ RB_GENERATE_STATIC(uv__signal_tree_s,
                    uv_signal_s, tree_entry,
                    uv__signal_compare)
 
+void * uv_uv__signal_event_ptr (void)
+{
+  return (void *) uv__signal_event;
+}
+
 
 static void uv__signal_global_init(void) {
   if (uv__make_pipe(uv__signal_lock_pipefd, 0))
@@ -296,6 +301,10 @@ int uv_signal_start(uv_signal_t* handle, uv_signal_cb signal_cb, int signum) {
    */
   if (signum == 0)
     return -EINVAL;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(signal_cb, UV_SIGNAL_CB);
+#endif
 
   /* Short circuit: if the signal watcher is already watching {signum} don't
    * go through the process of deregistering and registering the handler.

@@ -152,6 +152,10 @@ void uv_pipe_connect(uv_connect_t* req,
   int err;
   int r;
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(cb, UV_CONNECT_CB);
+#endif
+
   new_sock = (uv__stream_fd(handle) == -1);
 
   if (new_sock) {

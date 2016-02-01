@@ -524,7 +524,7 @@ and expand my "cause and effect" picture.
 
 -----------
 
-13 Jan 2015
+13 Jan 2016
 
 1. Checked on the clients associated with the 6 benchmarks. Lowering the
 start window to 5 seconds made this more friendly on MUD, though not sure
@@ -546,7 +546,7 @@ on it.
 
 -----------
 
-14 Jan 2015
+14 Jan 2016
 
 1. On MUD, verified that the number of callback trees is roughly a function of the number of clients. This is good, since it means that I'm not getting totally bogus-looking numbers.
 2. Now printing global callback order to a file, along with client ID and start/duration (in seconds since epoch).
@@ -554,7 +554,7 @@ on it.
 
 -----------
 
-15 Jan 2015
+15 Jan 2016
 
 1. Wrote a callback statistics calculator, callback_stats. The callback_stats utility calculates interesting statistics on the "all callbacks" file produced by libuv. This can be used to characterize the behavior of Node.js applications, or of a single application across different inputs.
 
@@ -599,7 +599,7 @@ Number of clients                                               3
 
 -----------
 
-18 Jan 2015
+18 Jan 2016
 
 1. Made lists thread-safe internally.
 2. Developed a map class for future use. It does not appear to be immediately relevant but "you never know". I thought it would be useful but then I came up with a better approach.
@@ -607,7 +607,7 @@ Number of clients                                               3
 
 -----------
 
-19 Jan 2015
+19 Jan 2016
 
 1. Debug map class. Debug list class. Add unit tests for each. Commit changes.
 2. Make an offline backup of progress so far.
@@ -618,7 +618,7 @@ Number of clients                                               3
 
 -----------
 
-20 Jan 2015
+20 Jan 2016
 
 1. Implement two client ID maps. The first map is <internal client ID -> hash(sockaddr)>, and the second is <hash(sockaddr) -> "struct sockaddr">. In invoke_callback, if a stream is available then we can (unsafely!) obtain the struct sockaddr associated with it. From this we can determine the client ID. The client ID is based on a hash of the client's IP address and port number.
 
@@ -635,14 +635,14 @@ Number of clients                                               3
 
 -----------
 
-21 Jan 2015
+21 Jan 2016
 
 1. Think carefully about replayability and tree structures.
 2. First draft of correct timer inheritance.
 
 -----------
 
-25 Jan 2015
+25 Jan 2016
 
 1. Correct timer inheritance.
 2. Color nodes based on client ID.
@@ -652,7 +652,7 @@ Number of clients                                               3
 
 -----------
 
-26 Jan 2015
+26 Jan 2016
 
 1. Debugging/committing of the 25 Jan. changes.
 2. Fix misc compilation warnings.
@@ -661,5 +661,39 @@ Number of clients                                               3
 
 -----------
 
+27 Jan 2016
+
+I proofread Dr. Lee's TxRace paper for ASPLOS '16 from noon until 11:30 PM.
+
+-----------
+
+28 Jan 2016
+
+1. Mark begin and end of init stack and uv_run. 
+Next step: Create a map of callback_address -> source,
+where source is one of {NODE_INTERNAL, USER}. Instrumenting the 
+callback registration points combined with calls to uv__init_stack_active
+and uv__uv_run_active should suffice. 
+I am assuming that only one Node implementation thread might interact with uv at a time. We'll see how true that is. If not true, the recourse would be
+a per-thread status variable. Easy enough -- note the tid of all threads
+that register callbacks.
+
+-----------
+
+29 Jan 2016
+
+No work today.
+
+-----------
+
+1 Fep 2016
+
+1. Complete implementation of origin tracking. This lets me identify CBNs originating from internal Node.js and ibuv code. I can now identify everything but leftover "UV__IO_CBs" that emerge during uv__run_pending. So far I have not seen these register any CBs, so I think this is OK. However, I regret not knowing which CB caused their registration. Perhaps this could be tracked later.
+
+-----------
+
 NEXT STEPS:
+- Use clock_gettime for a monotonically increasing "start" value. Also use this for the duration calculations.
+- Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
+- persist the parentage information for callbacks passed to uv__run_pending

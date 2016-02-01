@@ -373,6 +373,10 @@ int uv_fs_event_start(uv_fs_event_t* handle,
   if (fd == -1)
     return -errno;
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(cb, UV_FS_EVENT_CB);
+#endif
+
   uv__handle_start(handle);
   uv__io_init(&handle->event_watcher, uv__fs_event, fd);
   handle->path = uv__strdup(path);

@@ -13,6 +13,21 @@
 #define NOT_REACHED assert (0 == 1);
 #endif
 
+/* Special values for uv__callback_origin. */
+enum internal_callback_wrappers
+{
+  WAS_UV__FS_WORK = 1, /* NULL < 1, so we can test the return of uv__callback_origin != NULL. */
+  WAS_UV__FS_DONE,
+  WAS_UV__STREAM_IO,
+  WAS_UV__ASYNC_IO,
+  WAS_UV__ASYNC_EVENT,
+  WAS_UV__SERVER_IO,
+  WAS_UV__SIGNAL_EVENT,
+  WAS_UV__GETADDRINFO_WORK,
+  WAS_UV__GETADDRINFO_DONE,
+  INTERNAL_CALLBACK_WRAPPERS_MAX = WAS_UV__GETADDRINFO_DONE
+};
+
 enum callback_origin_type
 {
   /* Callbacks can be registered by one of these sources. 
@@ -72,7 +87,6 @@ struct callback_origin
   void (*cb)();
 };
 
-
 /* Nodes that comprise a callback tree. */
 struct callback_node
 {
@@ -130,13 +144,24 @@ char * callback_type_to_string (enum callback_type);
   cbi_p->cb = (_cb_p);                                    
 
 /* Macros to prep a CBI for invoke_callback, with 0-5 args. */
-#define PREP_CBI_0(_type, _cb)                             \
-  INIT_CBI(_type, _cb)                                     \
-  /* Determine the origin of the CB, add it to cbi_p. */   \
-  struct callback_origin *co = uv__callback_origin(_cb);   \
-  assert(co != NULL);                                      \
-  cbi_p->origin = co->origin;                              \
-  assert(cbi_p->type == co->type);
+#define PREP_CBI_0(_type, _cb)                                          \
+  INIT_CBI(_type, _cb)                                                  \
+  /* Determine the origin of the CB, add it to cbi_p. */                \
+  struct callback_origin *co = uv__callback_origin((void *) (_cb));     \
+  assert(co != NULL);                                                   \
+  /* These are internal wrapper functions and have no origin. */        \
+  if ((int) co != WAS_UV__FS_WORK && (int) co != WAS_UV__FS_DONE        \
+   && (int) co != WAS_UV__STREAM_IO                                     \
+   && (int) co != WAS_UV__ASYNC_IO && (int) co != WAS_UV__ASYNC_EVENT   \
+   && (int) co != WAS_UV__SERVER_IO && (int) co != WAS_UV__SIGNAL_EVENT \
+   && (int) co != WAS_UV__GETADDRINFO_WORK                              \
+   && (int) co != WAS_UV__GETADDRINFO_DONE                              \
+     )                                                                  \
+  {                                                                     \
+    cbi_p->origin = co->origin;                                         \
+    assert(cbi_p->type == co->type);                                    \
+  }
+
 #define PREP_CBI_1(type, cb, arg0)                         \
   PREP_CBI_0(type, cb)                                     \
   cbi_p->args[0] = (long) arg0;

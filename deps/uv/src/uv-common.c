@@ -288,6 +288,10 @@ int uv_tcp_connect(uv_connect_t* req,
   else
     return UV_EINVAL;
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback((void *) cb, UV_CONNECT_CB);
+#endif
+
   return uv__tcp_connect(req, handle, addr, addrlen, cb);
 }
 
@@ -309,6 +313,10 @@ int uv_udp_send(uv_udp_send_t* req,
     addrlen = sizeof(struct sockaddr_in6);
   else
     return UV_EINVAL;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback((void *) send_cb, UV_UDP_SEND_CB);
+#endif
 
   return uv__udp_send(req, handle, bufs, nbufs, addr, addrlen, send_cb);
 }
@@ -340,7 +348,13 @@ int uv_udp_recv_start(uv_udp_t* handle,
   if (handle->type != UV_UDP || alloc_cb == NULL || recv_cb == NULL)
     return UV_EINVAL;
   else
+  {
+    #ifdef UNIFIED_CALLBACK
+      uv__register_callback((void *) alloc_cb, UV_ALLOC_CB);
+      uv__register_callback((void *) recv_cb, UV_UDP_RECV_CB);
+    #endif
     return uv__udp_recv_start(handle, alloc_cb, recv_cb);
+  }
 }
 
 
@@ -355,6 +369,10 @@ int uv_udp_recv_stop(uv_udp_t* handle) {
 void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
   QUEUE* q;
   uv_handle_t* h;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback((void *) walk_cb, UV_WALK_CB);
+#endif
 
   QUEUE_FOREACH(q, &loop->handle_queue) {
     h = QUEUE_DATA(q, uv_handle_t, handle_queue);
@@ -740,90 +758,13 @@ int uv__uv_run_active (void)
   return uv_run_active;
 }
 
-/* Maps CB (address) -> struct callback_origin *. 
-   As V8 will perform JIT compilation and GC, the address of a CB 
-   is only valid until it is "used up". 
-   If uv__register_callback is called with a CB already in the map,
-   we discard the previous entry; we will have already recorded the
-   origin in the appropriate CBN as needed. */
-struct map *callback_to_origin_map;
-
-/* Call from any libuv function that is passed a user callback.
-   At callback registration time we can determine the origin. 
-   If CB is NULL, CB will never be called, and we ignore it. */
-void uv__register_callback (void *cb, enum callback_type cb_type)
-{
-  static pthread_t registering_thread = -1;
-  struct callback_node *cbn;
-  struct callback_origin *co;
-  enum callback_origin_type origin;
-
-  if (cb == NULL)
-    return;
-
-  /* Are callbacks ever registered by more than one thread? */
-  if (registering_thread == -1)
-    registering_thread = pthread_self();
-  assert(registering_thread == pthread_self());
-
-  co = (struct callback_origin *) malloc(sizeof *co);
-  assert(co != NULL);
-  memset(co, 0, sizeof *co);
-
-  /* Initial stack active -> USER.
-
-     If a uv_run is active, the source can be any of NODE_INTERNAL, LIBUV_INTERNAL, and USER.
-     We inherit the current callback node's origin if there is one.
-     If we're in uv_run and there's no active callback, the source must in LIBUV_INTERNAL (does this ever happen?).
-
-     Neither init stack nor uv_run -> NODEJS_INTERNAL. */
-  if (uv__init_stack_active())
-    origin = USER;
-  else if (uv__uv_run_active())
-  {
-    cbn = current_callback_node_get();
-    if (cbn != NULL)
-      origin = cbn->info->origin;
-    else
-    {
-      origin = LIBUV_INTERNAL;
-      assert(0 == 1); /* Does this ever happen? */
-    }
-  }
-  else
-    origin = NODEJS_INTERNAL;
-
-  co->cb = cb;
-  co->type = cb_type;
-  co->origin = origin;
-  map_insert(callback_to_origin_map, (int) cb, co);
-}
-
-/* Returns the origin of CB. 
-   You must have called uv__register_callback on CB first. 
-   Asserts if CB is NULL or if CB was not registered. */
-struct callback_origin * uv__callback_origin (void *cb)
-{
-  struct callback_origin *co;
-  int found;
-
-  assert(cb != NULL);
-  found = 0;
-
-  co = (struct callback_origin *) map_lookup(callback_to_origin_map, (int) cb, &found);
-  assert(found);
-  assert(co != NULL);
-  return co;
-}
-
+/* Static functions added for unified callback. */
 /* For convenience with addr_getnameinfo. */
 struct uv_nameinfo
 {
   char host[INET6_ADDRSTRLEN];
   char service[64];
 };
-
-/* Static functions added for unified callback. */
 
 /* Callback nodes. */
 static int cbn_have_peer_info (const struct callback_node *cbn);
@@ -867,8 +808,26 @@ static struct map *peer_info_to_id;
 /* client ID -> (void *) &sockaddr_storage */
 static struct map *id_to_peer_info;
 
+/* Maps CB (address) -> struct callback_origin *.
+   As V8 will perform JIT compilation and GC, the address of a CB 
+   is only valid until it is "used up". 
+   If uv__register_callback is called with a CB already in the map,
+   we discard the previous entry; we will have already recorded the
+   origin in the appropriate CBN as needed. 
+
+   Used by uv__register_callback and uv__callback_origin. */
+struct map *callback_to_origin_map;
+
 /* Printing nodes with colors based on client ID. */
-#define RESERVED_COLORS 2 /* To accommodate true_client_id -2 (initial stack), and -1 (unknown). */
+#define RESERVED_IDS 4
+enum reserved_id
+{
+  ID_NODEJS_INTERNAL = -4, /* Callbacks originating internally -- node. */
+  ID_LIBUV_INTERNAL,       /* Callbacks originating internally -- libuv. */
+  ID_INITIAL_STACK,        /* Callbacks registered during the initial stack. */
+  ID_UNKNOWN               /* Unknown origin -- e.g. close() prior to connection being completed? */
+};
+
 /* graphviz notation: node [style="filled" colorscheme="SVG" color="aliceblue"] */
 char *graphviz_colorscheme = "SVG";
 char *graphviz_colors[] = { "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki", "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "grey", "green", "greenyellow", "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue", "purple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen", "steelblue", "tan", "teal", "thistle", "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen" }; /* ~150 colors. */
@@ -884,6 +843,7 @@ static int cbn_is_root (const struct callback_node *cbn)
 static int cbn_have_peer_info (const struct callback_node *cbn)
 {
   assert(cbn != NULL);
+  assert(cbn->peer_info != NULL);
   return !is_zeros(cbn->peer_info, sizeof *cbn->peer_info);
 }
 
@@ -943,6 +903,7 @@ struct callback_node * get_init_stack_callback_node (void)
 
   if (init_stack_cbn == NULL)
   {
+    /* TODO Make this a function and call it for invoke_callback's new_cbn, too. */
     init_stack_cbn = malloc(sizeof *init_stack_cbn);
     assert(init_stack_cbn != NULL);
     memset(init_stack_cbn, 0, sizeof *init_stack_cbn);
@@ -951,14 +912,18 @@ struct callback_node * get_init_stack_callback_node (void)
     init_stack_cbn->level = 0;
     init_stack_cbn->parent = NULL;
 
-    init_stack_cbn->orig_client_id = -2;
-    init_stack_cbn->true_client_id = -2;
+    init_stack_cbn->orig_client_id = ID_INITIAL_STACK;
+    init_stack_cbn->true_client_id = ID_INITIAL_STACK;
     init_stack_cbn->discovered_client_id = 1;
 
     init_stack_cbn->relative_start = 0;
     init_stack_cbn->duration = 0;
     init_stack_cbn->active = 1;
     list_init(&init_stack_cbn->children);
+
+    init_stack_cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *init_stack_cbn->peer_info);
+    assert(init_stack_cbn->peer_info != NULL);
+    memset(init_stack_cbn->peer_info, 0, sizeof *init_stack_cbn->peer_info);
 
     /* Add to global order list and to root list. */
     list_lock(&global_order_list);
@@ -1021,7 +986,7 @@ static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo 
   err = getnameinfo((struct sockaddr *) addr, addr_len, nameinfo->host, sizeof(nameinfo->host), nameinfo->service, sizeof(nameinfo->service), NI_NUMERICHOST|NI_NUMERICSERV);
   if (err != 0)
   { 
-    printf("get_peer_info: Error, getnameinfo failed (family %i AF_UNSPEC %i AF_INET %i AF_INET6 %i): %i: %s\n", ((struct sockaddr *) addr)->sa_family, AF_UNSPEC, AF_INET, AF_INET6, err, gai_strerror(err));
+    printf("addr_getnameinfo: Error, getnameinfo failed (family %i AF_UNSPEC %i AF_INET %i AF_INET6 %i): %i: %s\n", ((struct sockaddr *) addr)->sa_family, AF_UNSPEC, AF_INET, AF_INET6, err, gai_strerror(err));
     print_buf(addr, sizeof *addr);
     fflush(NULL);
     assert(err == 0); /* ??? */
@@ -1195,6 +1160,7 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
 struct callback_node * invoke_callback (struct callback_info *cbi)
 {
   struct callback_node *orig_cbn, *new_cbn, *root;
+  struct callback_origin *origin;
   uv_handle_t *uvht; 
   char handle_type[64];
   int async_cb, sync_cb, got_peer_info;
@@ -1213,6 +1179,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   new_cbn->info = cbi;
 
+  /* TODO Lookup origin in a separate function. */
   /* If CBI is an asynchronous type, extract the orig_cbn at time
      of registration (if any). */
   async_cb = (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE || 
@@ -1261,27 +1228,26 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* Initialize NEW_CBN. */
   if (orig_cbn)
   {
+    /* Child. */
     assert (orig_cbn != NULL);
     new_cbn->parent = orig_cbn;
     new_cbn->level = new_cbn->parent->level + 1;
-#if 0
-    new_cbn->client_id = -1;
-#else
     /* Inherit client ID. */
     new_cbn->orig_client_id = new_cbn->parent->true_client_id;
     new_cbn->true_client_id = new_cbn->parent->true_client_id;
     new_cbn->discovered_client_id = 0;
     new_cbn->peer_info = orig_cbn->peer_info;
-#endif
+    assert(new_cbn->peer_info != NULL); /* Parent should have allocated this. */
   }
   else
   {
+    /* Root. */
     new_cbn->level = 0;
     new_cbn->parent = NULL;
 
     /* Unknown until (possibly) later on in the function. */
-    new_cbn->orig_client_id = -1;
-    new_cbn->true_client_id = -1;
+    new_cbn->orig_client_id = ID_UNKNOWN;
+    new_cbn->true_client_id = ID_UNKNOWN;
     new_cbn->discovered_client_id = 0;
 
     new_cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *new_cbn->peer_info);
@@ -1314,11 +1280,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   list_unlock(&global_order_list);
 
   if (!new_cbn->parent && cbi->type == UV__WORK_WORK)
-  {
     /* Not clear how this can happen. Probably an error. */
-    mylog ("invoke_callback: root node is a UV__WORK_WORK item??\n");
-    assert(0 == 1);
-  }
+    NOT_REACHED;
 
   mylog ("invoke_callback: getting ready to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
     new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
@@ -1335,9 +1298,9 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   snprintf(handle_type, 64, "(no handle type)");
 
   /* Attempt to discover the client ID associated with this callback. */
-  if (new_cbn->true_client_id == -1)
+  if (new_cbn->true_client_id == ID_UNKNOWN)
   {
-    mylog("Looking for peer info\n");
+    mylog("Looking for the ID associated with this CBN\n");
     got_peer_info = look_for_peer_info(cbi, new_cbn, &uvht);
     if (got_peer_info)
     {
@@ -1346,7 +1309,31 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       new_cbn->discovered_client_id = 1;
       new_cbn->true_client_id = get_client_id(new_cbn->peer_info);
       assert(0 <= new_cbn->true_client_id);
+    }
+    else
+    {
+      origin = uv__callback_origin(new_cbn->info->cb);
+      if (INTERNAL_CALLBACK_WRAPPERS_MAX < origin)
+      {
+        assert(origin->type == new_cbn->info->type);
+        /* Callbacks originating internally can be colored. */
+        switch (origin->origin)
+        {
+          case NODEJS_INTERNAL:
+            new_cbn->discovered_client_id = 1;
+            new_cbn->true_client_id = ID_NODEJS_INTERNAL;
+            break;
+          case LIBUV_INTERNAL:
+            new_cbn->discovered_client_id = 1;
+            new_cbn->true_client_id = ID_LIBUV_INTERNAL;
+            NOT_REACHED; /* Does this ever happen? */
+            break;
+        }
+      }
+    }
 
+    if (new_cbn->discovered_client_id)
+    {
       root = cbn_get_root(new_cbn);
       cbn_color_tree(root, new_cbn->true_client_id);
 
@@ -1569,22 +1556,31 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   struct uv_nameinfo nameinfo;
   assert (cbn != NULL);
 
-  if (cbn->true_client_id == -2)
-    snprintf(client_info, 256, "initial stack");
-  else if (cbn->true_client_id == -1)
-    snprintf(client_info, 256, "unknown (internal?)");
-  else
+  switch (cbn->true_client_id)
   {
-    assert(cbn_have_peer_info(cbn));
-    addr_getnameinfo(cbn->peer_info, &nameinfo);
-    snprintf(client_info, 256, "%s [port %s]", nameinfo.host, nameinfo.service);
+    case ID_NODEJS_INTERNAL:
+      snprintf(client_info, 256, "internal (nodeJS)");
+      break;
+    case ID_LIBUV_INTERNAL:
+      snprintf(client_info, 256, "internal (libuv)");
+      break;
+    case ID_INITIAL_STACK:
+      snprintf(client_info, 256, "initial stack");
+      break;
+    case ID_UNKNOWN:
+      snprintf(client_info, 256, "unknown??");
+      break;
+    default:
+      assert(cbn_have_peer_info(cbn));
+      addr_getnameinfo(cbn->peer_info, &nameinfo);
+      snprintf(client_info, 256, "%s [port %s]", nameinfo.host, nameinfo.service);
   }
 
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 5 (ms)\nID 1..."];
   */
   dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %lu (ms) duration %lu (ms)\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
-    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, cbn->relative_start, cbn->duration, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_COLORS]);
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, cbn->relative_start, cbn->duration, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
 }
 
 /* Prints callback node CBN to FD.
@@ -1828,4 +1824,113 @@ time_t get_relative_time (void)
       /* Too close to call it. */
       return 0;
   }
+}
+
+/* Call from any libuv function that is passed a user callback.
+   At callback registration time we can determine the origin. 
+   If CB is NULL, CB will never be called, and we ignore it. */
+void uv__register_callback (void *cb, enum callback_type cb_type)
+{
+  static pthread_t registering_thread = -1;
+  struct callback_node *cbn;
+  struct callback_origin *co;
+  enum callback_origin_type origin;
+
+  if (cb == NULL)
+    return;
+
+  if (!unified_callback_initialized)
+    init_unified_callback();
+
+  /* Are callbacks ever registered by more than one thread? */
+  if (registering_thread == -1)
+    registering_thread = pthread_self();
+  assert(registering_thread == pthread_self());
+
+  co = (struct callback_origin *) malloc(sizeof *co);
+  assert(co != NULL);
+  memset(co, 0, sizeof *co);
+
+  /* Initial stack active -> USER.
+
+     If a uv_run is active, the source can be any of NODE_INTERNAL, LIBUV_INTERNAL, and USER.
+     We inherit the current callback node's origin if there is one.
+     If we're in uv_run and there's no active callback, the source must in LIBUV_INTERNAL (does this ever happen?).
+
+     Neither init stack nor uv_run -> NODEJS_INTERNAL. */
+  if (uv__init_stack_active())
+    origin = USER;
+  else if (uv__uv_run_active())
+  {
+    cbn = current_callback_node_get();
+    if (cbn != NULL)
+      origin = cbn->info->origin;
+    else
+    {
+      origin = LIBUV_INTERNAL;
+      assert(0 == 1); /* Does this ever happen? */
+    }
+  }
+  else
+    origin = NODEJS_INTERNAL;
+
+  co->cb = cb;
+  co->type = cb_type;
+  co->origin = origin;
+  map_insert(callback_to_origin_map, (int) cb, co);
+}
+
+/* Returns the origin of CB.
+   You must have called uv__register_callback on CB first.
+   Asserts if CB is NULL or if CB was not registered. 
+   
+   Exceptions: FS events (src/unix/fs.c) registered in the thread pool are 
+    implemented by wrapping the action inside uv__fs_work and the "done" uv_fs_cb 
+    in uv__fs_done. The same style is used for a few other internal wrappers
+    listed below.
+    
+    If CB is an internal wrapper, we return (struct callback_origin *) as follows:
+      uv__fs_work     -> WAS_UV__FS_WORK
+      uv__fs_done     -> WAS_UV__FS_DONE
+      uv__stream_io   -> WAS_UV__STREAM_IO
+      uv__async_io    -> WAS_UV__ASYNC_IO
+      uv__async_event -> WAS_UV__ASYNC_EVENT
+      uv__server_io   -> WAS_UV__SERVER_IO
+      uv__signal_event -> WAS_UV__SIGNAL_EVENT */
+struct callback_origin * uv__callback_origin (void *cb)
+{
+  struct callback_origin *co;
+  int found;
+
+  assert(cb != NULL);
+  found = 0;
+
+  co = (struct callback_origin *) map_lookup(callback_to_origin_map, (int) cb, &found);
+  if (!found)
+  {
+    /* See comments above the function. */
+    if (cb == uv_uv__fs_done_ptr())
+      return (void *) WAS_UV__FS_WORK;
+    else if (cb == uv_uv__fs_work_ptr())
+      return (void *) WAS_UV__FS_DONE;
+    else if (cb == uv_uv__stream_io_ptr())
+      return (void *) WAS_UV__STREAM_IO;
+    else if (cb == uv_uv__async_io_ptr())
+      return (void *) WAS_UV__ASYNC_IO;
+    else if (cb == uv_uv__async_event_ptr())
+      return (void *) WAS_UV__ASYNC_EVENT;
+    else if (cb == uv_uv__server_io_ptr())
+      return (void *) WAS_UV__SERVER_IO;
+    else if (cb == uv_uv__signal_event_ptr())
+      return (void *) WAS_UV__SIGNAL_EVENT;
+    else if (cb == uv_uv__getaddrinfo_work_ptr())
+      return (void *) WAS_UV__GETADDRINFO_WORK;
+    else if (cb == uv_uv__getaddrinfo_done_ptr())
+      return (void *) WAS_UV__GETADDRINFO_DONE;
+    else
+      NOT_REACHED;
+  }
+
+  assert(co != NULL);
+  return co;
 }
