@@ -701,63 +701,6 @@ void mylog (const char *format, ...)
   fflush(NULL);
 }
 
-int init_stack_active = 0;
-
-/* Note that we've begun the initial application stack. 
-   Call once prior to invoking the application code. */
-void uv__mark_init_stack_begin (void)
-{
-  /* Call at most once. */
-  static int init_stack_marked = 0;
-  assert(!init_stack_marked);
-  init_stack_marked = 1;
-
-  assert(!init_stack_active);
-  init_stack_active = 1;
-  printf("uv__mark_init_stack_begin: inital stack has begun\n");
-}
-
-/* Note that we've finished the initial application stack. 
-   Call once after the initial stack is complete. 
-   Pair with uv__mark_init_stack_begin. */
-void uv__mark_init_stack_end (void)
-{
-  assert(init_stack_active);
-  init_stack_active = 0;
-  printf("uv__mark_init_stack_end: inital stack has ended\n");
-}
-
-/* Returns non-zero if we're in the application's initial stack, else 0. */
-int uv__init_stack_active (void)
-{
-  return init_stack_active;
-}
-
-int uv_run_active = 0;
-
-/* Note that we've entered libuv's uv_run loop. */
-void uv__mark_uv_run_begin (void)
-{
-  assert(!uv_run_active);
-  uv_run_active = 1;
-  printf("uv__mark_uv_run_begin: uv_run has begun\n");
-}
-
-/* Note that we've finished the libuv uv_run loop.
-   Pair with uv__mark_uv_run_begin. */
-void uv__mark_uv_run_end (void)
-{
-  assert(uv_run_active);
-  uv_run_active = 0;
-  printf("uv__mark_uv_run_end: uv_run has ended\n");
-}
-
-/* Returns non-zero if we're in the application's initial stack, else 0. */
-int uv__uv_run_active (void)
-{
-  return uv_run_active;
-}
-
 /* Static functions added for unified callback. */
 /* For convenience with addr_getnameinfo. */
 struct uv_nameinfo
@@ -767,11 +710,19 @@ struct uv_nameinfo
 };
 
 /* Callback nodes. */
+static struct callback_node * cbn_create (void);
+static void cbn_start (struct callback_node *cbn);
+static void cbn_stop (struct callback_node *cbn);
+
+static struct callback_node * cbn_determine_parent (struct callback_node *cbn);
 static int cbn_have_peer_info (const struct callback_node *cbn);
 static int cbn_is_root (const struct callback_node *cbn);
 static struct callback_node * cbn_get_root (struct callback_node *cbn);
 static void cbn_color_tree (struct callback_node *cbn, int client_id);
 static int cbn_have_peer_info (const struct callback_node *cbn);
+static int cbn_is_async (const struct callback_node *cbn);
+static int cbn_is_active (const struct callback_node *cbn);
+static int cbn_discover_id (struct callback_node *cbn);
 
 /* Peer addresses and clients. */
 static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP);
@@ -847,6 +798,142 @@ static int cbn_have_peer_info (const struct callback_node *cbn)
   return !is_zeros(cbn->peer_info, sizeof *cbn->peer_info);
 }
 
+/* Mark CBN as active and update its start field. */
+static void cbn_start (struct callback_node *cbn)
+{
+  struct timeval diff;
+
+  assert(cbn != NULL);
+  assert(!cbn->active);
+
+  cbn->active = 1;
+
+  assert (gettimeofday (&cbn->start, NULL) == 0);
+  cbn->duration = -1;
+  cbn->relative_start = get_relative_time();
+}
+
+/* Mark CBN as inactive and update its stop and duration fields. */
+static void cbn_stop (struct callback_node *cbn)
+{
+  struct timeval diff;
+
+  assert(cbn != NULL);
+  assert(cbn->active);
+
+  cbn->active = 0;
+
+  assert (gettimeofday (&cbn->stop, NULL) == 0);
+  /* Must end after it began. This can fail if the system clock is set backward during the callback. */
+  assert (cbn->start.tv_sec < cbn->stop.tv_sec || cbn->start.tv_usec <= cbn->stop.tv_usec);
+  timersub (&cbn->stop, &cbn->start, &diff);
+  cbn->duration = diff.tv_sec*1000000 + diff.tv_usec;
+}
+
+/* Determine the parent of CBN. 
+   CBN->info must be initialized. 
+   CBN->parent must not be known. */ 
+static struct callback_node * cbn_determine_parent (struct callback_node *cbn)
+{
+  struct callback_node *parent;
+  struct callback_info *info;
+  int sync_cb, async_cb;
+
+  assert(cbn != NULL);
+  assert(cbn->info != NULL);
+  assert(cbn->parent == NULL);
+
+  info = cbn->info;
+  async_cb = cbn_is_async(cbn);
+  sync_cb = !async_cb;
+
+  if (sync_cb)
+    /* CBN is synchronous, so it's either a root or a child of an active callback. */
+    parent = current_callback_node_get();
+  else
+  {
+    /* CBN is asynchronous, extract the cbn at time of registration (if any? So far I think there must be one). */
+    switch (info->type)
+    {
+      case UV__WORK_WORK:
+        /* See src/threadpool.c */
+        parent = ((struct uv__work *) info->args[0])->parent;
+        /* Make ourselves the direct parent of the UV__WORK_DONE that follows us. */
+        ((struct uv__work *) info->args[0])->parent = cbn;
+        break;
+      case UV__WORK_DONE:
+        /* See src/threadpool.c
+           Parent is the UV__WORK_WORK that preceded us. */
+        parent = ((struct uv__work *) info->args[0])->parent;
+        assert(parent->info->type == UV__WORK_WORK);
+        break;
+      case UV_TIMER_CB:
+        /* See src/unix/timer.c
+           A uv_timer_t* is a uv_handle_t. 
+           TODO Might there not be a parent if the timer was registered by 
+             internal Node code (e.g. for garbage collection)? */
+        parent = ((uv_timer_t *) info->args[0])->parent;
+        break;
+      /* See src/unix/loop-watcher.c */
+      case UV_PREPARE_CB:
+      case UV_CHECK_CB:
+      case UV_IDLE_CB:
+        parent = ((uv_handle_t *) info->args[0])->parent;
+        break;
+      default:
+        NOT_REACHED;
+    }
+    assert(parent != NULL);
+  }
+
+  cbn->parent = parent;
+  return parent;
+}
+
+/* Return non-zero if CBN is async, zero else.
+   CBN->info must be initialized. */
+static int cbn_is_async (const struct callback_node *cbn)
+{
+  int async;
+  enum callback_type type;
+
+  assert(cbn != NULL);
+  assert(cbn->info != NULL);
+
+  type = cbn->info->type;
+  async = (type == UV__WORK_WORK || type == UV__WORK_DONE || 
+           type == UV_TIMER_CB || 
+           type == UV_PREPARE_CB || type == UV_CHECK_CB || type == UV_IDLE_CB);
+  return async;
+}
+
+/* Returns non-zero if CBN is active, zero else. */
+static int cbn_is_active (const struct callback_node *cbn)
+{
+  assert(cbn != NULL);
+  return cbn->active;
+}
+
+/* Inherit the appropriate fields from CBN->parent. */
+static void cbn_inherit (struct callback_node *cbn)
+{
+  struct callback_node *parent;
+
+  assert(cbn != NULL);
+  assert(cbn->parent != NULL);
+  parent = cbn->parent;
+
+  cbn->level = parent->level + 1;
+  /* Inherit client ID. */
+  cbn->orig_client_id = parent->true_client_id; /* If parent started unknown and was colored, we inherit the color. */
+  cbn->true_client_id = parent->true_client_id;
+  cbn->discovered_client_id = 0;
+  /* Inherit parent's peer_info. */
+  free(cbn->peer_info);
+  cbn->peer_info = parent->peer_info;
+  assert(cbn->peer_info != NULL);
+}
+
 /* Return the root of the callback-node tree containing CBN. */
 static struct callback_node * cbn_get_root (struct callback_node *cbn)
 {
@@ -894,8 +981,42 @@ struct callback_node *current_callback_node_get (void)
   return current_callback_node;
 }
 
+/* Returns a new CBN. 
+   id=-1, peer_info is allocated, {orig,true}_client_id=ID_UNKNOWN. 
+   All other fields are NULL or 0. */
+static struct callback_node * cbn_create (void)
+{
+  struct callback_node *cbn;
+
+  cbn = malloc(sizeof *cbn);
+  assert(cbn != NULL);
+  memset(cbn, 0, sizeof *cbn);
+
+  cbn->info = NULL;
+  cbn->level = 0;
+  cbn->parent = NULL;
+
+  cbn->orig_client_id = ID_UNKNOWN;
+  cbn->true_client_id = ID_UNKNOWN;
+  cbn->discovered_client_id = 0;
+
+  cbn->relative_start = 0;
+  cbn->duration = 0;
+  cbn->active = 0;
+  list_init(&cbn->children);
+
+  cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *cbn->peer_info);
+  assert(cbn->peer_info != NULL);
+  memset(cbn->peer_info, 0, sizeof *cbn->peer_info);
+
+  cbn->id = -1;
+  return cbn;
+}
+
+/* Code in support of tracking the initial stack. */
+
 /* Returns the CBN associated with the initial stack. */
-static struct callback_node *init_stack_cbn = NULL;
+struct callback_node *init_stack_cbn = NULL;
 struct callback_node * get_init_stack_callback_node (void)
 {
   if (!unified_callback_initialized)
@@ -903,22 +1024,13 @@ struct callback_node * get_init_stack_callback_node (void)
 
   if (init_stack_cbn == NULL)
   {
-    /* TODO Make this a function and call it for invoke_callback's new_cbn, too. */
-    init_stack_cbn = malloc(sizeof *init_stack_cbn);
+    init_stack_cbn = cbn_create();
     assert(init_stack_cbn != NULL);
-    memset(init_stack_cbn, 0, sizeof *init_stack_cbn);
-
-    init_stack_cbn->info = NULL;
-    init_stack_cbn->level = 0;
-    init_stack_cbn->parent = NULL;
 
     init_stack_cbn->orig_client_id = ID_INITIAL_STACK;
     init_stack_cbn->true_client_id = ID_INITIAL_STACK;
     init_stack_cbn->discovered_client_id = 1;
 
-    init_stack_cbn->relative_start = 0;
-    init_stack_cbn->duration = 0;
-    init_stack_cbn->active = 1;
     list_init(&init_stack_cbn->children);
 
     init_stack_cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *init_stack_cbn->peer_info);
@@ -989,7 +1101,7 @@ static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo 
     printf("addr_getnameinfo: Error, getnameinfo failed (family %i AF_UNSPEC %i AF_INET %i AF_INET6 %i): %i: %s\n", ((struct sockaddr *) addr)->sa_family, AF_UNSPEC, AF_INET, AF_INET6, err, gai_strerror(err));
     print_buf(addr, sizeof *addr);
     fflush(NULL);
-    assert(err == 0); /* ??? */
+    NOT_REACHED;
   }
 
   return;
@@ -1125,7 +1237,7 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
   *uvhtPP = NULL;
   switch (cbi->type)
   {
-    /* TODO Don't check if status is UV_ECANCELED -- see uv_close. */
+    /* TODO Don't check if status is UV_ECANCELED -- see documentation for uv_close. */
     case UV_CONNECT_CB:
       *uvhtPP = (uv_handle_t *) ((uv_connect_t *) cbi->args[0])->handle;
       break;
@@ -1160,11 +1272,9 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
 struct callback_node * invoke_callback (struct callback_info *cbi)
 {
   struct callback_node *orig_cbn, *new_cbn, *root;
-  struct callback_origin *origin;
   uv_handle_t *uvht; 
   char handle_type[64];
   int async_cb, sync_cb, got_peer_info;
-  struct timeval diff;
 
   assert (cbi != NULL);  
 
@@ -1173,72 +1283,15 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   if (!unified_callback_initialized)
     init_unified_callback();
   
-  new_cbn = malloc (sizeof *new_cbn);
-  assert (new_cbn != NULL);
-  memset(new_cbn, 0, sizeof *new_cbn);
-
+  new_cbn = cbn_create();
   new_cbn->info = cbi;
+  orig_cbn = cbn_determine_parent(new_cbn);
 
-  /* TODO Lookup origin in a separate function. */
-  /* If CBI is an asynchronous type, extract the orig_cbn at time
-     of registration (if any). */
-  async_cb = (cbi->type == UV__WORK_WORK || cbi->type == UV__WORK_DONE || 
-              cbi->type == UV_TIMER_CB || 
-              cbi->type == UV_PREPARE_CB || cbi->type == UV_CHECK_CB || cbi->type == UV_IDLE_CB);
+  async_cb = cbn_is_async(new_cbn);
   sync_cb = !async_cb;
 
-  if (sync_cb)
-    /* CBI is synchronous, so it's either a root or a child of an active callback. */
-    orig_cbn = current_callback_node_get();
-  else
-  {
-    switch (cbi->type)
-    {
-      case UV__WORK_WORK:
-        /* See src/threadpool.c */
-        orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
-        /* Make ourselves the direct parent of the UV__WORK_DONE that follows us. */
-        ((struct uv__work *) cbi->args[0])->parent = new_cbn;
-        break;
-      case UV__WORK_DONE:
-        /* See src/threadpool.c
-           Parent is the UV__WORK_WORK that preceded us. */
-        orig_cbn = ((struct uv__work *) cbi->args[0])->parent;
-        assert(orig_cbn->info->type == UV__WORK_WORK);
-        break;
-      case UV_TIMER_CB:
-        /* See src/unix/timer.c
-           A uv_timer_t* is a uv_handle_t. 
-           TODO There may not be an orig_cbn if the timer was registered by 
-             internal Node code (e.g. for garbage collection). I have not seen this yet. */
-        orig_cbn = ((uv_timer_t *) cbi->args[0])->parent;
-        break;
-      /* See src/unix/loop-watcher.c */
-      case UV_PREPARE_CB:
-      case UV_CHECK_CB:
-      case UV_IDLE_CB:
-        orig_cbn = ((uv_handle_t *) cbi->args[0])->parent;
-        break;
-      default:
-        NOT_REACHED;
-    }
-    assert(orig_cbn != NULL);
-  }
-
-  /* Initialize NEW_CBN. */
   if (orig_cbn)
-  {
-    /* Child. */
-    assert (orig_cbn != NULL);
-    new_cbn->parent = orig_cbn;
-    new_cbn->level = new_cbn->parent->level + 1;
-    /* Inherit client ID. */
-    new_cbn->orig_client_id = new_cbn->parent->true_client_id;
-    new_cbn->true_client_id = new_cbn->parent->true_client_id;
-    new_cbn->discovered_client_id = 0;
-    new_cbn->peer_info = orig_cbn->peer_info;
-    assert(new_cbn->peer_info != NULL); /* Parent should have allocated this. */
-  }
+    cbn_inherit(new_cbn);
   else
   {
     /* Root. */
@@ -1249,10 +1302,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     new_cbn->orig_client_id = ID_UNKNOWN;
     new_cbn->true_client_id = ID_UNKNOWN;
     new_cbn->discovered_client_id = 0;
-
-    new_cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *new_cbn->peer_info);
-    assert(new_cbn->peer_info != NULL);
-    memset(new_cbn->peer_info, 0, sizeof *new_cbn->peer_info);
   }
 
   if (new_cbn->parent)
@@ -1268,10 +1317,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     list_unlock(&root_list);
   }
 
-  new_cbn->relative_start = get_relative_time();
-  assert(gettimeofday(&new_cbn->start, NULL) == 0);
-  new_cbn->duration = -1;
-  new_cbn->active = 1;
+  cbn_start(new_cbn);
   list_init(&new_cbn->children);
 
   list_lock(&global_order_list);
@@ -1294,59 +1340,12 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   if (cbi->type != UV__WORK_WORK)
     current_callback_node_set (new_cbn);
 
-  uvht = NULL;
-  snprintf(handle_type, 64, "(no handle type)");
-
   /* Attempt to discover the client ID associated with this callback. */
   if (new_cbn->true_client_id == ID_UNKNOWN)
-  {
-    mylog("Looking for the ID associated with this CBN\n");
-    got_peer_info = look_for_peer_info(cbi, new_cbn, &uvht);
-    if (got_peer_info)
-    {
-      mylog("Found peer info\n");
-      /* We determined the peer info. Convert to ID and color the tree. */
-      new_cbn->discovered_client_id = 1;
-      new_cbn->true_client_id = get_client_id(new_cbn->peer_info);
-      assert(0 <= new_cbn->true_client_id);
-    }
-    else
-    {
-      origin = uv__callback_origin(new_cbn->info->cb);
-      if (INTERNAL_CALLBACK_WRAPPERS_MAX < origin)
-      {
-        assert(origin->type == new_cbn->info->type);
-        /* Callbacks originating internally can be colored. */
-        switch (origin->origin)
-        {
-          case NODEJS_INTERNAL:
-            new_cbn->discovered_client_id = 1;
-            new_cbn->true_client_id = ID_NODEJS_INTERNAL;
-            break;
-          case LIBUV_INTERNAL:
-            new_cbn->discovered_client_id = 1;
-            new_cbn->true_client_id = ID_LIBUV_INTERNAL;
-            NOT_REACHED; /* Does this ever happen? */
-            break;
-        }
-      }
-    }
+    cbn_discover_id(new_cbn);
 
-    if (new_cbn->discovered_client_id)
-    {
-      root = cbn_get_root(new_cbn);
-      cbn_color_tree(root, new_cbn->true_client_id);
-
-      if (uvht != NULL)
-        /* Embed the peer_info for this handle. Used to identify the client on CLOSE_CB. 
-           Per nodejs-mud tests, the handle can be re-used on different clients. 
-           I'm assuming that this does not happen unsafely, since I cannot imagine how
-           it would work if the same handle could be used to talk to two different clients concurrently. 
-           However, this is a potential source of error. */
-        uvht->peer_info = new_cbn->peer_info;
-    }
-  }
-
+  uvht = NULL;
+  snprintf(handle_type, 64, "(no handle type)");
   /* Invoke the callback. */
   switch (cbi->type)
   {
@@ -1488,19 +1487,14 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
     default:
       mylog ("invoke_callback: ERROR, unsupported type\n");
-      assert (0 == 1);
+      NOT_REACHED;
   }
 
   mylog ("handle type <%s>\n", handle_type);
 
   mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p>\n",
     new_cbn, new_cbn->info, uvht); 
-  new_cbn->active = 0;
-  assert (gettimeofday (&new_cbn->stop, NULL) == 0);
-  /* Must end after it began. This can fail if the system clock is set backward during the callback. */
-  assert (new_cbn->start.tv_sec < new_cbn->stop.tv_sec || new_cbn->start.tv_usec <= new_cbn->stop.tv_usec);
-  timersub (&new_cbn->stop, &new_cbn->start, &diff);
-  new_cbn->duration = diff.tv_sec*1000000 + diff.tv_usec;
+  cbn_stop(new_cbn);
 
   if (sync_cb)
     /* Synchronous CB has finished, and the orig_cb is still active. */
@@ -1515,12 +1509,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       current_callback_node_set(NULL);
   }
 
-#if 0
-  /* DEBUGGING */
-  dump_callback_globalorder();
-  dump_callback_trees (0);
-  printf("\n\n\n\n\n");
-#endif
   return new_cbn;
 }
 
@@ -1577,9 +1565,9 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   }
 
   /* Example listing:
-    1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 5 (ms)\nID 1..."];
+    1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 5 (us)\nID 1..."];
   */
-  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %lu (ms) duration %lu (ms)\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
+  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %lu (us) duration %lu (us)\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
     cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, cbn->relative_start, cbn->duration, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
 }
 
@@ -1868,7 +1856,7 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
     else
     {
       origin = LIBUV_INTERNAL;
-      assert(0 == 1); /* Does this ever happen? */
+      NOT_REACHED;
     }
   }
   else
@@ -1933,4 +1921,128 @@ struct callback_origin * uv__callback_origin (void *cb)
 
   assert(co != NULL);
   return co;
+}
+
+/* Implementation for tracking the initial stack. */
+
+/* Note that we've begun the initial application stack. 
+   Call once prior to invoking the application code. */
+void uv__mark_init_stack_begin (void)
+{
+  /* Call at most once. */
+  static int here = 0;
+  assert(!here);
+  here = 1;
+
+  cbn_start(get_init_stack_callback_node());
+  printf("uv__mark_init_stack_begin: inital stack has begun\n");
+}
+
+/* Note that we've finished the initial application stack. 
+   Call once after the initial stack is complete. 
+   Pair with uv__mark_init_stack_begin. */
+void uv__mark_init_stack_end (void)
+{
+  struct callback_node *init_stack_cbn;
+
+  init_stack_cbn = get_init_stack_callback_node();
+  assert(cbn_is_active(init_stack_cbn));
+  cbn_stop(init_stack_cbn);
+  printf("uv__mark_init_stack_end: inital stack has ended\n");
+}
+
+/* Returns non-zero if we're in the application's initial stack, else 0. */
+int uv__init_stack_active (void)
+{
+  return cbn_is_active(get_init_stack_callback_node());
+}
+
+int uv_run_active = 0;
+
+/* Note that we've entered libuv's uv_run loop. */
+void uv__mark_uv_run_begin (void)
+{
+  assert(!uv_run_active);
+  uv_run_active = 1;
+  printf("uv__mark_uv_run_begin: uv_run has begun\n");
+}
+
+/* Note that we've finished the libuv uv_run loop.
+   Pair with uv__mark_uv_run_begin. */
+void uv__mark_uv_run_end (void)
+{
+  assert(uv_run_active);
+  uv_run_active = 0;
+  printf("uv__mark_uv_run_end: uv_run has ended\n");
+}
+
+/* Returns non-zero if we're in the application's initial stack, else 0. */
+int uv__uv_run_active (void)
+{
+  return uv_run_active;
+}
+
+/* Attempt to discover the client ID of CBN.
+   CBN->id must be ID_UNKNOWN. 
+   Returns non-zero if discovered, else zero. */
+static int cbn_discover_id (struct callback_node *cbn)
+{
+  uv_handle_t *uvht;
+  int got_peer_info;
+  struct callback_origin *origin;
+
+  assert(cbn != NULL);
+  assert(cbn->peer_info != NULL);
+  assert(cbn->true_client_id == ID_UNKNOWN);
+  assert(!cbn->discovered_client_id);
+
+  mylog("cbn_discover_id: Looking for the ID associated with CBN %p\n", cbn);
+  got_peer_info = look_for_peer_info(cbn->info, cbn, &uvht);
+  if (got_peer_info)
+  {
+    mylog("cbn_discover_id: Found peer info\n");
+    /* We determined the peer info. Convert to ID and color the tree. */
+    cbn->discovered_client_id = 1;
+    cbn->true_client_id = get_client_id(cbn->peer_info);
+    assert(0 <= cbn->true_client_id);
+  }
+  else
+  {
+    origin = uv__callback_origin(cbn->info->cb);
+    if (INTERNAL_CALLBACK_WRAPPERS_MAX < origin)
+    {
+      assert(origin->type == cbn->info->type);
+      /* Callbacks originating internally can be colored. */
+      switch (origin->origin)
+      {
+        case NODEJS_INTERNAL:
+          cbn->discovered_client_id = 1;
+          cbn->true_client_id = ID_NODEJS_INTERNAL;
+          break;
+        case LIBUV_INTERNAL:
+          cbn->discovered_client_id = 1;
+          cbn->true_client_id = ID_LIBUV_INTERNAL;
+          NOT_REACHED; /* Does this ever happen? */
+          break;
+        case USER:
+        default:
+          cbn->discovered_client_id = 0;
+      }
+    }
+  }
+
+  if (cbn->discovered_client_id)
+  {
+    cbn_color_tree(cbn_get_root(cbn), cbn->true_client_id);
+
+    if (uvht != NULL)
+      /* Embed the peer_info for this handle. Used to identify the client on CLOSE_CB. 
+         Per nodejs-mud tests, the handle can be re-used on different clients. 
+         I'm assuming that this does not happen unsafely, since I cannot imagine how
+         it would work if the same handle could be used to talk to two different clients concurrently. 
+         However, this is a potential source of error. */
+      uvht->peer_info = cbn->peer_info;
+  }
+
+  return cbn->discovered_client_id;
 }
