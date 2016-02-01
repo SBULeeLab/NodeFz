@@ -689,11 +689,12 @@ No work today.
 1 Fep 2016
 
 1. Complete implementation of origin tracking. This lets me identify CBNs originating from internal Node.js and ibuv code. I can now identify everything but leftover "UV__IO_CBs" that emerge during uv__run_pending. So far I have not seen these register any CBs, so I think this is OK. However, I regret not knowing which CB caused their registration. Perhaps this could be tracked later.
+2. Refactor invoke_callback a bit to reduce bloat. Make use of helper functions.
+3. Use clock_gettime for a monotonically increasing "start" value. Also use this for the duration calculations. 
 
 -----------
 
 NEXT STEPS:
-- Use clock_gettime for a monotonically increasing "start" value. Also use this for the duration calculations.
 - Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
 - persist the parentage information for callbacks passed to uv__run_pending

@@ -113,10 +113,10 @@ struct callback_node
 
   struct sockaddr_storage *peer_info; /* Info about the peer associated with this node. The root of a tree allocates this, and descendants share it. The discovered_client_id node sets it. */ 
 
-  unsigned long relative_start; /* Microseconds since program began. */
-  struct timeval start;
-  struct timeval stop;
-  unsigned long duration; /* Number of microseconds elapsed. */
+  struct timespec start;
+  struct timespec stop;
+  struct timespec relative_start; /* START - the time at which execution began. */
+  struct timespec duration; /* STOP - START. */
   int active; /* 1 if callback active, 0 if finished. */
 
   int id; /* Unique ID for this node. This is the index of the node in global_order_list, i.e. the order in which it was evaluated relative to the other nodes. */

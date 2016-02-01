@@ -736,6 +736,11 @@ static unsigned addr_calc_hash (struct sockaddr_storage *addr);
 static void init_unified_callback (void);
 static int is_zeros (void *buffer, size_t size);
 static void print_buf (void *buffer, size_t size);
+static void timespec_sub (const struct timespec *stop, const struct timespec *start, struct timespec *res);
+
+/* Global time. */
+static void mark_global_start (void);
+static void calc_relative_time (struct timespec *start, struct timespec *res);
 
 /* Output. */
 static void dump_callback_node_gv (int fd, struct callback_node *cbn);
@@ -798,36 +803,32 @@ static int cbn_have_peer_info (const struct callback_node *cbn)
   return !is_zeros(cbn->peer_info, sizeof *cbn->peer_info);
 }
 
-/* Mark CBN as active and update its start field. */
+/* Mark CBN as active and update its start and relative_start fields. */
 static void cbn_start (struct callback_node *cbn)
 {
-  struct timeval diff;
-
   assert(cbn != NULL);
   assert(!cbn->active);
 
   cbn->active = 1;
 
-  assert (gettimeofday (&cbn->start, NULL) == 0);
-  cbn->duration = -1;
-  cbn->relative_start = get_relative_time();
+  assert(clock_gettime(CLOCK_MONOTONIC, &cbn->start) == 0);
+  calc_relative_time(&cbn->start, &cbn->relative_start);
 }
 
-/* Mark CBN as inactive and update its stop and duration fields. */
+/* Mark CBN as inactive and set its stop and duration fields. */
 static void cbn_stop (struct callback_node *cbn)
 {
-  struct timeval diff;
+  struct timespec diff;
 
   assert(cbn != NULL);
   assert(cbn->active);
 
   cbn->active = 0;
 
-  assert (gettimeofday (&cbn->stop, NULL) == 0);
-  /* Must end after it began. This can fail if the system clock is set backward during the callback. */
-  assert (cbn->start.tv_sec < cbn->stop.tv_sec || cbn->start.tv_usec <= cbn->stop.tv_usec);
-  timersub (&cbn->stop, &cbn->start, &diff);
-  cbn->duration = diff.tv_sec*1000000 + diff.tv_usec;
+  assert(clock_gettime (CLOCK_MONOTONIC, &cbn->stop) == 0);
+  /* Must end after it began. */
+  assert(cbn->start.tv_sec < cbn->stop.tv_sec || cbn->start.tv_nsec <= cbn->stop.tv_nsec);
+  timespec_sub(&cbn->stop, &cbn->start, &cbn->duration);
 }
 
 /* Determine the parent of CBN. 
@@ -1000,8 +1001,6 @@ static struct callback_node * cbn_create (void)
   cbn->true_client_id = ID_UNKNOWN;
   cbn->discovered_client_id = 0;
 
-  cbn->relative_start = 0;
-  cbn->duration = 0;
   cbn->active = 0;
   list_init(&cbn->children);
 
@@ -1217,6 +1216,8 @@ static void init_unified_callback (void)
   signal(SIGUSR1, dump_callback_global_order_sighandler);
   signal(SIGUSR2, dump_callback_trees_sighandler);
   signal(SIGINT, dump_all_trees_and_exit_sighandler);
+
+  mark_global_start();
 
   unified_callback_initialized = 1;
 }
@@ -1565,10 +1566,10 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   }
 
   /* Example listing:
-    1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 5 (us)\nID 1..."];
+    1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 10s50ns\nID 1..."];
   */
-  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %lu (us) duration %lu (us)\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
-    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, cbn->relative_start, cbn->duration, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
+  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
 }
 
 /* Prints callback node CBN to FD.
@@ -1587,8 +1588,8 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
       strcat (spaces, " ");
   }
 
-  dprintf(fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <start (us)> <%lu>> | <duration (us)> <%lu>> |\n", 
-    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->true_client_id, cbn->relative_start, cbn->duration);
+  dprintf(fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <relative start> <%is %lins>> | <duration> <%is %lins>> |\n", 
+    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->true_client_id, cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, cbn->duration.tv_sec, cbn->duration.tv_nsec);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -1789,29 +1790,21 @@ void dump_all_trees_and_exit_sighandler (int signum)
 }
 
 /* Returns time in microseconds (us) relative to the time at which the first CB was invoked. */
-static unsigned long init_time = 0;
-time_t get_relative_time (void)
+struct timespec global_start;
+static void mark_global_start (void)
 {
-  struct timeval tv;
-  unsigned long now, diff;
-
-  assert(gettimeofday(&tv, NULL) == 0);
-  now = tv.tv_sec*1000000 + tv.tv_usec;
-
-  if (init_time == 0)
+  static int here = 0;
+  if (!here)
   {
-    init_time = now;
-    return 0;
+    assert(clock_gettime(CLOCK_MONOTONIC, &global_start) == 0);
+    here = 1;
   }
-  else
-  {
-    diff = now - init_time;
-    if (init_time <= now)
-      return diff;
-    else
-      /* Too close to call it. */
-      return 0;
-  }
+}
+
+/* Set RES = START - global start, giving relative time since execution began. */
+static void calc_relative_time (struct timespec *start, struct timespec *res)
+{
+  timespec_sub(start, &global_start, res);
 }
 
 /* Call from any libuv function that is passed a user callback.
@@ -2045,4 +2038,30 @@ static int cbn_discover_id (struct callback_node *cbn)
   }
 
   return cbn->discovered_client_id;
+}
+
+/* RES = STOP - START. 
+   STOP must be after START. */
+static void timespec_sub (const struct timespec *stop, const struct timespec *start, struct timespec *res)
+{
+  assert(start != NULL);
+  assert(stop != NULL);
+  assert(res != NULL);
+
+  /* START < STOP-> */
+  assert(start->tv_sec < stop->tv_sec || start->tv_nsec <= stop->tv_nsec);
+
+  if (stop->tv_nsec < start->tv_nsec)
+  {
+    /* Borrow. */
+    res->tv_nsec = 1000000000 + stop->tv_nsec - start->tv_nsec; /* Inline to avoid overflow. */
+    res->tv_sec = stop->tv_sec - start->tv_sec - 1;
+  }
+  else
+  {
+    res->tv_nsec = stop->tv_nsec - start->tv_nsec;
+    res->tv_sec = stop->tv_sec - start->tv_sec;
+  }
+
+  return;
 }
