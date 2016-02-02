@@ -371,6 +371,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     }
 
     r = uv__loop_alive(loop);
+    loop->niter++;
     if (mode == UV_RUN_ONCE || mode == UV_RUN_NOWAIT)
       break;
   }
