@@ -723,6 +723,7 @@ static int cbn_have_peer_info (const struct callback_node *cbn);
 static int cbn_is_async (const struct callback_node *cbn);
 static int cbn_is_active (const struct callback_node *cbn);
 static int cbn_discover_id (struct callback_node *cbn);
+static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handle, char *handle_type);
 
 /* Peer addresses and clients. */
 static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP);
@@ -746,6 +747,7 @@ static void calc_relative_time (struct timespec *start, struct timespec *res);
 static void dump_callback_node_gv (int fd, struct callback_node *cbn);
 static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix, int do_indent);
 static void dump_callback_tree_gv (int fd, struct callback_node *cbn);
+
 #if 0
 static void dump_callback_tree (int fd, struct callback_node *cbn);
 #endif
@@ -965,8 +967,10 @@ static void cbn_color_tree (struct callback_node *cbn, int client_id)
   }
 }
 
-/* Sets the current callback node to CBN. */
+/* APIs that let us build lineage trees: nodes can identify their parents. */
 static struct callback_node *current_callback_node = NULL;
+
+/* Sets the current callback node to CBN. */
 void current_callback_node_set (struct callback_node *cbn)
 {
   current_callback_node = cbn;
@@ -1104,6 +1108,20 @@ static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo 
   return;
 }
 
+/* Prints the nameinfo associated with UVHT, if known. */
+void handle_dump_nameinfo (uv_handle_t *uvht)
+{
+  struct uv_nameinfo nameinfo;
+  assert(uvht != NULL);
+  if (uvht->peer_info != NULL)
+  {
+    addr_getnameinfo(uvht->peer_info, &nameinfo);
+    printf("handle %p: host %s, service %s\n", uvht, nameinfo.host, nameinfo.service);
+  }
+  else
+    printf("dump_nameinfo: Sorry, uvht %p does not have peer_info\n", uvht);
+  fflush(NULL);
+}
 
 /* Compute a hash of ADDR for use as a key to peer_info_to_id.
    We classify all traffic with the same IP as from the same client. */
@@ -1277,11 +1295,14 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   assert (cbi != NULL);  
 
-  /* Potentially racey (concurrently called from thread pool)? 
-     Seems like that would violate how libuv is supposed to work though. */
+  /* First time through, initialize things. */
   if (!unified_callback_initialized)
+  {
+    assert(cbi->type != UV__WORK_WORK); /* This mustn't be racy, nor does that seem possible. */
     init_unified_callback();
+  }
   
+  /* Prep a new callback node (CBN). */
   new_cbn = cbn_create();
   new_cbn->info = cbi;
   orig_cbn = cbn_determine_parent(new_cbn);
@@ -1303,7 +1324,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     new_cbn->discovered_client_id = 0;
   }
 
-  /* Atomically update metadata structures. 
+  /* Atomically update the metadata structures.
      Prevents races in the order of a parent's children vs. global order. */
   list_lock(&global_order_list);
 
@@ -1325,13 +1346,14 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   list_unlock(&global_order_list);
 
-  /* If UV__WORK_WORK, being called by the threadpool, setting the CBN would result in an unclear current_callback_node. 
-     We resolve the issue by simply not tracking WORK_WORK CBs as active. 
+  /* If UV__WORK_WORK, the caller is a threadpool thread. Setting the CBN would result in an unclear current_callback_node. 
+     We resolve the issue by simply not tracking WORK_WORK CBs as a current_callback_node. 
      TODO This assumes that WORK_WORK CBs never register CBs of their own. Is this safe?
      We could use a map to track a per-tid current_callback_node. */
   if (cbi->type != UV__WORK_WORK)
     current_callback_node_set (new_cbn);
 
+  /* Run the callback. */
   mylog ("invoke_callback: about to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
     new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
   assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
@@ -1341,156 +1363,13 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   snprintf(handle_type, 64, "(no handle type)");
 
   cbn_start(new_cbn);
-  /* Invoke the callback. */
-  switch (cbi->type)
-  {
-    /* include/uv.h */
-    case UV_ALLOC_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_handle_t", 64); 
-      cbi->cb ((uv_handle_t *) cbi->args[0], (size_t) cbi->args[1], (uv_buf_t *) cbi->args[2]); /* uv_handle_t */
-      break;
-    case UV_READ_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_stream_t", 64); 
-      cbi->cb ((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]); /* uv_handle_t */
-      break;
-    case UV_WRITE_CB:
-      /* Pointer to the stream where this write request is running. */
-      uvht = (uv_handle_t *) ((uv_write_t *) cbi->args[0])->handle;
-      strncpy(handle_type, "uv_stream_t", 64); 
-      cbi->cb ((uv_write_t *) cbi->args[0], (int) cbi->args[1]); /* uv_write_t, has pointer to two uv_stream_t's (uv_handle_t)  */
-      break;
-    case UV_CONNECT_CB:
-      uvht = (uv_handle_t *) ((uv_connect_t *) cbi->args[0])->handle;
-      strncpy(handle_type, "uv_stream_t", 64); 
-      cbi->cb ((uv_connect_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
-      break;
-    case UV_SHUTDOWN_CB:
-      uvht = (uv_handle_t *) ((uv_shutdown_t *) cbi->args[0])->handle;
-      strncpy(handle_type, "uv_stream_t", 64); 
-      cbi->cb ((uv_shutdown_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
-      break;
-    case UV_CONNECTION_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_stream_t", 64); 
-      cbi->cb ((uv_stream_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
-      break;
-    case UV_CLOSE_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_handle_t", 64); 
-      cbi->cb ((uv_handle_t *) cbi->args[0]); /* uv_handle_t */
-      break;
-    case UV_POLL_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_poll_t", 64); 
-      cbi->cb ((uv_poll_t *) cbi->args[0], (int) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
-      break;
-    case UV_TIMER_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_timer_t", 64); 
-      cbi->cb ((uv_timer_t *) cbi->args[0]); /* uv_handle_t */
-      break;
-    case UV_ASYNC_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_async_t", 64); 
-      cbi->cb ((uv_async_t *) cbi->args[0]); /* uv_handle_t */
-      break;
-    case UV_PREPARE_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_prepare_t", 64); 
-      cbi->cb ((uv_prepare_t *) cbi->args[0]); /* uv_handle_t */
-      break;
-    case UV_CHECK_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_check_t", 64); 
-      cbi->cb ((uv_check_t *) cbi->args[0]); /* uv_handle_t */
-      break;
-    case UV_IDLE_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_idle_t", 64); 
-      cbi->cb ((uv_idle_t *) cbi->args[0]); /* uv_handle_t */
-      break;
-    case UV_EXIT_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_process_t", 64); 
-      cbi->cb ((uv_process_t *) cbi->args[0], (int64_t) cbi->args[1], (int) cbi->args[2]); /* uv_handle_t */
-      break;
-    case UV_WALK_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_handle_t", 64); 
-      cbi->cb ((uv_handle_t *) cbi->args[0], (void *) cbi->args[1]); /* uv_handle_t */
-      break;
-    case UV_FS_CB:
-      cbi->cb ((uv_fs_t *) cbi->args[0]); /* uv_req_t, no information about handle or parent */
-      break;
-    case UV_WORK_CB:
-      cbi->cb ((uv_work_t *) cbi->args[0]); /* uv_req_t, no information about handle or parent */
-      break;
-    case UV_AFTER_WORK_CB:
-      cbi->cb ((uv_work_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, no information about handle or parent */
-      break;
-    case UV_GETADDRINFO_CB:
-      cbi->cb ((uv_getaddrinfo_t *) cbi->args[0], (int) cbi->args[1], (struct addrinfo *) cbi->args[2]); /* uv_req_t, no information about handle or parent */
-      break;
-    case UV_GETNAMEINFO_CB:
-      cbi->cb ((uv_getnameinfo_t *) cbi->args[0], (int) cbi->args[1], (const char *) cbi->args[2], (const char *) cbi->args[3]); /* uv_req_t, no information about handle or parent */
-      break;
-    case UV_FS_EVENT_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_fs_event_t", 64); 
-      cbi->cb ((uv_fs_event_t *) cbi->args[0], (const char *) cbi->args[1], (int) cbi->args[2], (int) cbi->args[3]); /* uv_handle_t */
-      break;
-    case UV_FS_POLL_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_fs_poll_t", 64); 
-      cbi->cb ((uv_fs_poll_t *) cbi->args[0], (int) cbi->args[1], (const uv_stat_t *) cbi->args[2], (const uv_stat_t *) cbi->args[3]); /* uv_handle_t */
-      break;
-    case UV_SIGNAL_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_signal_t", 64); 
-      cbi->cb ((uv_signal_t *) cbi->args[0], (int) cbi->args[1]); /* uv_handle_t */
-      break;
-    case UV_UDP_SEND_CB:
-      cbi->cb ((uv_udp_send_t *) cbi->args[0], (int) cbi->args[1]); /* uv_req_t, has pointer to uv_udp_t (uv_handle_t) */
-      break;
-    case UV_UDP_RECV_CB:
-      uvht = (uv_handle_t *) cbi->args[0];
-      strncpy(handle_type, "uv_udp_t", 64); 
-      /* Peer info is in the sockaddr_storage of cbi->args[3]. */
-      cbi->cb ((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]); /* uv_handle_t */
-      break;
-    case UV_THREAD_CB:
-      cbi->cb ((void *) cbi->args[0]); /* ?? */
-      break;
-
-    /* include/uv-unix.h */
-    case UV__IO_CB:
-      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__io_s *) cbi->args[1], (unsigned int) cbi->args[2]); /* Global loop */
-      break;
-    case UV__ASYNC_CB:
-      cbi->cb ((struct uv_loop_s *) cbi->args[0], (struct uv__async *) cbi->args[1], (unsigned int) cbi->args[2]); /* Global loop */
-      break;
-
-    /* include/uv-threadpool.h */
-    case UV__WORK_WORK:
-      cbi->cb ((struct uv__work *) cbi->args[0]); /* Knows parent. */
-      break;
-    case UV__WORK_DONE:
-      cbi->cb ((struct uv__work *) cbi->args[0], (int) cbi->args[1]); /* Knows parent. */
-      break;
-
-    default:
-      mylog ("invoke_callback: ERROR, unsupported type\n");
-      NOT_REACHED;
-  }
+  cbn_execute_callback(new_cbn, &uvht, handle_type);
   cbn_stop(new_cbn);
 
-  mylog ("handle type <%s>\n", handle_type);
+  mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p> handle_type <%s>\n",
+    new_cbn, new_cbn->info, uvht, handle_type); 
 
-  mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p>\n",
-    new_cbn, new_cbn->info, uvht); 
-
+  /* Done with the callback. */
   if (sync_cb)
     /* Synchronous CB has finished, and the orig_cb is still active. */
     current_callback_node_set (orig_cbn);
@@ -2040,6 +1919,164 @@ static int cbn_discover_id (struct callback_node *cbn)
 
   return cbn->discovered_client_id;
 }
+
+/* Execute the callback described by CBN based on CBN->info. 
+   Set HANDLE and HANDLE_TYPE appropriately. */
+static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handle, char *handle_type)
+{
+  struct callback_info *info;
+  assert(cbn != NULL);
+  assert(cbn->info != NULL);
+  assert(handle != NULL);
+  assert(handle_type != NULL);
+
+  info = cbn->info;
+
+  /* Invoke the callback. */
+  switch (info->type)
+  {
+    /* include/uv.h */
+    case UV_ALLOC_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_handle_t", 64); 
+      info->cb ((uv_handle_t *) info->args[0], (size_t) info->args[1], (uv_buf_t *) info->args[2]); /* uv_handle_t */
+      break;
+    case UV_READ_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_stream_t", 64); 
+      info->cb ((uv_stream_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2]); /* uv_handle_t */
+      break;
+    case UV_WRITE_CB:
+      /* Pointer to the stream where this write request is running. */
+      *handle = (uv_handle_t *) ((uv_write_t *) info->args[0])->handle;
+      strncpy(handle_type, "uv_stream_t", 64); 
+      info->cb ((uv_write_t *) info->args[0], (int) info->args[1]); /* uv_write_t, has pointer to two uv_stream_t's (uv_handle_t)  */
+      break;
+    case UV_CONNECT_CB:
+      *handle = (uv_handle_t *) ((uv_connect_t *) info->args[0])->handle;
+      strncpy(handle_type, "uv_stream_t", 64); 
+      info->cb ((uv_connect_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
+      break;
+    case UV_SHUTDOWN_CB:
+      *handle = (uv_handle_t *) ((uv_shutdown_t *) info->args[0])->handle;
+      strncpy(handle_type, "uv_stream_t", 64); 
+      info->cb ((uv_shutdown_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
+      break;
+    case UV_CONNECTION_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_stream_t", 64); 
+      info->cb ((uv_stream_t *) info->args[0], (int) info->args[1]); /* uv_handle_t */
+      break;
+    case UV_CLOSE_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_handle_t", 64); 
+      info->cb ((uv_handle_t *) info->args[0]); /* uv_handle_t */
+      break;
+    case UV_POLL_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_poll_t", 64); 
+      info->cb ((uv_poll_t *) info->args[0], (int) info->args[1], (int) info->args[2]); /* uv_handle_t */
+      break;
+    case UV_TIMER_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_timer_t", 64); 
+      info->cb ((uv_timer_t *) info->args[0]); /* uv_handle_t */
+      break;
+    case UV_ASYNC_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_async_t", 64); 
+      info->cb ((uv_async_t *) info->args[0]); /* uv_handle_t */
+      break;
+    case UV_PREPARE_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_prepare_t", 64); 
+      info->cb ((uv_prepare_t *) info->args[0]); /* uv_handle_t */
+      break;
+    case UV_CHECK_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_check_t", 64); 
+      info->cb ((uv_check_t *) info->args[0]); /* uv_handle_t */
+      break;
+    case UV_IDLE_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_idle_t", 64); 
+      info->cb ((uv_idle_t *) info->args[0]); /* uv_handle_t */
+      break;
+    case UV_EXIT_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_process_t", 64); 
+      info->cb ((uv_process_t *) info->args[0], (int64_t) info->args[1], (int) info->args[2]); /* uv_handle_t */
+      break;
+    case UV_WALK_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_handle_t", 64); 
+      info->cb ((uv_handle_t *) info->args[0], (void *) info->args[1]); /* uv_handle_t */
+      break;
+    case UV_FS_CB:
+      info->cb ((uv_fs_t *) info->args[0]); /* uv_req_t, no information about *handle or parent */
+      break;
+    case UV_WORK_CB:
+      info->cb ((uv_work_t *) info->args[0]); /* uv_req_t, no information about *handle or parent */
+      break;
+    case UV_AFTER_WORK_CB:
+      info->cb ((uv_work_t *) info->args[0], (int) info->args[1]); /* uv_req_t, no information about *handle or parent */
+      break;
+    case UV_GETADDRINFO_CB:
+      info->cb ((uv_getaddrinfo_t *) info->args[0], (int) info->args[1], (struct addrinfo *) info->args[2]); /* uv_req_t, no information about *handle or parent */
+      break;
+    case UV_GETNAMEINFO_CB:
+      info->cb ((uv_getnameinfo_t *) info->args[0], (int) info->args[1], (const char *) info->args[2], (const char *) info->args[3]); /* uv_req_t, no information about *handle or parent */
+      break;
+    case UV_FS_EVENT_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_fs_event_t", 64); 
+      info->cb ((uv_fs_event_t *) info->args[0], (const char *) info->args[1], (int) info->args[2], (int) info->args[3]); /* uv_handle_t */
+      break;
+    case UV_FS_POLL_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_fs_poll_t", 64); 
+      info->cb ((uv_fs_poll_t *) info->args[0], (int) info->args[1], (const uv_stat_t *) info->args[2], (const uv_stat_t *) info->args[3]); /* uv_handle_t */
+      break;
+    case UV_SIGNAL_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_signal_t", 64); 
+      info->cb ((uv_signal_t *) info->args[0], (int) info->args[1]); /* uv_handle_t */
+      break;
+    case UV_UDP_SEND_CB:
+      info->cb ((uv_udp_send_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_udp_t (uv_handle_t) */
+      break;
+    case UV_UDP_RECV_CB:
+      *handle = (uv_handle_t *) info->args[0];
+      strncpy(handle_type, "uv_udp_t", 64); 
+      /* Peer info is in the sockaddr_storage of info->args[3]. */
+      info->cb ((uv_udp_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2], (const struct sockaddr *) info->args[3], (unsigned) info->args[4]); /* uv_handle_t */
+      break;
+    case UV_THREAD_CB:
+      info->cb ((void *) info->args[0]); /* ?? */
+      break;
+
+    /* include/uv-unix.h */
+    case UV__IO_CB:
+      info->cb ((struct uv_loop_s *) info->args[0], (struct uv__io_s *) info->args[1], (unsigned int) info->args[2]); /* Global loop */
+      break;
+    case UV__ASYNC_CB:
+      info->cb ((struct uv_loop_s *) info->args[0], (struct uv__async *) info->args[1], (unsigned int) info->args[2]); /* Global loop */
+      break;
+
+    /* include/uv-threadpool.h */
+    case UV__WORK_WORK:
+      info->cb ((struct uv__work *) info->args[0]); /* Knows parent. */
+      break;
+    case UV__WORK_DONE:
+      info->cb ((struct uv__work *) info->args[0], (int) info->args[1]); /* Knows parent. */
+      break;
+
+    default:
+      mylog ("invoke_callback: ERROR, unsupported type\n");
+      NOT_REACHED;
+  }
+}
+
 
 /* RES = STOP - START. 
    STOP must be after START. */

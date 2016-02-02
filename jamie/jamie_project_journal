@@ -694,6 +694,12 @@ No work today.
 
 -----------
 
+2 Fep 2016
+
+1. Refactor invoke_callback a bit more so that the giant switch is in its own function. Makes invoke_callback more readable.
+
+-----------
+
 NEXT STEPS:
 - Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
