@@ -1116,6 +1116,8 @@ UV_EXTERN void * uv_uv__server_io_ptr (void);
 UV_EXTERN void * uv_uv__signal_event_ptr (void);
 UV_EXTERN void * uv_uv__getaddrinfo_work_ptr (void);
 UV_EXTERN void * uv_uv__getaddrinfo_done_ptr (void);
+UV_EXTERN void * uv_uv__queue_work_ptr (void);
+UV_EXTERN void * uv_uv__queue_done_ptr (void);
 
 UV_EXTERN void uv_fs_req_cleanup(uv_fs_t* req);
 UV_EXTERN int uv_fs_close(uv_loop_t* loop,

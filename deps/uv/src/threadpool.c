@@ -270,6 +270,10 @@ static void uv__queue_work(struct uv__work* w) {
 #endif
 }
 
+void * uv_uv__queue_work_ptr (void)
+{
+  return (void *) uv__queue_work;
+}
 
 static void uv__queue_done(struct uv__work* w, int err) {
   uv_work_t* req;
@@ -287,6 +291,10 @@ static void uv__queue_done(struct uv__work* w, int err) {
 #endif
 }
 
+void * uv_uv__queue_done_ptr (void)
+{
+  return (void *) uv__queue_done;
+}
 
 int uv_queue_work(uv_loop_t* loop,
                   uv_work_t* req,

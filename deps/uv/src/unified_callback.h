@@ -25,7 +25,9 @@ enum internal_callback_wrappers
   WAS_UV__SIGNAL_EVENT,
   WAS_UV__GETADDRINFO_WORK,
   WAS_UV__GETADDRINFO_DONE,
-  INTERNAL_CALLBACK_WRAPPERS_MAX = WAS_UV__GETADDRINFO_DONE
+  WAS_UV__QUEUE_WORK,
+  WAS_UV__QUEUE_DONE,
+  INTERNAL_CALLBACK_WRAPPERS_MAX = WAS_UV__QUEUE_DONE
 };
 
 enum callback_origin_type
@@ -156,6 +158,8 @@ char * callback_type_to_string (enum callback_type);
    && (int) co != WAS_UV__SERVER_IO && (int) co != WAS_UV__SIGNAL_EVENT \
    && (int) co != WAS_UV__GETADDRINFO_WORK                              \
    && (int) co != WAS_UV__GETADDRINFO_DONE                              \
+   && (int) co != WAS_UV__QUEUE_WORK                                    \
+   && (int) co != WAS_UV__QUEUE_DONE                                    \
      )                                                                  \
   {                                                                     \
     cbi_p->origin = co->origin;                                         \

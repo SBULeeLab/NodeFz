@@ -1229,8 +1229,13 @@ static void init_unified_callback (void)
   callback_to_origin_map = map_create();
   assert(callback_to_origin_map != NULL);
 
+#if 1
+  signal(SIGUSR1, dump_all_trees_and_exit_sighandler);
+  signal(SIGUSR2, dump_all_trees_and_exit_sighandler);
+#else
   signal(SIGUSR1, dump_callback_global_order_sighandler);
   signal(SIGUSR2, dump_callback_trees_sighandler);
+#endif
   signal(SIGINT, dump_all_trees_and_exit_sighandler);
 
   mark_global_start();
@@ -1788,6 +1793,10 @@ struct callback_origin * uv__callback_origin (void *cb)
       return (void *) WAS_UV__GETADDRINFO_WORK;
     else if (cb == uv_uv__getaddrinfo_done_ptr())
       return (void *) WAS_UV__GETADDRINFO_DONE;
+    else if (cb == uv_uv__queue_work_ptr())
+      return (void *) WAS_UV__QUEUE_WORK;
+    else if (cb == uv_uv__queue_done_ptr())
+      return (void *) WAS_UV__QUEUE_DONE;
     else
       NOT_REACHED;
   }
