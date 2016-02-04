@@ -721,6 +721,7 @@ No work today.
 
 NEXT STEPS:
 - Where do the unknown CLOSE, SHUTDOWN, and WORK CBs come from in lets-chat?
+  > see notes in jamie_libuv_src_notes
 - Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
 - persist the parentage information for callbacks passed to uv__run_pending. These occasionally result in a WRITE, which is bad news bears if we are losing the tree color.
