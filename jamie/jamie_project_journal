@@ -686,7 +686,7 @@ No work today.
 
 -----------
 
-1 Fep 2016
+1 Feb 2016
 
 1. Complete implementation of origin tracking. This lets me identify CBNs originating from internal Node.js and ibuv code. I can now identify everything but leftover "UV__IO_CBs" that emerge during uv__run_pending. So far I have not seen these register any CBs, so I think this is OK. However, I regret not knowing which CB caused their registration. Perhaps this could be tracked later.
 2. Refactor invoke_callback a bit to reduce bloat. Make use of helper functions.
@@ -694,13 +694,33 @@ No work today.
 
 -----------
 
-2 Fep 2016
+2 Feb 2016
 
 1. Refactor invoke_callback a bit more so that the giant switch is in its own function. Makes invoke_callback more readable.
+2. Play on systemG.
+3. bitbucket/noderacer: vanilla mode (no Jalangi).
+4. Think about uv__run_pending lineage determination.
+
+-----------
+
+3 Feb 2016
+
+1. Play with systemG. Get passwordless ssh, pdsh, bitbucket, etc.
+2. Think about uv__run_pending lineage determination.
+3. bitbucket/noderacer: vanilla mode (no Jalangi), pick your server IP and port
+
+-----------
+
+4 Feb 2016
+
+1. Implement uv__run_pending lineage determination. Verify that things "look OK" on MUD and lets-chat.
+2. Add an assert that threadpool threads only run "expected" CBs (UV__WORK_WORK and UV_WORK_CB).
+3. Bugfix: Set init_stack_CBN as the current CBN during the initial stack so that all CBs descend appropriately during the initial stack. 
 
 -----------
 
 NEXT STEPS:
+- Where do the unknown CLOSE, SHUTDOWN, and WORK CBs come from in lets-chat?
 - Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
 - persist the parentage information for callbacks passed to uv__run_pending. These occasionally result in a WRITE, which is bad news bears if we are losing the tree color.
