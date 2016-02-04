@@ -166,7 +166,9 @@ char * callback_type_to_string (enum callback_type);
   {                                                                     \
     cbi_p->origin = co->origin;                                         \
     assert(cbi_p->type == co->type);                                    \
-  }
+  }                                                                     \
+  printf("PREP_CBI_0: CB %p\n", _cb);                                   \
+  fflush(NULL);
 
 #define PREP_CBI_1(type, cb, arg0)                         \
   PREP_CBI_0(type, cb)                                     \

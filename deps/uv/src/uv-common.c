@@ -1380,7 +1380,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     new_cbn->discovered_client_id = 0;
   }
 
-  /* Atomically update the metadata structures.
+  /* Atomically update the metadata structures. TODO Define a separate lock for this.
      Prevents races in the order of a parent's children vs. global order. */
   list_lock(&global_order_list);
 
@@ -2143,6 +2143,8 @@ static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handl
       info->cb ((uv_signal_t *) info->args[0], (int) info->args[1]); /* uv_handle_t */
       break;
     case UV_UDP_SEND_CB:
+      *handle = ((uv_udp_send_t *) info->args[0])->handle;
+      strncpy(handle_type, "uv_udp_t", 64); 
       info->cb ((uv_udp_send_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_udp_t (uv_handle_t) */
       break;
     case UV_UDP_RECV_CB:

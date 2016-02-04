@@ -413,8 +413,8 @@ struct uv_shutdown_s {
     void* reserved[4];                                                        \
   } u;                                                                        \
   UV_HANDLE_PRIVATE_FIELDS                                                    \
-  struct callback_node *parent; \
-  struct sockaddr_storage *peer_info; \
+  struct callback_node *parent;                                               \
+  struct sockaddr_storage *peer_info;                                         \
 
 /* The abstract base class of all handles. */
 struct uv_handle_s {
