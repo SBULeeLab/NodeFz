@@ -1312,6 +1312,12 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
   return cbn_have_peer_info(cbn);
 }
 
+/* Our metadata structures assume that only one thread will be calling invoke_callback synchronously.
+   The first time we see a CB other than UV_WORK_CB or UV__WORK_WORK, we set sync_cb_thread.
+   Subsequently, we assert that every thread calling UV_WORK_CB or UV__WORK_WORK is NOT this thread,
+    and that all other CBs are from that thread. */
+pthread_t sync_cb_thread = 0;
+int sync_cb_thread_initialized = 0;
 /* Invoke the callback described by CBI. 
    Returns the CBN allocated for the callback. */
 struct callback_node * invoke_callback (struct callback_info *cbi)
@@ -1319,9 +1325,30 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   struct callback_node *parent_cbn, *new_cbn;
   uv_handle_t *uvht; 
   char handle_type[64];
-  int async_cb, sync_cb;
+  int async_cb, sync_cb, is_threadpool_CB;
 
   assert (cbi != NULL);  
+  
+  is_threadpool_CB = (cbi->type == UV__WORK_WORK || cbi->type == UV_WORK_CB);
+  if (sync_cb_thread == 0 && !is_threadpool_CB)
+  {
+    /* First non-threadpool CB: note the tid. 
+       This must be the source of all future non-threadpool CBs, and never
+       the source of threadpool CBs. */
+    sync_cb_thread = pthread_self();
+    sync_cb_thread_initialized = 1;
+    assert(sync_cb_thread != 0);
+  }
+
+  if (sync_cb_thread_initialized)
+  {
+    /* Non-threadpool callbacks should be called by sync_cb_thread.
+       Threadpool callbacks must not be that thread. */
+    if (is_threadpool_CB)
+      assert(pthread_self() != sync_cb_thread);
+    else
+      assert(pthread_self() == sync_cb_thread);
+  }
 
   /* First time through, initialize things. */
   if (!unified_callback_initialized)
