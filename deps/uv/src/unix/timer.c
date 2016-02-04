@@ -98,8 +98,6 @@ int uv_timer_start(uv_timer_t* handle,
   /* Might not be NULL; the parent of a repeating timer (itself) is set in uv__run_timers (because that's where we get the CBN associated with the parent). */
   if (handle->parent == NULL)
     handle->parent = current_callback_node_get();
-  if (handle->parent == NULL && uv__init_stack_active())
-    handle->parent = get_init_stack_callback_node();
   assert(handle->parent != NULL);
 #endif
 
