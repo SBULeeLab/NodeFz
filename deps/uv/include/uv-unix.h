@@ -89,6 +89,7 @@ struct uv__io_s {
   unsigned int events;  /* Current event mask. */
   int fd;
   UV_IO_PRIVATE_PLATFORM_FIELDS
+  struct callback_node *parent; /* The current CBN at the time of uv__io_feed. That parent always completes before CB is executed. */
 };
 
 typedef void (*uv__async_cb)(struct uv_loop_s* loop,

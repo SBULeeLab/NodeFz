@@ -721,6 +721,7 @@ static struct callback_node * cbn_get_root (struct callback_node *cbn);
 static void cbn_color_tree (struct callback_node *cbn, int client_id);
 static int cbn_have_peer_info (const struct callback_node *cbn);
 static int cbn_is_async (const struct callback_node *cbn);
+static int cbn_is_active_pending_cb (const struct callback_node *cbn);
 static int cbn_is_active (const struct callback_node *cbn);
 static int cbn_discover_id (struct callback_node *cbn);
 static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handle, char *handle_type);
@@ -833,7 +834,7 @@ static void cbn_stop (struct callback_node *cbn)
 
 /* Determine the parent of CBN. 
    CBN->info must be initialized. 
-   CBN->parent must not be known. */ 
+   CBN->parent must not be known yet. */ 
 static struct callback_node * cbn_determine_parent (struct callback_node *cbn)
 {
   struct callback_node *parent;
@@ -849,42 +850,51 @@ static struct callback_node * cbn_determine_parent (struct callback_node *cbn)
   sync_cb = !async_cb;
 
   if (sync_cb)
-    /* CBN is synchronous, so it's either a root or a child of an active callback. */
+    /* CBN is synchronous, so it's either a root (parent == NULL) or a child of an active callback. */
     parent = current_callback_node_get();
   else
   {
-    /* CBN is asynchronous, extract the cbn at time of registration (if any? So far I think there must be one). */
-    switch (info->type)
+    if (cbn_is_active_pending_cb(cbn))
     {
-      case UV__WORK_WORK:
-        /* See src/threadpool.c */
-        parent = ((struct uv__work *) info->args[0])->parent;
-        /* Make ourselves the direct parent of the UV__WORK_DONE that follows us. */
-        ((struct uv__work *) info->args[0])->parent = cbn;
-        break;
-      case UV__WORK_DONE:
-        /* See src/threadpool.c
-           Parent is the UV__WORK_WORK that preceded us. */
-        parent = ((struct uv__work *) info->args[0])->parent;
-        assert(parent->info->type == UV__WORK_WORK);
-        break;
-      case UV_TIMER_CB:
-        /* See src/unix/timer.c
-           A uv_timer_t* is a uv_handle_t. 
-           TODO Might there not be a parent if the timer was registered by 
-             internal Node code (e.g. for garbage collection)? */
-        parent = ((uv_timer_t *) info->args[0])->parent;
-        break;
-      /* See src/unix/loop-watcher.c */
-      case UV_PREPARE_CB:
-      case UV_CHECK_CB:
-      case UV_IDLE_CB:
-        parent = ((uv_handle_t *) info->args[0])->parent;
-        break;
-      default:
-        NOT_REACHED;
+      /* Parent, if any, is set at the time of "callback registration" (uv__io_feed). Callback is being invoked from uv__run_pending. */
+      assert(info->args[1] != NULL);
+      parent = ((uv__io_t *) info->args[1])->parent;
     }
-    assert(parent != NULL);
+    else
+    {
+      /* CBN is asynchronous, extract the cbn at time of registration (if any? So far I think there must be one). */
+      switch (info->type)
+      {
+        case UV__WORK_WORK:
+          /* See src/threadpool.c */
+          parent = ((struct uv__work *) info->args[0])->parent;
+          /* Make ourselves the direct parent of the UV__WORK_DONE that follows us. */
+          ((struct uv__work *) info->args[0])->parent = cbn;
+          break;
+        case UV__WORK_DONE:
+          /* See src/threadpool.c
+             Parent is the UV__WORK_WORK that preceded us. */
+          parent = ((struct uv__work *) info->args[0])->parent;
+          assert(parent->info->type == UV__WORK_WORK);
+          break;
+        case UV_TIMER_CB:
+          /* See src/unix/timer.c
+             A uv_timer_t* is a uv_handle_t. 
+             TODO Might there not be a parent if the timer was registered by 
+               internal Node code (e.g. for garbage collection)? */
+          parent = ((uv_timer_t *) info->args[0])->parent;
+          break;
+        /* See src/unix/loop-watcher.c */
+        case UV_PREPARE_CB:
+        case UV_CHECK_CB:
+        case UV_IDLE_CB:
+          parent = ((uv_handle_t *) info->args[0])->parent;
+          break;
+        default:
+          NOT_REACHED;
+      }
+      assert(parent != NULL);
+    }
   }
 
   cbn->parent = parent;
@@ -895,17 +905,30 @@ static struct callback_node * cbn_determine_parent (struct callback_node *cbn)
    CBN->info must be initialized. */
 static int cbn_is_async (const struct callback_node *cbn)
 {
-  int async;
+  int is_async_type;
+  int is_pending;
   enum callback_type type;
 
   assert(cbn != NULL);
   assert(cbn->info != NULL);
 
   type = cbn->info->type;
-  async = (type == UV__WORK_WORK || type == UV__WORK_DONE || 
-           type == UV_TIMER_CB || 
-           type == UV_PREPARE_CB || type == UV_CHECK_CB || type == UV_IDLE_CB);
-  return async;
+  is_async_type = (type == UV__WORK_WORK || type == UV__WORK_DONE || 
+                   type == UV_TIMER_CB || 
+                   type == UV_PREPARE_CB || type == UV_CHECK_CB || type == UV_IDLE_CB);
+  is_pending = cbn_is_active_pending_cb(cbn);
+  return is_async_type || is_pending;
+}
+
+/* Return non-zero if CBN is currently being executed by uv__run_pending, zero else.
+   CBN->info must be initialized. */
+static int cbn_is_active_pending_cb (const struct callback_node *cbn)
+{
+  assert(cbn != NULL);
+  assert(cbn->info != NULL);
+
+  return (uv__uv__run_pending_active() && 
+          (void *) cbn->info->cb == uv__uv__run_pending_get_active_cb());
 }
 
 /* Returns non-zero if CBN is active, zero else. */
@@ -1293,7 +1316,7 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
    Returns the CBN allocated for the callback. */
 struct callback_node * invoke_callback (struct callback_info *cbi)
 {
-  struct callback_node *orig_cbn, *new_cbn;
+  struct callback_node *parent_cbn, *new_cbn;
   uv_handle_t *uvht; 
   char handle_type[64];
   int async_cb, sync_cb;
@@ -1310,12 +1333,13 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* Prep a new callback node (CBN). */
   new_cbn = cbn_create();
   new_cbn->info = cbi;
-  orig_cbn = cbn_determine_parent(new_cbn);
+  parent_cbn = cbn_determine_parent(new_cbn);
 
   async_cb = cbn_is_async(new_cbn);
   sync_cb = !async_cb;
+  new_cbn->was_pending_cb = cbn_is_active_pending_cb(new_cbn);
 
-  if (orig_cbn)
+  if (parent_cbn)
     cbn_inherit(new_cbn);
   else
   {
@@ -1359,9 +1383,9 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     current_callback_node_set (new_cbn);
 
   /* Run the callback. */
-  mylog ("invoke_callback: about to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
+  mylog("invoke_callback: about to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
     new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
-  assert ((new_cbn->level == 0 && new_cbn->parent == NULL)
+  assert((new_cbn->level == 0 && new_cbn->parent == NULL)
        || (0 < new_cbn->level && new_cbn->parent != NULL));
 
   uvht = NULL;
@@ -1377,7 +1401,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* Done with the callback. */
   if (sync_cb)
     /* Synchronous CB has finished, and the orig_cb is still active. */
-    current_callback_node_set (orig_cbn);
+    current_callback_node_set(parent_cbn);
   else
   {
     /* Async CB has finished. In general there is no current CB.
@@ -1435,7 +1459,8 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
       snprintf(client_info, 256, "initial stack");
       break;
     case ID_UNKNOWN:
-      snprintf(client_info, 256, "unknown??");
+      /* Originated from the application, but not known which user it's associated with. */
+      snprintf(client_info, 256, "user code, unknown user");
       break;
     default:
       assert(cbn_have_peer_info(cbn));
@@ -1446,8 +1471,8 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 10s50ns\nID 1..."];
   */
-  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nclient ID %i (%s)\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
-    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
+  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nclient ID %i (%s)\\n was_pending_cb %i\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, cbn->was_pending_cb, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
 }
 
 /* Prints callback node CBN to FD.
@@ -1839,8 +1864,8 @@ int uv__init_stack_active (void)
   return cbn_is_active(get_init_stack_callback_node());
 }
 
+/* Tracking whether or not we're in uv_run. */
 int uv_run_active = 0;
-
 /* Note that we've entered libuv's uv_run loop. */
 void uv__mark_uv_run_begin (void)
 {
@@ -1862,6 +1887,45 @@ void uv__mark_uv_run_end (void)
 int uv__uv_run_active (void)
 {
   return uv_run_active;
+}
+
+/* Tracking whether or not we're in uv__run_pending. */
+int uv__run_pending_active = 0;
+void * uv__run_pending_active_cb = NULL;
+/* Note that we've entered libuv's uv__run_pending loop. */
+void uv__mark_uv__run_pending_begin (void)
+{
+  assert(!uv__run_pending_active);
+  uv__run_pending_active = 1;
+  uv__uv__run_pending_set_active_cb(NULL);
+  printf("uv__mark_uv__run_pending_begin: uv__run_pending has begun\n");
+}
+
+/* Note that we've finished the libuv uv__run_pending loop.
+   Pair with uv__mark_uv__run_pending_begin. */
+void uv__mark_uv__run_pending_end (void)
+{
+  assert(uv__run_pending_active);
+  uv__run_pending_active = 0;
+  uv__uv__run_pending_set_active_cb(NULL);
+  printf("uv__mark_uv__run_pending_end: uv__run_pending has ended\n");
+}
+
+/* Returns non-zero if we're in uv__run_pending, else 0. */
+int uv__uv__run_pending_active (void)
+{
+  return uv__run_pending_active;
+}
+
+/* Set and get the active CB in uv__run_pending. */
+void * uv__uv__run_pending_get_active_cb (void)
+{
+  return uv__run_pending_active_cb;
+}
+
+void uv__uv__run_pending_set_active_cb (void *cb)
+{
+  uv__run_pending_active_cb = cb;
 }
 
 /* Attempt to discover the client ID of CBN.

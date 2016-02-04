@@ -745,10 +745,15 @@ static int uv__run_pending(uv_loop_t* loop) {
   QUEUE* q;
   QUEUE pq;
   uv__io_t* w;
+  int did_anything;
 
+  uv__mark_uv__run_pending_begin();
+
+  did_anything = 0;
   if (QUEUE_EMPTY(&loop->pending_queue))
-    return 0;
+    goto DONE;
 
+  did_anything = 1;
   QUEUE_INIT(&pq);
   q = QUEUE_HEAD(&loop->pending_queue);
   QUEUE_SPLIT(&loop->pending_queue, q, &pq);
@@ -758,14 +763,21 @@ static int uv__run_pending(uv_loop_t* loop) {
     QUEUE_REMOVE(q);
     QUEUE_INIT(q);
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
+
 #if UNIFIED_CALLBACK
+    printf("<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n",
+      loop, loop->niter, w);
+    uv__uv__run_pending_set_active_cb(w->cb);
     INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
+    uv__uv__run_pending_set_active_cb(NULL);
 #else
     w->cb(loop, w, UV__POLLOUT);
 #endif
   }
 
-  return 1;
+  DONE:
+    uv__mark_uv__run_pending_end();
+    return did_anything;
 }
 
 
@@ -908,7 +920,10 @@ void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
 
 void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
   if (QUEUE_EMPTY(&w->pending_queue))
+  {
+    w->parent = current_callback_node_get();
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
+  }
 }
 
 

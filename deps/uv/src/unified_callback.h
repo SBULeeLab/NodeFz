@@ -113,6 +113,8 @@ struct callback_node
   int true_client_id; /* The true ID. */
   int discovered_client_id; /* Whether or not this node "discovered" the client ID. */
 
+  int was_pending_cb; /* Was this CB invoked from uv__run_pending? */
+
   struct sockaddr_storage *peer_info; /* Info about the peer associated with this node. The root of a tree allocates this, and descendants share it. The discovered_client_id node sets it. */ 
 
   struct timespec start;

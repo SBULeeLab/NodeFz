@@ -241,6 +241,12 @@ void uv__mark_uv_run_begin (void);
 void uv__mark_uv_run_end (void);
 int uv__uv_run_active (void);
 
+void uv__mark_uv__run_pending_begin (void);
+void uv__mark_uv__run_pending_end (void);
+int uv__uv__run_pending_active (void);
+void uv__uv__run_pending_set_active_cb (void *cb);
+void * uv__uv__run_pending_get_active_cb (void);
+
 void uv__register_callback (void *cb, enum callback_type);
 struct callback_origin * uv__callback_origin (void *cb);
 
