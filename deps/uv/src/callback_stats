@@ -32,9 +32,8 @@ for my $key (keys %statistics)
 
 my @schedule = &calculateCompleteSchedule(\@lineInfo);
 
-my @clientSchedule = grep { 0 <= $_ } @schedule;
-print "Complete client event schedule\n";
-for my $event (@clientSchedule)
+print "Complete event schedule\n";
+for my $event (@schedule)
 {
   print "  $event\n";
 }
@@ -83,6 +82,8 @@ sub calculateStatistics
     $statMap{"Type $type: instances"} = &countElt($type, @callbackTypes);
     my @matches = grep { $_->{type} eq $type } @info;
     my @durations = map { $_->{duration} } @matches;
+    #convert s, ns to ns
+    @durations = map{ my ($sec, $ns) = ($_ =~ m/(\d+)s (\d+)ns/); $_ = $sec*1000000000 + $ns; } @durations;
     my ($mean, $median, $min, $max) = (&mean(@durations), &median(@durations), &min(@durations), &max(@durations));
     $statMap{"Type $type: duration mean"}   = $mean;
     $statMap{"Type $type: duration median"} = $median;
