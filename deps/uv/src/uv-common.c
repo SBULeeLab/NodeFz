@@ -1860,15 +1860,24 @@ struct callback_origin * uv__callback_origin (void *cb)
 /* Implementation for tracking the initial stack. */
 
 /* Note that we've begun the initial application stack. 
-   Call once prior to invoking the application code. */
+   Call once prior to invoking the application code. 
+   We also set the current CBN to the init_stack_cbn 
+     so that all callbacks resulting from the initial stack
+     (e.g. warning messages from lib/sys.js) are descended
+     appropriately. */
 void uv__mark_init_stack_begin (void)
 {
+  struct callback_node *init_stack_cbn;
+
   /* Call at most once. */
   static int here = 0;
   assert(!here);
   here = 1;
 
-  cbn_start(get_init_stack_callback_node());
+  init_stack_cbn = get_init_stack_callback_node();
+  current_callback_node_set(init_stack_cbn);
+  cbn_start(init_stack_cbn);
+
   printf("uv__mark_init_stack_begin: inital stack has begun\n");
 }
 
@@ -1879,9 +1888,13 @@ void uv__mark_init_stack_end (void)
 {
   struct callback_node *init_stack_cbn;
 
+  assert(uv__init_stack_active()); 
   init_stack_cbn = get_init_stack_callback_node();
   assert(cbn_is_active(init_stack_cbn));
+
   cbn_stop(init_stack_cbn);
+  current_callback_node_set(NULL);
+
   printf("uv__mark_init_stack_end: inital stack has ended\n");
 }
 
