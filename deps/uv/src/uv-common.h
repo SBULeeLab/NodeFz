@@ -32,6 +32,7 @@
 #include <stddef.h>
 
 #include "unified_callback.h"
+#include "mylog.h"
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
 # include "stdint-msvc2008.h"

@@ -2,6 +2,7 @@
 #define UV_UNIFIED_CALLBACK_H_
 
 #include "list.h"
+#include "mylog.h"
 #include <sys/types.h> /* struct sockaddr_storage */
 #include <sys/socket.h>
 

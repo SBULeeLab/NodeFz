@@ -51,6 +51,7 @@
         'common.gypi',
         'include/uv.h',
         'include/tree.h',
+        'src/mylog.c',
         'src/list.c',
         'src/map.c',
         'include/uv-errno.h',

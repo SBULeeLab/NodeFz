@@ -671,36 +671,6 @@ int get_generation ()
   return generation;
 }
 
-void mylog (const char *format, ...)
-{
-  pid_t my_pid;
-  va_list args;
-  time_t now;
-  char *now_s;
-
-  now = time (NULL);
-  now_s = ctime (&now);
-  now_s [strlen (now_s) - 1] = '\0'; /* Remove the trailing newline. */
-#if 0
-  generation = get_generation ();
-  indents[0] = '\0';
-  for (i = 0; i < generation; i++)
-    strncat (indents, "  ", 512);
-
-  my_pid = getpid ();
-  printf("%s %s gen %i process %i: ", indents, now_s, generation, my_pid);
-#else
-  my_pid = getpid ();
-  printf("%s process %i: ", now_s, my_pid);
-#endif
-
-  va_start(args, format);
-  vprintf(format, args);
-  va_end(args);
-
-  fflush(NULL);
-}
-
 /* Static functions added for unified callback. */
 /* For convenience with addr_getnameinfo. */
 struct uv_nameinfo
