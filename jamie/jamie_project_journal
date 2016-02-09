@@ -716,6 +716,22 @@ No work today.
 1. Implement uv__run_pending lineage determination. Verify that things "look OK" on MUD and lets-chat.
 2. Add an assert that threadpool threads only run "expected" CBs (UV__WORK_WORK and UV_WORK_CB).
 3. Bugfix: Set init_stack_CBN as the current CBN during the initial stack so that all CBs descend appropriately during the initial stack. 
+4a. Implement per-thread current CBN. Still need to propagate this change to affected portions of uv-common.c
+
+-----------
+
+5 Feb 2016
+
+1. Re-work of lineage determination for threadpool. Realized I was doing this a bit incorrectly. Alas. Should explain the unknown+oddly-located WORK CBs in lets-chat. See notes in jamie_libuv_src_notes for details.
+  Currently debugging my solution. Blowing up in lets-chat with a CB pointing to a CBN?? 
+
+
+-----------
+
+6-9 Feb 2016
+
+1. Change tree design a bit. I decided that changing the parentage of a node was unwise at best. This resulted in an after-the-fact change to the schedule, which would make it impossible to "retrace my steps" on a subsequent run given a schedule. Instead, I'm now maintaining dual physical/logical parentage information. The physical tree is a faithful reproduction of the actual order in which callbacks passed through libuv during a run. The logical tree provides extra edges where relationships are not provided by the physical tree. For example, the relationship of repeating timers to themselves, or the relationships of UV__WORK_WORK to UV__WORK_DONE, is not visible from a physical tree. However, tracking it is important, and the logical tree gives us that. In essence, I'm now keeping ALL the information, instead of throwing some of it away.
+TODO Discuss thoughts on inheritance and coloring
 
 -----------
 

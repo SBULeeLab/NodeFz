@@ -1,0 +1,230 @@
+libuv anatomy (unix only, of course): 
+
+  src/unix/core.c
+    --> this is where uv_run is defined.
+
+  The functions that involve executing user code are:
+    uv__run_timers
+    ran_pending = uv__run_pending
+    uv__run_idle
+    uv__run_prepare
+
+    uv__io_poll
+    uv__run_check
+    uv__run_closing_handles
+
+  Description of each core function:
+    src/unix/timer.c::uv_run_timers
+      --> Go through a heap of timers. Timers are sorted by timeout,
+          so we run timers ordered by which one was supposed to go off earliest.
+    src/unix/core.c::uv__run_pending
+      --> Go through a queue of pending callbacks. Invoke them. Generally not I/O callbacks,
+          though possibly.
+    src/unix/loop-watcher.c::uv__run_idle (defined by macros, interesting!)
+      --> For each of the idle handles, run the callback
+          Handles are addressed in sequential order using QUEUE_FOREACH
+    src/unix/loop-watcher.c::uv__run_prepare (defined by macros, interesting!)
+      --> For each of the prepare handles, run the callback.
+          Handles are addressed in sequential order using QUEUE_FOREACH
+    uv__io_poll is defined in a few places, depends on the OS.
+      src/unix/ aix.c         
+                kqueue.c     
+                linux-core.c
+                sunos.c    
+      --> Looking at linux-core.c, housekeeping and then uv__epoll_[p]wait is called
+          uv__epoll_[p]wait are defined in src/unix/linux-syscalls.c
+          (and basically just call syscall())
+          
+          Up to 1024 events are consumed at a time. We may wait a bit
+          depending on the value of timeout calculated in uv_run.
+
+          We continue to poll if we find 1024 events, this time with no timeout.
+          For each event we find, we seem to call a callback on it:
+            if (pe->events != 0) {
+              w->cb(loop, w, pe->events);
+    src/unix/loop-watcher.c::uv__run_check (defined by macros, interesting!)
+      --> For each of the check handles, run the callback.
+          Handles are addressed in sequential order using QUEUE_FOREACH
+    src/unix/core.c::uv__run_closing_handles
+      --> For each of the closing_handles in loop->closing_handles, call uv__finish_close,
+          which will eventually call handle->close_cb(handle) (running whatever callback
+          was defined there).
+
+Miscellaneous notes:
+  - Struct declarations seem to be in 'include/uv.h' or 'include/uv-unix.h'
+  - For each typedef'd uv_X_t there is a 'struct uv_X_s'.
+
+---------------------
+
+Taken from https://gist.github.com/trevnorris/1f3066ccb0fed9037afa, with some embellishments:
+uv__run_pending(): Run all callbacks on the pending_queue. Remove each item from the queue when run.
+Note: uv__io_feed() is the only function to insert onto pending_queue.
+Note: The following use uv__io_feed():
+  - uv_pipe_connect(), but only in the case of an error.
+  - uv__write_req_finish(), part of stream.c
+      -> e.g. from write (via write2), after writing to the console. Try requiring sys; it will print a warning message and then uv__io_feed.
+  - uv_tcp_connect(), but only in the case of an error.
+  - uv__udp_send_msg(), for all sent messages.
+
+I think the basic idea is to make sure that this works:
+
+var foo = write('blah', function CB(){ foo.x = 5; });
+  -> if we run CB prior to the return of write(), then we'll access
+      foo before it is defined. uv__run_pending ensures that we'll
+      run after the registering code has completed
+
+---------------------
+
+Ensuring that the current callback node is always safe:
+  - threadpool threads enter invoke_callback for one of two callbacks:
+      UV_WORK_CB
+      UV__WORK_WORK
+  - at the moment, I change current_callback_node for all callbacks but UV__WORK_WORK
+  - this means that I'm unsafely changing it for UV_WORK_CB, resulting in mangled CB trees
+
+  UV__WORK_WORK: invoked in threadpool.c:worker
+  UV_WORK_CB:    invoked in threadpool.c:uv__queue_work with req->work_cb
+
+Threadpool stack: 
+  uv_queue_work(work, after): 
+    initialize a request
+    req->work_cb = work
+    req->after = after
+    uv__work_submit(req, uv__queue_work, uv__queue_done)
+
+  uv__work_submit:
+    uv__work->work = work (i.e. uv__queue_work)
+    uv__work->work = done (i.e. uv__queue_done)
+    post(w)
+
+  post:
+    append the work item to the wq
+
+  worker:
+    pop item from wq
+    invoke w->work (i.e uv__queue_work) of type UV__WORK_WORK
+    put w on the end of the loop's queue for synchronous resolution of done
+
+  uv__queue_work:
+    invoke req->work_cb (i.e. the 'work' from uv_queue_work) of type UV_WORK_CB
+
+  uv__work_done:
+    Called via indirection along async paths, I guess
+    invoke req->done (i.e. uv__queue_done) of type UV__WORK_DONE
+
+  uv__queue_done:
+    invoke req->after_work_cb (i.e. the 'after' from uv_queue_work) of type UV_AFTER_WORK_CB
+
+So the asynchronous workflow looks like this:
+
+uv_queue_work (LOOPER THREAD)
+   << then eventually >>
+  worker::UV__WORK_WORK (THREADPOOL TX, wrapper)
+    (has a struct uv__work which is contained in a uv_work_t, see uv__queue_work)
+  -> uv__queue_work::UV_WORK_CB (THREADPOOL TX, user's request)
+    (has a struct uv__work which is contained in a uv_work_t)
+   << then eventually >>
+  uv__work_done::UV__WORK_DONE (LOOPER THREAD, wrapper)
+    (has a struct uv__work which is contained in a uv_work_t)
+  -> if after_work_cb was provided, uv__queue_done::UV_AFTER_WORK_CB (LOOPER THREAD, user's request)
+    (has a struct uv__work which is contained in a uv_work_t)
+
+This means that any CB chains resulting from uv_queue_work should look like
+  UV__WORK_WORK -> UV_WORK_CB -> UV__WORK_DONE [-> UV_AFTER_WORK_CB]
+
+Happily, all of these structures pass around the same uv__work/uv_work_t,
+  so we can embed parentage within.
+
+  Can UV_WORK_CB launch new callbacks? This would be problematic.
+  It would be preferable if they can only be launched by UV_AFTER_WORK_CB,
+    which is always executed by the LOOPER_THREAD.
+
+  Since UV_WORK_CB is user code, it could very well make calls to libuv.
+  I'm not sure if this is relevant in Node.js, but for other users
+    of libuv it could happen. The application might use its own locking
+    scheme to avoid races on libuv APIs.
+
+  STATUS:
+    1. Embed parentage for UV__WORK_WORK -> UV_WORK_CB -> UV__WORK_DONE [-> UV_AFTER_WORK_CB]
+    2. Ponder what happens if UV_WORK_CB invokes callbacks (resulting in concurrent invoke_callback calls with arbitrary CBs?)
+  
+
+---------
+
+Problem: uv__work_submit is invoked internally. 
+Text string: uv__work_submit
+
+  File          Line
+  0 threadpool.c  184 void uv__work_submit(uv_loop_t* loop,
+  1 threadpool.c  313 uv__work_submit(loop, &req->work_req, uv__queue_work, uv__queue_done);
+  2 fs.c          113 uv__work_submit(loop, &req->work_req, uv__fs_work, uv__fs_done);        \
+  3 getaddrinfo.c 205 uv__work_submit(loop,
+  4 getnameinfo.c 117 uv__work_submit(loop,
+  5 uv-common.h   111 void uv__work_submit(uv_loop_t* loop,
+  6 fs.c           49 uv__work_submit((loop), &(req)->work_req, uv__fs_work, uv__fs_done);    \
+  7 getaddrinfo.c 351 uv__work_submit(loop,
+  8 getnameinfo.c 146 uv__work_submit(loop,
+This invalidates my "straight line" approach, which only applies to
+  the threadpool as used via uv_queue_work.
+
+Threadpool: Possible "work" wrappers (called by UV__WORK_WORK):
+  - uv__queue_work
+      invokes UV_WORK_CB
+  - uv__fs_work
+      makes no INVOKE_CALLBACK, just does the request in C
+  - uv__getaddrinfo_work 
+      makes no INVOKE_CALLBACK, just does the request in C
+  - uv__getnameinfo_work
+      makes no INVOKE_CALLBACK, just does the request in C
+
+Threadpool: Possible "done" wrappers (called by UV__WORK_DONE):
+  - uv__queue_done
+      invokes UV_AFTER_WORK_CB
+  - uv__fs_done
+      invokes UV_FS_CB
+  - uv__getaddrinfo_done 
+      invokes UV_GETADDRINFO_CB
+  - uv__getnameinfo_done
+      invokes UV_GETNAMEINFO_CB
+
+Callbacks of these types are only ever called in these contexts. 
+
+Consequently we have the following possible paths:
+
+                       PATH
+SOURCE              concurrent       concurrent     looper thread       looper thread
+                  UV__WORK_WORK ->              ---> UV__WORK_DONE ->
+uv_work_submit                      UV_WORK_CB                       [UV_AFTER_WORK_CB] 
+fs.c: a variety                        N/A                              UV_FS_CB
+uv_getaddrinfo                         N/A                              UV_GETADDRINFO_CB
+uv_getnameinfo                         N/A                              UV_GETNAMEINFO_CB                   
+
+Symbol        Meaning
+---------------------
+ ->        direct parent-child relationship
+ --->      ancestral relationship. Worker threads call uv_async_send once they complete a UV__WORK_WORK CB. This causes the associated loop to eventually call uv__work_done and invoke the corresponding UV__WORK_DONE.
+
+This means:
+  - The only user CBs that can be run in parallel are those with UV_WORK_CB. The rest are run in some sequential order by the looper thread.
+  - User requests like readFile will be fulfilled in parallel by the fs.c implementation. 
+
+Also note that based on current_callback_node:
+  The direct parent of every UV_WORK_CB is a UV__WORK_WORK.
+  The direct parent of every UV_AFTER_WORK_CB, UV_FS_CB, UV_GETADDRINFO_CB, and UV_GETNAMEINFO_CB is a UV__WORK_DONE.
+Thus the only "missing link" (i.e. can't be handled with current_callback_node) w.r.t. threadpool CBs is the parent of a UV__WORK_DONE CB.
+All other relationships can be determined using the per-tid current_callback_node.
+
+Lineage information:
+  UV__WORK_WORK: parent is the current_callback_node at uv__work_submit time. Embeds self as the parent during invoke_callback
+  UV_WORK_CB: parent is embedded during invoke_callback. Embeds self as the parent during invoke_callback
+
+  UV__WORK_DONE: current_callback_node is always a UV_ASYNC_CB. Logically descends either from a UV_WORK_CB (via uv_work_submit) or a UV__WORK_WORK (via the other 3 paths). Either way the ancestor was embedded. This means that we can climb our own tree until we reach a UV__IO_CB (should always be a root), redirect its parent to the embedded ancestor, and add it to the ancestor's list of children.
+
+  UV_AFTER_WORK_CB: parent is UV__WORK_DONE. Can be retrieved by current_callback_node_get
+  UV_FS_CB: parent is UV__WORK_DONE. Can be retrieved by current_callback_node_get
+  UV_GETADDRINFO_CB: parent is an active UV__WORK_DONE. Can be retrieved by current_callback_node_get
+  UV_GETNAMEINFO_CB: parent is an active UV__WORK_DONE. Can be retrieved by current_callback_node_get
+
+Path from UV__WORK_WORK [UV_WORK_CB] ---> UV__WORK_DONE:
+  threadpool::worker calls uv_async_send after the completion of UV__WORK_WORK.
+    This results in a call to uv__io_poll, with: UV__IO_CB (uv__async_io) -> UV__ASYNC_CB (uv__async_event) -> UV_ASYNC_CB (uv__work_done) -> UV__WORK_DONE (uv__queue_done, uv__fs_done, uv__ggetaddrinfo_done, uv__getnameinfo_done, leading to UV_AFTER_WORK_CB, UV_FS_CB, UV_GETADDRINFO_CB, UV_GETNAMEINFO_CB respectively)
