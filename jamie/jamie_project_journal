@@ -735,7 +735,23 @@ TODO Discuss thoughts on inheritance and coloring
 
 -----------
 
+9 Feb 2016
+
+1. Eliminate all tree inheritance and coloring. I believe that inheritance coloring should be
+  added back in, and should cross logical barriers. However, I think tree coloring is unsafe.
+  Consider for example the effect on httpserver_batch.js.
+
+2. cdprog: Developed httpserver_{straightforward, batch, background} to demonstrate the callback tree
+  associated with each. Use ./http_client.js to exercise them.
+
+3. Change the shape of CB nodes based on whether they corresponded to client input, output, or neither. 
+  Note: READ callbacks are invoked when data is read from a stream (client). These CBs will begin the response to the client's input. WRITE callbacks are invoked after data is written to a stream (client). These CBs come at the END of the output. This means that delaying the execution of a WRITE callback does not actually delay the output, just the notification of the output. If the output is coming indirectly (e.g. httpserver_batch), grabbing the WRITE callback won't tell us this.
+  This suggests that marking the callback in uv_write2 as "output to client X" would be a useful step.
+
+-----------
+
 NEXT STEPS:
+- Mark callbacks that send output to clients in uv_write2
 - Where do the unknown CLOSE, SHUTDOWN, and WORK CBs come from in lets-chat?
   > see notes in jamie_libuv_src_notes
 - Assess flippability calculations I can do "now". Am I missing anything?

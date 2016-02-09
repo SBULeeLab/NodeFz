@@ -689,7 +689,9 @@ static void cbn_determine_parentage (struct callback_node *cbn);
 
 static int cbn_have_peer_info (const struct callback_node *cbn);
 
+#if 0
 static void cbn_inherit (struct callback_node *cbn);
+#endif
 static int cbn_is_root (const struct callback_node *cbn, enum callback_tree_type type);
 static struct callback_node * cbn_get_root (struct callback_node *cbn, enum callback_tree_type type);
 static struct callback_node * cbn_get_parent (struct callback_node *cbn, enum callback_tree_type type);
@@ -719,6 +721,9 @@ static void cbn_print_logical_parentage_gv (struct callback_node *cbn, int *fdP)
 #if 0
 static void cbn_update_level (struct callback_node *cbn, void *aux);
 #endif
+
+static int cbn_got_client_input (struct callback_node *cbn);
+static int cbn_sent_client_output (struct callback_node *cbn);
 
 /* Peer addresses and clients. */
 static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP);
@@ -781,13 +786,15 @@ struct map *callback_to_origin_map;
 struct map *tid_to_current_cbn;
 
 /* Printing nodes with colors based on client ID. */
-#define RESERVED_IDS 4
+#define RESERVED_IDS 6
 enum reserved_id
 {
   ID_NODEJS_INTERNAL = -1*RESERVED_IDS, /* Callbacks originating internally -- node. */
   ID_LIBUV_INTERNAL, /* Callbacks originating internally -- libuv. */
   ID_INITIAL_STACK,  /* Callbacks registered during the initial stack. */
-  ID_UNKNOWN         /* Unknown origin -- e.g. close() prior to connection being completed? */
+  ID_UNKNOWN,        /* Unknown origin -- e.g. close() prior to connection being completed? */
+  IO_NETWORK_INPUT,  /* CB received network input. */
+  IO_NETWORK_OUTPUT, /* CB delivered network output. */
 };
 
 /* graphviz notation: node [style="filled" colorscheme="SVG" color="aliceblue"] */
@@ -925,6 +932,8 @@ static int cbn_embed_parentage (struct callback_node *cbn)
    CBN->{physical,logical}_parent must not be known yet, and is set by us if determined.
    The {physical,logical}_children list of {physical,logical}_parent is updated.
 
+   This function also does any inheritance required (e.g. physical_level).
+
    CBN should not yet be the current_callback_node. */
 static void cbn_determine_parentage (struct callback_node *cbn)
 {
@@ -992,6 +1001,18 @@ static void cbn_determine_parentage (struct callback_node *cbn)
 
   if (cbn->logical_parent)
     list_push_back(&cbn->logical_parent->logical_children, &cbn->logical_child_elem); 
+
+  /* Inherit level from parent. */
+  if (cbn->physical_parent)
+    cbn->physical_level = cbn->physical_parent->physical_level + 1;
+  else
+    cbn->physical_level = 0;
+
+  if (cbn->logical_parent)
+    cbn->logical_level = cbn->logical_parent->logical_level + 1;
+
+  /* Verify integrity of CBN. */
+  assert(cbn->physical_parent || cbn->physical_level == 0);
 
 #if 0
   /* TODO Some issue with UV_TIMER_CB having a UV_READ_CB for a parent while having handle->self_parent true. */
@@ -1088,6 +1109,7 @@ static int cbn_is_active (const struct callback_node *cbn)
   return cbn->active;
 }
 
+#if 0
 /* CBN inherits the appropriate fields from logical/physical parents. */
 static void cbn_inherit (struct callback_node *cbn)
 {
@@ -1144,6 +1166,7 @@ static void cbn_inherit (struct callback_node *cbn)
         || cbn->physical_parent->true_client_id == cbn->logical_parent->true_client_id);
 #endif
 }
+#endif
 
 /* Return the root of the callback-node tree containing CBN. */
 static struct callback_node * cbn_get_root (struct callback_node *cbn, enum callback_tree_type type)
@@ -1560,7 +1583,15 @@ static void init_unified_callback (void)
 
 /* Look for the peer info for CBI, and update CBN->peer_info if possible.
    Returns 1 if we got the peer info, else 0. 
-   Do not call this if we already know the peer info. */
+   Do not call this if we already know the peer info. 
+   
+   We may find peer info for callbacks which do client (i.e. network) input or output:
+     CONNECT
+     CONNECTION
+     READ
+     WRITE
+     CLOSE
+   */
 static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP)
 {
   uv_handle_t *uvht;
@@ -1568,25 +1599,34 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
   assert(cbi != NULL);
   assert(cbn != NULL);
   assert(uvhtPP != NULL);
+
   /* Should not be looking for peer info if we already have it. */
   assert(!cbn_have_peer_info(cbn));
 
   *uvhtPP = NULL;
   switch (cbi->type)
   {
-    /* TODO Don't check if status is UV_ECANCELED -- see documentation for uv_close. */
+    /* TODO If status is UV_ECANCELED, don't check many of these -- see documentation for uv_close. */
+
     case UV_CONNECT_CB:
       *uvhtPP = (uv_handle_t *) ((uv_connect_t *) cbi->args[0])->handle;
       break;
     case UV_CONNECTION_CB:
       *uvhtPP = (uv_handle_t *) cbi->args[0];
       break;
+    /* For TCP READs and WRITEs we may be able to extract the peer in get_peer_info. */
     case UV_READ_CB:
       *uvhtPP = (uv_handle_t *) cbi->args[0];
       break;
+    case UV_WRITE_CB:
+      *uvhtPP = (uv_handle_t *) ((uv_write_t *) cbi->args[0])->handle;
+      break;
+    /* UDP send, recv: the associated peer is known. cbi->args[3] is a struct sockaddr_storage * (see uv__udp_recvmsg). */
     case UV_UDP_RECV_CB:
-      /* UDP already knows the associated peer. cbi->args[3] is a struct sockaddr_storage * (see uv__udp_recvmsg). */
       memcpy(cbn->peer_info, (const struct sockaddr_storage *) cbi->args[3], sizeof *cbn->peer_info);
+      break;
+    case UV_UDP_SEND_CB:
+      memcpy(cbn->peer_info, (const struct sockaddr_storage *) cbi->args[4], sizeof *cbn->peer_info);
       break;
     case UV_CLOSE_CB:
       /* Attempt to retrieve the peer_info from the handle. If we previously identified the peer associated with this handle, we embedded the peer info in it already. */
@@ -1671,9 +1711,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
      For some CB types this is a no-op. */
   cbn_embed_parentage(cbn);
 
-  /* Inherit levels, client info, etc. from parent(s). */
-  cbn_inherit(cbn);
-
   list_push_back(&global_order_list, &cbn->global_order_elem);
   cbn->id = list_size(&global_order_list);
 
@@ -1741,7 +1778,7 @@ char *callback_type_to_string (enum callback_type type)
    TODO Increase the amount of information embedded here? */
 static void dump_callback_node_gv (int fd, struct callback_node *cbn)
 {
-  char client_info[256];
+  char client_info[256], shape[16], penwidth[16];
   struct uv_nameinfo nameinfo;
   assert (cbn != NULL);
 
@@ -1766,11 +1803,22 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
       snprintf(client_info, 256, "%s [port %s]", nameinfo.host, nameinfo.service);
   }
 
+  /* Change shape based on whether it was client input, client output, or neither. */
+  if (cbn_got_client_input(cbn))
+    sprintf(shape, "circle");
+  else if (cbn_sent_client_output(cbn))
+    sprintf(shape, "diamond");
+  else
+    sprintf(shape, "square");
+
+  /* Change thickness if we ran client code. */
+  sprintf(penwidth, "1.0");
+
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 10s50ns\nID 1..."];
   */
-  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nclient ID %i (%s)\\n was_pending_cb %i\" style=\"filled\" colorscheme=\"%s\" color=\"%s\"];\n",
-    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, cbn->was_pending_cb, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS]);
+  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nclient ID %i (%s)\\n was_pending_cb %i\" style=\"filled\" colorscheme=\"%s\" color=\"%s\" shape=\"%s\" penwidth=\"%s\"];\n",
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, cbn->was_pending_cb, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS], shape, penwidth);
 }
 
 /* Prints callback node CBN to FD.
@@ -1987,6 +2035,35 @@ static void cbn_print_logical_parentage_gv (struct callback_node *cbn, int *fdP)
     assert(cbn->logical_parent->id < cbn->id);
     dprintf(*fdP, "  %i -> %i [style=\"dotted\"];\n", cbn->logical_parent->id, cbn->id); 
   }
+}
+
+/* Returns non-zero if this CBN received input from a client, else 0. */
+static int cbn_got_client_input (struct callback_node *cbn)
+{
+  int could_be_input;
+  assert(cbn != NULL);
+
+  if (!cbn->info)
+    return 0;
+
+  could_be_input = (cbn->info->type == UV_CONNECT_CB
+                 || cbn->info->type == UV_CONNECTION_CB
+                 || cbn->info->type == UV_READ_CB
+                 || cbn->info->type == UV_CLOSE_CB);
+  return (cbn->discovered_client_id && could_be_input);
+}
+
+/* Returns non-zero if this CBN sent output to a client, else 0. */
+static int cbn_sent_client_output (struct callback_node *cbn)
+{
+  int could_be_output;
+  assert(cbn != NULL);
+
+  if (!cbn->info)
+    return 0;
+
+  could_be_output = (cbn->info->type == UV_WRITE_CB);
+  return (cbn->discovered_client_id && could_be_output);
 }
 
 void dump_callback_global_order_sighandler (int signum)
@@ -2296,7 +2373,7 @@ static int cbn_discover_id (struct callback_node *cbn)
   if (got_peer_info)
   {
     mylog("cbn_discover_id: Found peer info\n");
-    /* We determined the peer info. Convert to ID and color the tree. */
+    /* We determined the peer info. Convert to ID. */
     cbn->discovered_client_id = 1;
     cbn->true_client_id = get_client_id(cbn->peer_info);
     assert(0 <= cbn->true_client_id);
