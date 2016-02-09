@@ -748,12 +748,12 @@ TODO Discuss thoughts on inheritance and coloring
   Note: READ callbacks are invoked when data is read from a stream (client). These CBs will begin the response to the client's input. WRITE callbacks are invoked after data is written to a stream (client). These CBs come at the END of the output. This means that delaying the execution of a WRITE callback does not actually delay the output, just the notification of the output. If the output is coming indirectly (e.g. httpserver_batch), grabbing the WRITE callback won't tell us this.
   This suggests that marking the callback in uv_write2 as "output to client X" would be a useful step.
 
+4. Write a program that uses async.parallel to see what it looks like at the libuv level
+
 -----------
 
 NEXT STEPS:
-- Mark callbacks that send output to clients in uv_write2
-- Where do the unknown CLOSE, SHUTDOWN, and WORK CBs come from in lets-chat?
-  > see notes in jamie_libuv_src_notes
+- Mark callbacks that send output to clients in uv_write2? To be discussed...
 - Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
 - persist the parentage information for callbacks passed to uv__run_pending. These occasionally result in a WRITE, which is bad news bears if we are losing the tree color.

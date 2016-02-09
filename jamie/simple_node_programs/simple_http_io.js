@@ -11,6 +11,11 @@ http.createServer(function (request, response) {
 
   var did_handle = 0;
   console.log('Server is getting lorem ipsum for client ' + client_num); 
+
+  fs.stat(li_file, function (err, data) { 
+    console.log('Server stat\'d file ' + li_file);
+  });
+
   fs.readFile(li_file, function (err, data) {
     if(err){
       throw err;
@@ -22,8 +27,8 @@ http.createServer(function (request, response) {
     console.log('Server finished client ' + client_num);
     did_handle = 1;
   });
-  console.log('Server requested read for client ' + client_num + '. did_handle ' + did_handle);
 
+  console.log('Server requested read for client ' + client_num + '. did_handle ' + did_handle);
 }).listen(port);
 
 console.log('Server running at http://127.0.0.1:' + port + '/');

@@ -1,7 +1,7 @@
 digraph G {
     0 [label="client -1\ntype UV__IO_CB\nactive 0\nstart 0 duration 5\nID 0"];
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 duration 5\nID 1"];
-    0 -> 1;
+    0 -> 1 [style="dotted"];
     2 [label="client 12\ntype UV_READ_CB\nactive 0\nstart 1 duration 5\nID 2"];
     0 -> 2;
     3 [label="client 13\ntype UV_READ_CB\nactive 0\nstart 1 duration 5\nID 3"];
