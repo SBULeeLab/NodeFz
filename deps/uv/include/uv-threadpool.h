@@ -35,7 +35,7 @@ struct uv__work {
   struct uv_loop_s* loop;
   void* wq[2];
 #ifdef UNIFIED_CALLBACK
-  struct callback_node *parent;
+  struct callback_node *logical_parent;
 #endif
 };
 

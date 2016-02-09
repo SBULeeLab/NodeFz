@@ -31,6 +31,12 @@ enum internal_callback_wrappers
   INTERNAL_CALLBACK_WRAPPERS_MAX = WAS_UV__QUEUE_DONE
 };
 
+enum callback_tree_type
+{
+  CALLBACK_TREE_PHYSICAL,
+  CALLBACK_TREE_LOGICAL
+};
+
 enum callback_origin_type
 {
   /* Callbacks can be registered by one of these sources. 
@@ -80,6 +86,8 @@ enum callback_type
   /* include/uv-threadpool.h */
   UV__WORK_WORK,
   UV__WORK_DONE,
+
+  CALLBACK_TYPE_ANY,
   CALLBACK_TYPE_MAX
 };
 
@@ -94,8 +102,12 @@ struct callback_origin
 struct callback_node
 {
   struct callback_info *info; /* Description of this callback. */
-  int level; /* What level in the callback tree is it? For root nodes this is 0. */
-  struct callback_node *parent; /* Who started us? For root nodes this is NULL. */
+  int physical_level; /* What level in the physical callback tree is it? For root nodes this is 0. */
+  int logical_level; /* What level in the logical callback tree is it? For root nodes this is 0. */
+  struct callback_node *physical_parent; /* What callback ACTUALLY started us? For root nodes this is NULL. */
+  struct callback_node *logical_parent; /* What callback was LOGICALLY responsible for starting us? NULL means that physical parent is also logical parent. */
+
+  int discovered_parent_late; /* Did we correctly deduce our parentage at CB execution time? */
 
   /* These fields are to track our internal ID of the client incurring this CB. 
      The first client has ID 0, the second ID 1, ... -1 == unknown. -2 == originating from the initial stack. 
@@ -126,10 +138,12 @@ struct callback_node
 
   int id; /* Unique ID for this node. This is the index of the node in global_order_list, i.e. the order in which it was evaluated relative to the other nodes. */
 
-  struct list children; /* Linked list of children. */
+  struct list physical_children;
+  struct list logical_children;
   
   struct list_elem global_order_elem; /* For inclusion in the global callback order. */
-  struct list_elem child_elem; /* For inclusion in parent's list of children. */
+  struct list_elem physical_child_elem; /* For inclusion in physical parent's list of children. */
+  struct list_elem logical_child_elem; /* For inclusion in logical parent's list of children. */
   struct list_elem root_elem; /* For root nodes: inclusion in list of root nodes. */
 };
 
@@ -150,6 +164,7 @@ char * callback_type_to_string (enum callback_type);
 
 /* Macros to prep a CBI for invoke_callback, with 0-5 args. */
 #define PREP_CBI_0(_type, _cb)                                          \
+  mylog("PREP_CBI_0: type %s cb %p", callback_type_to_string(_type), (_cb));                   \
   INIT_CBI(_type, _cb)                                                  \
   /* Determine the origin of the CB, add it to cbi_p. */                \
   struct callback_origin *co = uv__callback_origin((void *) (_cb));     \
@@ -168,8 +183,7 @@ char * callback_type_to_string (enum callback_type);
     cbi_p->origin = co->origin;                                         \
     assert(cbi_p->type == co->type);                                    \
   }                                                                     \
-  printf("PREP_CBI_0: CB %p\n", _cb);                                   \
-  fflush(NULL);
+  mylog("PREP_CBI_0: CB %p\n", _cb);
 
 #define PREP_CBI_1(type, cb, arg0)                         \
   PREP_CBI_0(type, cb)                                     \

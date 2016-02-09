@@ -167,7 +167,7 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
     if (((h)->flags & UV__HANDLE_REF) != 0) uv__active_handle_add(h);         \
   }                                                                           \
   while (0);                                                                  \
-  (h)->parent = current_callback_node_get();                               
+  (h)->logical_parent = current_callback_node_get();                               
 
 
 #define uv__handle_stop(h)                                                    \
@@ -215,7 +215,9 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
     uv__handle_platform_init(h);                                              \
   }                                                                           \
   while (0);                                                                  \
-  (h)->peer_info = NULL;
+  (h)->logical_parent = NULL;                                                 \
+  (h)->peer_info = NULL;                                                      \
+  (h)->self_parent = 0;
 
 
 /* Allocator prototypes */

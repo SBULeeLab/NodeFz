@@ -102,7 +102,7 @@ static void worker(void* arg) {
     w->work = NULL;  /* Signal uv_cancel() that the work req is done
                         executing. */
     QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
-    uv_async_send(&w->loop->wq_async);
+    uv_async_send(&w->loop->wq_async); /* signal a pending done CB to be executed through uv__work_done. */
     uv_mutex_unlock(&w->loop->wq_mutex);
   }
 }
@@ -192,8 +192,8 @@ void uv__work_submit(uv_loop_t* loop,
 
 #ifdef UNIFIED_CALLBACK
   /* We are being registered. There must be an active CB registering us. */
-  w->parent = current_callback_node_get();
-  assert (w->parent != NULL);
+  w->logical_parent = current_callback_node_get();
+  assert (w->logical_parent != NULL);
 #endif
 
   post(&w->wq);

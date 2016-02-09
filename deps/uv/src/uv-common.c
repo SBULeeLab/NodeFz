@@ -684,17 +684,41 @@ static struct callback_node * cbn_create (void);
 static void cbn_start (struct callback_node *cbn);
 static void cbn_stop (struct callback_node *cbn);
 
-static struct callback_node * cbn_determine_parent (struct callback_node *cbn);
+static int cbn_embed_parentage (struct callback_node *cbn);
+static void cbn_determine_parentage (struct callback_node *cbn);
+
 static int cbn_have_peer_info (const struct callback_node *cbn);
-static int cbn_is_root (const struct callback_node *cbn);
-static struct callback_node * cbn_get_root (struct callback_node *cbn);
+
+static void cbn_inherit (struct callback_node *cbn);
+static int cbn_is_root (const struct callback_node *cbn, enum callback_tree_type type);
+static struct callback_node * cbn_get_root (struct callback_node *cbn, enum callback_tree_type type);
+static struct callback_node * cbn_get_parent (struct callback_node *cbn, enum callback_tree_type type);
+#if 0
+static struct callback_node * cbn_climb_to_type (struct callback_node *cbn, enum callback_type type);
+static int cbn_is_descendant (struct callback_node *cbn, struct callback_node *maybe_ancestor);
 static void cbn_color_tree (struct callback_node *cbn, int client_id);
+#endif
+
 static int cbn_have_peer_info (const struct callback_node *cbn);
-static int cbn_is_async (const struct callback_node *cbn);
+static int cbn_is_async_cb (const struct callback_node *cbn);
+static int cbn_is_async_threadpool_cb (const struct callback_node *cbn);
+static int cbn_is_repeated_cb (const struct callback_node *cbn);
 static int cbn_is_active_pending_cb (const struct callback_node *cbn);
 static int cbn_is_active (const struct callback_node *cbn);
 static int cbn_discover_id (struct callback_node *cbn);
 static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handle, char *handle_type);
+
+static char * cbn_to_string (struct callback_node *cbn, char *buf, int size);
+static void cbn_print (struct callback_node *cbn);
+static void cbn_print_ancestry (struct callback_node *cbn);
+
+static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_type, void (*f)(struct callback_node *, void *), void *aux);
+
+/* Functions for cbn_walk. */
+static void cbn_print_logical_parentage_gv (struct callback_node *cbn, int *fdP);
+#if 0
+static void cbn_update_level (struct callback_node *cbn, void *aux);
+#endif
 
 /* Peer addresses and clients. */
 static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP);
@@ -726,8 +750,9 @@ static void dump_callback_tree (int fd, struct callback_node *cbn);
 /* Variables for tracking the unified callback queue. */
 static int unified_callback_initialized = 0;
 
-static struct list root_list;
-static struct list global_order_list;
+pthread_mutex_t metadata_lock;
+struct list root_list;
+struct list global_order_list;
 
 /* We identify unique clients based on the associated 'peer info' (struct sockaddr).
    A map 'peer -> client ID' tells us whether a given peer is an already-known client.
@@ -747,25 +772,61 @@ static struct map *id_to_peer_info;
    Used by uv__register_callback and uv__callback_origin. */
 struct map *callback_to_origin_map;
 
+/* Maps pthread_t to struct callback_node *, accommodating callbacks
+     being executed by the threadpool and looper threads.
+   The entry for a given pthread_t is the callback_node currently being executed
+     by that thread.
+   If the value is NULL, the next callback by that node will be a root
+     (unless the callback is an asynchronous one for which the parent is already known). */
+struct map *tid_to_current_cbn;
+
 /* Printing nodes with colors based on client ID. */
 #define RESERVED_IDS 4
 enum reserved_id
 {
-  ID_NODEJS_INTERNAL = -4, /* Callbacks originating internally -- node. */
-  ID_LIBUV_INTERNAL,       /* Callbacks originating internally -- libuv. */
-  ID_INITIAL_STACK,        /* Callbacks registered during the initial stack. */
-  ID_UNKNOWN               /* Unknown origin -- e.g. close() prior to connection being completed? */
+  ID_NODEJS_INTERNAL = -1*RESERVED_IDS, /* Callbacks originating internally -- node. */
+  ID_LIBUV_INTERNAL, /* Callbacks originating internally -- libuv. */
+  ID_INITIAL_STACK,  /* Callbacks registered during the initial stack. */
+  ID_UNKNOWN         /* Unknown origin -- e.g. close() prior to connection being completed? */
 };
 
 /* graphviz notation: node [style="filled" colorscheme="SVG" color="aliceblue"] */
 char *graphviz_colorscheme = "SVG";
 char *graphviz_colors[] = { "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki", "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "grey", "green", "greenyellow", "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue", "purple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen", "steelblue", "tan", "teal", "thistle", "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen" }; /* ~150 colors. */
 
-/* Returns 1 if CBN is a root node, else 0. */
-static int cbn_is_root (const struct callback_node *cbn)
+/* APIs for the metadata mutex. */
+
+static void uv__metadata_lock (void)
 {
+  pthread_mutex_lock(&metadata_lock);
+}
+
+static void uv__metadata_unlock (void)
+{
+  pthread_mutex_unlock(&metadata_lock);
+}
+
+/* Callback node APIs. */
+
+/* Returns 1 if CBN is a root node for a tree of TYPE, else 0. */
+static int cbn_is_root (const struct callback_node *cbn, enum callback_tree_type type)
+{
+  int is_root;
   assert(cbn != NULL);
-  return (cbn->parent == NULL);
+
+  switch (type)
+  {
+    case CALLBACK_TREE_PHYSICAL:
+      is_root = (cbn->physical_parent == NULL);
+      break;
+    case CALLBACK_TREE_LOGICAL:
+      is_root = (cbn->logical_parent == NULL);
+      break;
+    default:
+      NOT_REACHED;
+  }
+
+  return is_root;
 }
 
 /* Returns 1 if we know the peer info of CBN already, else 0. */
@@ -802,92 +863,211 @@ static void cbn_stop (struct callback_node *cbn)
   timespec_sub(&cbn->stop, &cbn->start, &cbn->duration);
 }
 
-/* Determine the parent of CBN. 
-   CBN->info must be initialized. 
-   CBN->parent must not be known yet. */ 
-static struct callback_node * cbn_determine_parent (struct callback_node *cbn)
+/* Some asynchronous CBs have relationships that must be specially tracked;
+     can't just use current_callback_node_get. 
+   This function may modify the parent field of one of the args in CBN->info
+     for use by a child in cbn_determine_parentage. 
+    Returns non-zero if we changed anything, else 0. */
+static int cbn_embed_parentage (struct callback_node *cbn)
 {
-  struct callback_node *parent;
   struct callback_info *info;
-  int sync_cb, async_cb;
+  uv_handle_t *handle; /* Has parent field. */
+  struct uv__work *work; /* Has parent field. */
+  int did_something;
 
   assert(cbn != NULL);
   assert(cbn->info != NULL);
-  assert(cbn->parent == NULL);
 
+  mylog("cbn_embed_parentage: BEGIN: cbn %p type %s\n", cbn, callback_type_to_string(cbn->info->type));
+
+  did_something = 1;
   info = cbn->info;
-  async_cb = cbn_is_async(cbn);
-  sync_cb = !async_cb;
-
-  if (sync_cb)
-    /* CBN is synchronous, so it's either a root (parent == NULL) or a child of an active callback. */
-    parent = current_callback_node_get();
-  else
+  switch (info->type)
   {
-    if (cbn_is_active_pending_cb(cbn))
-    {
-      /* Parent, if any, is set at the time of "callback registration" (uv__io_feed). Callback is being invoked from uv__run_pending. */
-      assert(info->args[1] != NULL);
-      parent = ((uv__io_t *) info->args[1])->parent;
-    }
-    else
-    {
-      /* CBN is asynchronous, extract the cbn at time of registration (if any? So far I think there must be one). */
-      switch (info->type)
-      {
-        case UV__WORK_WORK:
-          /* See src/threadpool.c */
-          parent = ((struct uv__work *) info->args[0])->parent;
-          /* Make ourselves the direct parent of the UV__WORK_DONE that follows us. */
-          ((struct uv__work *) info->args[0])->parent = cbn;
-          break;
-        case UV__WORK_DONE:
-          /* See src/threadpool.c
-             Parent is the UV__WORK_WORK that preceded us. */
-          parent = ((struct uv__work *) info->args[0])->parent;
-          assert(parent->info->type == UV__WORK_WORK);
-          break;
-        case UV_TIMER_CB:
-          /* See src/unix/timer.c
-             A uv_timer_t* is a uv_handle_t. 
-             TODO Might there not be a parent if the timer was registered by 
-               internal Node code (e.g. for garbage collection)? */
-          parent = ((uv_timer_t *) info->args[0])->parent;
-          break;
-        /* See src/unix/loop-watcher.c */
-        case UV_PREPARE_CB:
-        case UV_CHECK_CB:
-        case UV_IDLE_CB:
-          parent = ((uv_handle_t *) info->args[0])->parent;
-          break;
-        default:
-          NOT_REACHED;
-      }
-      assert(parent != NULL);
-    }
+    /* threadpool.c 
+       For all threadpool CBs but UV__WORK_DONE, the parentage can be
+         determined by the per-tid current_callback_node.
+       UV__WORK_WORK and UV_WORK_CB are the two possible logical parents of UV__WORK_DONE.
+       Consult jamie_libuv_src_notes for details. */
+    case UV__WORK_WORK: /* Internal wrapper. args[0] is a uv__work* */
+      work = (struct uv__work *) info->args[0];
+      work->logical_parent = cbn;
+      break;
+    case UV_WORK_CB: /* User CB. args[0] is a uv_work_t* */
+      work = &((uv_work_t *) info->args[0])->work_req;
+      work->logical_parent = cbn;
+      break;
+
+    /* unix/timer.c 
+       If the timer repeats, its parent is itself. */
+    case UV_TIMER_CB: /* args[0] is a uv_timer_t* (uv_handle_t*) */
+    /* unix/loop-watcher.c 
+       These handles are always repeating. Their parents are themselves. */
+    case UV_PREPARE_CB: /* args[0] is a uv_X_t* (uv_handle_t*) */
+    case UV_CHECK_CB:
+    case UV_IDLE_CB:
+      handle = (uv_handle_t *) info->args[0];
+      handle->logical_parent = cbn;
+      handle->self_parent = 1; /* For all descendants, the type of the parent is known. TODO ASSUMES never disabled and re-enabled. */
+      break;
+    default:
+      did_something = 0;
   }
 
-  cbn->parent = parent;
-  return parent;
+  mylog("cbn_embed_parentage: END: cbn %p type %s did_something %i\n", cbn, callback_type_to_string(cbn->info->type), did_something);
+  return did_something;
 }
 
-/* Return non-zero if CBN is async, zero else.
-   CBN->info must be initialized. */
-static int cbn_is_async (const struct callback_node *cbn)
+/* Determine the parentage (physical and logical) of CBN. 
+   See also cbn_embed_parentage. 
+
+   CBN->info must be initialized. 
+   CBN->{physical,logical}_parent must not be known yet, and is set by us if determined.
+   The {physical,logical}_children list of {physical,logical}_parent is updated.
+
+   CBN should not yet be the current_callback_node. */
+static void cbn_determine_parentage (struct callback_node *cbn)
 {
-  int is_async_type;
-  int is_pending;
+  uv_handle_t *handle;
+  struct callback_info *info;
+  enum callback_type expected_parent_type;
+  uv__io_t *iot;
+
+  assert(cbn != NULL);
+  assert(cbn->info != NULL);
+  assert(cbn->physical_parent == NULL);
+  assert(cbn->logical_parent == NULL);
+  assert(cbn != current_callback_node_get());
+
+  handle = NULL;
+
+  info = cbn->info;
+
+  cbn->physical_parent = current_callback_node_get();
+
+  /* Obtain the logical parent. */ 
+  cbn->logical_parent = NULL;
+  if (cbn_is_active_pending_cb(cbn))
+  {
+    /* Parent, if any, is set at the time of "callback registration" (uv__io_feed). Callback is being invoked from uv__run_pending. */
+    iot = (uv__io_t *) info->args[1];
+    assert(iot != NULL); 
+    cbn->logical_parent = iot->logical_parent;
+  }
+  else if (cbn_is_async_cb(cbn))
+  {
+    /* TODO All handles have a logical_parent set at uv__handle_start time. We could make use of it. */
+    switch (info->type)
+    {
+      /* cbn_is_repeated_cb() */
+      /* unix/timer.c */
+      case UV_TIMER_CB: /* args[0] is a uv_timer_t* (uv_handle_t*) */
+      /* unix/loop-watcher.c */
+      case UV_PREPARE_CB: /* args[0] is a uv_X_t* (uv_handle_t*) */
+      case UV_CHECK_CB:
+      case UV_IDLE_CB:
+        handle = (uv_handle_t *) info->args[0];
+        assert(handle != NULL);
+        cbn->logical_parent = handle->logical_parent;
+        break;
+
+      /* cbn_is_async_threadpool_cb() */
+      case UV__WORK_WORK: /* Internal wrappers. args[0] is a uv__work* */
+      case UV__WORK_DONE:
+        cbn->logical_parent = ((struct uv__work *) info->args[0])->logical_parent;
+        assert(cbn->logical_parent != NULL);
+        break;
+
+      default:
+        NOT_REACHED;
+    }
+    assert(cbn->logical_parent != NULL);
+  }
+
+  /* Add self to parents' lists of children. */
+  if (cbn->physical_parent)
+    list_push_back(&cbn->physical_parent->physical_children, &cbn->physical_child_elem); 
+  else
+    list_push_back(&root_list, &cbn->root_elem); 
+
+  if (cbn->logical_parent)
+    list_push_back(&cbn->logical_parent->logical_children, &cbn->logical_child_elem); 
+
+#if 0
+  /* TODO Some issue with UV_TIMER_CB having a UV_READ_CB for a parent while having handle->self_parent true. */
+  /* Where possible, verify the type of the parent. 
+     This helps build confidence about my model of libuv. */
+  switch (info->type)
+  {
+    case UV_WORK_CB:
+      assert(parent->info->type == UV__WORK_WORK);
+      break;
+    case UV__WORK_DONE:
+      assert(parent->info->type == UV__WORK_WORK
+          || parent->info->type == UV_WORK_CB);
+      break;
+    case UV_AFTER_WORK_CB:
+    case UV_FS_CB:
+    case UV_GETADDRINFO_CB:
+    case UV_GETNAMEINFO_CB:
+      assert(parent->info->type == UV__WORK_DONE);
+      break;
+    case UV_TIMER_CB:
+    case UV_PREPARE_CB:
+    case UV_CHECK_CB:
+    case UV_IDLE_CB:
+      assert(handle != NULL);
+      if (handle->self_parent)
+        assert(parent->info->type == info->type);
+      break;
+  }
+#endif
+}
+
+/* Return non-zero if CBN represents an async CB, zero else.
+   async CB: the current_callback_node may not be its logical_parent.
+   Examples: timers, uv__run_pending, threadpool.
+   CBN->info must be initialized. */
+static int cbn_is_async_cb (const struct callback_node *cbn)
+{
+  assert(cbn != NULL);
+  return (cbn_is_repeated_cb(cbn) 
+       || cbn_is_async_threadpool_cb(cbn)
+       || cbn_is_active_pending_cb(cbn)
+       );
+}
+
+/* Return non-zero if CBN is a repeated CB, zero else.
+   CBN->info must be initialized. */
+static int cbn_is_repeated_cb (const struct callback_node *cbn)
+{
   enum callback_type type;
+  int maybe_repeated;
 
   assert(cbn != NULL);
   assert(cbn->info != NULL);
 
   type = cbn->info->type;
-  is_async_type = (type == UV__WORK_WORK || type == UV__WORK_DONE || 
-                   type == UV_TIMER_CB || 
-                   type == UV_PREPARE_CB || type == UV_CHECK_CB || type == UV_IDLE_CB);
-  is_pending = cbn_is_active_pending_cb(cbn);
-  return is_async_type || is_pending;
+  maybe_repeated = (type == UV_TIMER_CB /* May repeat. */
+              || type == UV_PREPARE_CB || type == UV_CHECK_CB || type == UV_IDLE_CB /* Repeat every loop. */
+              );
+  return maybe_repeated;
+}
+
+/* Return non-zero if CBN is an asynchronous CB from the threadpool, zero else.
+   See cbn_is_async_cb for definition of asynchronous.
+   CBN->info must be initialized. */
+static int cbn_is_async_threadpool_cb (const struct callback_node *cbn)
+{
+  enum callback_type type;
+  int is_async_threadpool;
+
+  assert(cbn != NULL);
+  assert(cbn->info != NULL);
+
+  type = cbn->info->type;
+  is_async_threadpool = (type == UV__WORK_WORK || type == UV__WORK_DONE);
+  return is_async_threadpool;
 }
 
 /* Return non-zero if CBN is currently being executed by uv__run_pending, zero else.
@@ -908,33 +1088,150 @@ static int cbn_is_active (const struct callback_node *cbn)
   return cbn->active;
 }
 
-/* Inherit the appropriate fields from CBN->parent. */
+/* CBN inherits the appropriate fields from logical/physical parents. */
 static void cbn_inherit (struct callback_node *cbn)
 {
-  struct callback_node *parent;
-
+  int original_peer_info;
   assert(cbn != NULL);
-  assert(cbn->parent != NULL);
-  parent = cbn->parent;
 
-  cbn->level = parent->level + 1;
-  /* Inherit client ID. */
-  cbn->orig_client_id = parent->true_client_id; /* If parent started unknown and was colored, we inherit the color. */
-  cbn->true_client_id = parent->true_client_id;
-  cbn->discovered_client_id = 0;
-  /* Inherit parent's peer_info. */
-  free(cbn->peer_info);
-  cbn->peer_info = parent->peer_info;
-  assert(cbn->peer_info != NULL);
+  original_peer_info = 1;
+  if (cbn->physical_parent)
+  {
+    cbn->physical_level = cbn->physical_parent->physical_level + 1;
+
+    /* Inherit client ID. */
+    cbn->orig_client_id = cbn->physical_parent->true_client_id; /* If parent started unknown and was colored, we inherit the color. */
+    cbn->true_client_id = cbn->physical_parent->true_client_id;
+    cbn->discovered_client_id = 0;
+
+    /* Inherit peer_info. */
+    free(cbn->peer_info);
+    cbn->peer_info = cbn->physical_parent->peer_info;
+    assert(cbn->peer_info != NULL);
+    original_peer_info = 0;
+  }
+  else
+    cbn->physical_level = 0;
+
+  /* Do this second: preferentially inherit client info from logical parent. */
+  if (cbn->logical_parent)
+  {
+    cbn->logical_level = cbn->logical_parent->logical_level + 1;
+
+    /* Inherit client ID. */
+    cbn->orig_client_id = cbn->logical_parent->true_client_id; /* If parent started unknown and was colored, we inherit the color. */
+    cbn->true_client_id = cbn->logical_parent->true_client_id;
+    cbn->discovered_client_id = 0;
+
+    /* Inherit peer_info. */
+    if (original_peer_info)
+    {
+      free(cbn->peer_info);
+      original_peer_info = 0;
+    }
+    cbn->peer_info = cbn->logical_parent->peer_info;
+    assert(cbn->peer_info != NULL);
+  }
+  else
+    cbn->logical_level = 0;
+
+#if 0
+  /* TODO This assert is a bit tricky. In nodejs-mud, the parents might be e.g. "ID_NODEJS_INTERNAL" and "client 0", as the mongoDB server is contacted during the initial stack. */
+  if (cbn->physical_parent && cbn->logical_parent)
+    /* If both parents know their ID, they'd both better be the same.
+       Otherwise I'll have to think carefully about this. */
+    assert(cbn->physical_parent->true_client_id == ID_UNKNOWN || cbn->logical_parent->true_client_id == ID_UNKNOWN
+        || cbn->physical_parent->true_client_id == cbn->logical_parent->true_client_id);
+#endif
 }
 
 /* Return the root of the callback-node tree containing CBN. */
-static struct callback_node * cbn_get_root (struct callback_node *cbn)
+static struct callback_node * cbn_get_root (struct callback_node *cbn, enum callback_tree_type type)
+{
+  struct callback_node *parent;
+  char child_buf[1024], parent_buf[1024];
+
+  assert(cbn != NULL);
+  mylog("cbn_get_root: Finding root for cbn %p\n", cbn);
+  while (!cbn_is_root(cbn, type))
+  {
+    parent = cbn_get_parent(cbn, type);
+    mylog("cbn_get_root: %p is not root, climbing. child %p (%s) parent (type %i) %p (%s)\n",
+      cbn, cbn, cbn_to_string(cbn, child_buf, 1024), 
+      type, parent, cbn_to_string(parent, parent_buf, 1024));
+    cbn = parent;
+  }
+  return cbn;
+}
+
+/* Return the parent of CBN of the specified TYPE. */
+static struct callback_node * cbn_get_parent (struct callback_node *cbn, enum callback_tree_type type)
+{
+  struct callback_node *parent;
+  assert(cbn != NULL);
+
+  switch (type)
+  {
+    case CALLBACK_TREE_PHYSICAL:
+      parent = cbn->physical_parent;
+      break;
+    case CALLBACK_TREE_LOGICAL:
+      parent = cbn->logical_parent;
+      break;
+    default:
+      NOT_REACHED;
+  }
+
+  return parent;
+}
+
+#if 0
+/* Return the closest ancestor of CBN of type TYPE.
+   Returns one of the ancestors of CBN, or NULL if no matching ancestor is found. */
+static struct callback_node * cbn_climb_to_type (struct callback_node *cbn, enum callback_type type)
 {
   assert(cbn != NULL);
-  while (!cbn_is_root(cbn))
+
+  while (cbn->parent != NULL)
+  {
+    /* Check. */
+    if (cbn->parent == get_init_stack_callback_node())
+    {
+      cbn = NULL;
+      break; 
+    }
+
+    assert(cbn->parent->info != NULL);
+    if (cbn->parent->info->type == type)
+    {
+      cbn = cbn->parent;
+      break;
+    }
+
+    /* Climb. */
     cbn = cbn->parent;
+  }
+
   return cbn;
+}
+
+/* Returns non-zero if MAYBE_ANCESTOR is one of the ancestors of CBN. Else zero. */
+static int cbn_is_descendant (struct callback_node *cbn, struct callback_node *maybe_ancestor)
+{
+  assert(cbn != NULL);
+  assert(maybe_ancestor != NULL);
+
+  while (cbn->parent != NULL)
+  {
+    /* Check. */
+    if (cbn->parent == maybe_ancestor)
+      return 1;
+
+    /* Climb. */
+    cbn = cbn->parent;
+  }
+
+  return 0;
 }
 
 /* The color (i.e. CLIENT_ID) of the tree rooted at CBN has been discovered.
@@ -953,28 +1250,43 @@ static void cbn_color_tree (struct callback_node *cbn, int client_id)
   cbn->true_client_id = client_id;
 
   /* Color descendants. */
-  for (e = list_begin(&cbn->children); e != list_end(&cbn->children); e = list_next(e))
+  /* TODO What does it mean to color logical vs. physical descendants? */
+  for (e = list_begin(&cbn->physical_children); e != list_end(&cbn->physical_children); e = list_next(e))
   {
-    child = list_entry (e, struct callback_node, child_elem);
+    child = list_entry (e, struct callback_node, physical_child_elem);
     cbn_color_tree(child, client_id);
   }
 }
+#endif
 
-/* APIs that let us build lineage trees: nodes can identify their parents. */
-static struct callback_node *current_callback_node = NULL;
+/* APIs that let us build lineage trees: nodes can identify their parents. 
+   current_callback_node_{set,get} are thread safe and maintain per-thread mappings. */
 
-/* Sets the current callback node to CBN. */
+/* Sets the current callback node for this thread to CBN. 
+   NULL signifies the end of a callback tree. */
 void current_callback_node_set (struct callback_node *cbn)
 {
-  current_callback_node = cbn;
+  /* My maps are thread safe. */
+  map_insert(tid_to_current_cbn, (int) pthread_self(), (void *) cbn);
   if (cbn == NULL)
-    mylog ("current_callback_node_set: Next callback will be a root\n");
+    mylog("current_callback_node_set: Next callback will be a root\n");
+  else
+    mylog("current_callback_node_set: Current CBN for %li is %p\n", (long) pthread_self(), (void *) cbn);
 }
 
-/* Retrieves the current callback node, or NULL if no such node. */
+/* Retrieves the current callback node for this thread, or NULL if no such node. 
+   This function is thread safe. */
 struct callback_node *current_callback_node_get (void)
 {
-  return current_callback_node;
+  int found;
+  struct callback_node *ret;
+
+  /* My maps are thread safe. */
+  ret = (struct callback_node *) map_lookup(tid_to_current_cbn, (int) pthread_self(), &found);
+
+  if (!found)
+    assert(ret == NULL);
+  return ret;
 }
 
 /* Returns a new CBN. 
@@ -989,15 +1301,22 @@ static struct callback_node * cbn_create (void)
   memset(cbn, 0, sizeof *cbn);
 
   cbn->info = NULL;
-  cbn->level = 0;
-  cbn->parent = NULL;
+
+  cbn->physical_level = 0;
+  cbn->physical_parent = NULL;
+
+  cbn->logical_level = 0;
+  cbn->logical_parent = NULL;
+
+  cbn->discovered_parent_late = 0;
 
   cbn->orig_client_id = ID_UNKNOWN;
   cbn->true_client_id = ID_UNKNOWN;
   cbn->discovered_client_id = 0;
 
   cbn->active = 0;
-  list_init(&cbn->children);
+  list_init(&cbn->physical_children);
+  list_init(&cbn->logical_children);
 
   cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *cbn->peer_info);
   assert(cbn->peer_info != NULL);
@@ -1025,9 +1344,6 @@ struct callback_node * get_init_stack_callback_node (void)
     init_stack_cbn->true_client_id = ID_INITIAL_STACK;
     init_stack_cbn->discovered_client_id = 1;
 
-    list_init(&init_stack_cbn->children);
-
-    init_stack_cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *init_stack_cbn->peer_info);
     assert(init_stack_cbn->peer_info != NULL);
     memset(init_stack_cbn->peer_info, 0, sizeof *init_stack_cbn->peer_info);
 
@@ -1101,6 +1417,7 @@ static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo 
   return;
 }
 
+#if 0
 /* Prints the nameinfo associated with UVHT, if known. */
 void handle_dump_nameinfo (uv_handle_t *uvht)
 {
@@ -1115,6 +1432,7 @@ void handle_dump_nameinfo (uv_handle_t *uvht)
     printf("dump_nameinfo: Sorry, uvht %p does not have peer_info\n", uvht);
   fflush(NULL);
 }
+#endif
 
 /* Compute a hash of ADDR for use as a key to peer_info_to_id.
    We classify all traffic with the same IP as from the same client. */
@@ -1210,6 +1528,7 @@ static void init_unified_callback (void)
   printf("DEBUG: Testing map\n");
   map_UT();
 
+  pthread_mutex_init(&metadata_lock, NULL);
   list_init(&global_order_list);
   list_init(&root_list);
 
@@ -1221,6 +1540,9 @@ static void init_unified_callback (void)
 
   callback_to_origin_map = map_create();
   assert(callback_to_origin_map != NULL);
+
+  tid_to_current_cbn = map_create();
+  assert(tid_to_current_cbn != NULL);
 
 #if 1
   signal(SIGUSR1, dump_all_trees_and_exit_sighandler);
@@ -1288,17 +1610,19 @@ static int look_for_peer_info (const struct callback_info *cbi, struct callback_
     and that all other CBs are from that thread. */
 pthread_t sync_cb_thread = 0;
 int sync_cb_thread_initialized = 0;
+
 /* Invoke the callback described by CBI. 
    Returns the CBN allocated for the callback. */
 struct callback_node * invoke_callback (struct callback_info *cbi)
 {
-  struct callback_node *parent_cbn, *new_cbn;
+  char buf[1024];
+  struct callback_node *cbn;
   uv_handle_t *uvht; 
   char handle_type[64];
   int async_cb, sync_cb, is_threadpool_CB;
 
   assert (cbi != NULL);  
-  
+
   is_threadpool_CB = (cbi->type == UV__WORK_WORK || cbi->type == UV_WORK_CB);
   if (sync_cb_thread == 0 && !is_threadpool_CB)
   {
@@ -1323,93 +1647,70 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* First time through, initialize things. */
   if (!unified_callback_initialized)
   {
-    assert(cbi->type != UV__WORK_WORK); /* This mustn't be racy, nor does that seem possible. */
+    assert(cbi->type != UV__WORK_WORK && cbi->type != UV_WORK_CB); /* init_unified_callback mustn't be racy, nor does that seem possible. */
     init_unified_callback();
   }
   
   /* Prep a new callback node (CBN). */
-  new_cbn = cbn_create();
-  new_cbn->info = cbi;
-  parent_cbn = cbn_determine_parent(new_cbn);
+  cbn = cbn_create();
+  cbn->info = cbi;
 
-  async_cb = cbn_is_async(new_cbn);
-  sync_cb = !async_cb;
-  new_cbn->was_pending_cb = cbn_is_active_pending_cb(new_cbn);
+  /* Atomically update the metadata structures.
+     Prevents races in the order of a parent's children vs. global order. 
+     Not too concerned about performance:
+      - none of these operations is particularly expensive
+      - there's only the looper thread and threadpool threads to worry about
+      - invoking a CB is the expensive part */
+  uv__metadata_lock();
 
-  if (parent_cbn)
-    cbn_inherit(new_cbn);
-  else
-  {
-    /* Root. */
-    new_cbn->level = 0;
-    new_cbn->parent = NULL;
+  cbn_determine_parentage(cbn);
 
-    /* Unknown until (possibly) later on in the function. */
-    new_cbn->orig_client_id = ID_UNKNOWN;
-    new_cbn->true_client_id = ID_UNKNOWN;
-    new_cbn->discovered_client_id = 0;
-  }
+  cbn->was_pending_cb = cbn_is_active_pending_cb(cbn);
 
-  /* Atomically update the metadata structures. TODO Define a separate lock for this.
-     Prevents races in the order of a parent's children vs. global order. */
-  list_lock(&global_order_list);
+  /* Tell asynchronous children their parentage. 
+     For some CB types this is a no-op. */
+  cbn_embed_parentage(cbn);
 
-  if (new_cbn->parent)
-    list_push_back(&new_cbn->parent->children, &new_cbn->child_elem); 
-  else
-    list_push_back(&root_list, &new_cbn->root_elem); 
+  /* Inherit levels, client info, etc. from parent(s). */
+  cbn_inherit(cbn);
 
-  list_push_back(&global_order_list, &new_cbn->global_order_elem);
-  new_cbn->id = list_size (&global_order_list);
-
-  if (!new_cbn->parent && cbi->type == UV__WORK_WORK)
-    /* Not clear how this can happen. Probably an error. */
-    NOT_REACHED;
+  list_push_back(&global_order_list, &cbn->global_order_elem);
+  cbn->id = list_size(&global_order_list);
 
   /* Attempt to discover the client ID associated with this callback. */
-  if (new_cbn->true_client_id == ID_UNKNOWN)
-    cbn_discover_id(new_cbn);
+  if (cbn->true_client_id == ID_UNKNOWN)
+    cbn_discover_id(cbn);
 
-  list_unlock(&global_order_list);
+  uv__metadata_unlock();
 
-  /* If UV__WORK_WORK, the caller is a threadpool thread. Setting the CBN would result in an unclear current_callback_node. 
-     We resolve the issue by simply not tracking WORK_WORK CBs as a current_callback_node. 
-     TODO This assumes that WORK_WORK CBs never register CBs of their own. Is this safe?
-     We could use a map to track a per-tid current_callback_node. */
-  if (cbi->type != UV__WORK_WORK)
-    current_callback_node_set (new_cbn);
+  /* Is CBN coherent? */
+  assert((cbn->physical_level == 0 && cbn->physical_parent == NULL)
+      || (0 < cbn->physical_level && cbn->physical_parent != NULL));
+  assert((cbn->logical_level == 0 && cbn->logical_parent == NULL)
+      || (0 < cbn->logical_level && cbn->logical_parent != NULL));
+  if (!cbn->logical_parent && cbi->type == UV__WORK_WORK)
+    NOT_REACHED;
 
   /* Run the callback. */
-  mylog("invoke_callback: about to invoke callback_node %i: %p cbi %p type %s cb %p level %i parent %p\n",
-    new_cbn->id, new_cbn, (void *) cbi, callback_type_to_string(cbi->type), cbi->cb, new_cbn->level, new_cbn->parent);
-  assert((new_cbn->level == 0 && new_cbn->parent == NULL)
-       || (0 < new_cbn->level && new_cbn->parent != NULL));
+  mylog("invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
 
   uvht = NULL;
   snprintf(handle_type, 64, "(no handle type)");
 
-  cbn_start(new_cbn);
-  cbn_execute_callback(new_cbn, &uvht, handle_type);
-  cbn_stop(new_cbn);
+  /* TODO Move the determination of uvht to a separate function? */
+  cbn_start(cbn);
+  current_callback_node_set(cbn); /* Thread-safe. */
+  cbn_execute_callback(cbn, &uvht, handle_type);
+  cbn_stop(cbn);
 
-  mylog ("invoke_callback: Done with callback_node %p cbi %p uvht <%p> handle_type <%s>\n",
-    new_cbn, new_cbn->info, uvht, handle_type); 
+  mylog ("invoke_callback: Done with callback_node %i: %s. uvht <%p> handle_type <%s>\n",
+    cbn, cbn_to_string(cbn, buf, 1024), uvht, handle_type); 
 
   /* Done with the callback. */
-  if (sync_cb)
-    /* Synchronous CB has finished, and the orig_cb is still active. */
-    current_callback_node_set(parent_cbn);
-  else
-  {
-    /* Async CB has finished. In general there is no current CB.
-       However, if this callback was potentially concurrent with other callbacks (i.e. a threadpool WORK callback),
-         then we shouldn't modify the current CB. 
-         In this case we correspondingly did not set this node as the current CBN above. */
-    if (cbi->type != UV__WORK_WORK)
-      current_callback_node_set(NULL);
-  }
+  current_callback_node_set(cbn->physical_parent);
 
-  return new_cbn;
+  mylog("invoke_callback: completed cbn %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
+  return cbn;
 }
 
 static char *callback_type_strings[] = {
@@ -1424,7 +1725,7 @@ static char *callback_type_strings[] = {
   "UV__IO_CB", "UV__ASYNC_CB", 
 
   /* include/uv-threadpool.h */
-  "UV__WORK_WORK", "UV__WORK_DONE" 
+  "UV__WORK_WORK", "UV__WORK_DONE", "ANY_CALLBACK"
 };
 
 
@@ -1483,13 +1784,13 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
   if (do_indent)
   {
     memset (spaces, 0, 512);
-    n_spaces = cbn->level;
+    n_spaces = cbn->physical_level;
     for (i = 0; i < n_spaces; i++)
       strcat (spaces, " ");
   }
 
-  dprintf(fd, "%s%s | <cbn> <%p>> | <id> <%i>> | <info> <%p>> | <type> <%s>> | <level> <%i>> | <parent> <%p>> | <parent_id> <%i>> | <active> <%i>> | <n_children> <%i>> | <client_id> <%i>> | <relative start> <%is %lins>> | <duration> <%is %lins>> |\n", 
-    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->level, (void *) cbn->parent, cbn->parent ? cbn->parent->id : -1, cbn->active, list_size (&cbn->children), cbn->true_client_id, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec);
+  dprintf(fd, "%s%s | <cbn> <%p> | <id> <%i> | <info> <%p> | <type> <%s> | <logical level> <%i> | <physical level> <%i> | <logical parent> <%p> | <logical parent_id> <%i> | <logical parent> <%p> | <logical parent_id> <%i> |<active> <%i> | <n_physical_children> <%i> | <n_logical_children> <%i> | <client_id> <%i> | <relative start> <%is %lins> | <duration> <%is %lins> |\n", 
+    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->logical_level, cbn->physical_level, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, cbn->active, list_size (&cbn->physical_children), list_size (&cbn->logical_children), cbn->true_client_id, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -1560,18 +1861,17 @@ static void dump_callback_tree_gv (int fd, struct callback_node *cbn)
 {
   int child_num;
   struct list_elem *e;
-  struct callback_node *node;
+  struct callback_node *child;
   assert (cbn != NULL);
 
   dump_callback_node_gv (fd, cbn);
   child_num = 0;
-  for (e = list_begin(&cbn->children); e != list_end(&cbn->children); e = list_next(e))
+  for (e = list_begin(&cbn->physical_children); e != list_end(&cbn->physical_children); e = list_next(e))
   {
-    node = list_entry (e, struct callback_node, child_elem);
-    /* printf("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
+    child = list_entry (e, struct callback_node, physical_child_elem);
     /* Print the relationship between parent and child. */
-    dprintf(fd, "    %i -> %i;\n", cbn->id, node->id); 
-    dump_callback_tree_gv (fd, node);
+    dprintf(fd, "    %i -> %i;\n", cbn->id, child->id); 
+    dump_callback_tree_gv (fd, child);
     child_num++;
   }
 }
@@ -1586,9 +1886,9 @@ int callback_tree_size (struct callback_node *root)
   assert(root != NULL);
 
   size = 1;
-  for (e = list_begin(&root->children); e != list_end(&root->children); e = list_next(e))
+  for (e = list_begin(&root->physical_children); e != list_end(&root->physical_children); e = list_next(e))
   {
-    node = list_entry (e, struct callback_node, child_elem);
+    node = list_entry (e, struct callback_node, physical_child_elem);
     size += callback_tree_size (node);
   }
 
@@ -1656,6 +1956,15 @@ void dump_callback_trees (void)
     dprintf(fd, "  -1 -> %i\n", root->id); /* Link to the meta-root node. */
     ++tree_num;
   }
+
+  /* Print logical relationships. These may cross subgraphs and so 
+      must be done separately. */
+  for (e = list_begin(&root_list); e != list_end(&root_list); e = list_next(e))
+  {
+    struct callback_node *root = list_entry (e, struct callback_node, root_elem);
+    cbn_walk(root, CALLBACK_TREE_PHYSICAL, cbn_print_logical_parentage_gv, (void *) &fd);
+  }
+
   dprintf(fd, "}\n");
   close(fd);
 #else
@@ -1663,6 +1972,21 @@ void dump_callback_trees (void)
 #endif
 
   fflush(NULL);
+}
+
+/* Print the logical parentage of CBN to FDP in graphviz style. */
+static void cbn_print_logical_parentage_gv (struct callback_node *cbn, int *fdP)
+{
+  assert(cbn != NULL);
+  assert(fdP != NULL);
+
+  /* Print relation to logical parent. */
+  if (cbn->logical_parent && cbn->logical_parent != cbn->physical_parent)
+  {
+    assert(0 <= cbn->logical_parent->id);
+    assert(cbn->logical_parent->id < cbn->id);
+    dprintf(*fdP, "  %i -> %i [style=\"dotted\"];\n", cbn->logical_parent->id, cbn->id); 
+  }
 }
 
 void dump_callback_global_order_sighandler (int signum)
@@ -1763,6 +2087,8 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
   co->origin = origin;
   key = (int) (long) cb;
   map_insert(callback_to_origin_map, key, co);
+  mylog("uv__register_callback: registered cb %p as key %i type %s origin %i\n",
+    co->cb, key, callback_type_to_string(co->type), co->origin);
 }
 
 /* Returns the origin of CB.
@@ -1775,13 +2101,19 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
     listed below.
     
     If CB is an internal wrapper, we return (struct callback_origin *) as follows:
-      uv__fs_work     -> WAS_UV__FS_WORK
-      uv__fs_done     -> WAS_UV__FS_DONE
-      uv__stream_io   -> WAS_UV__STREAM_IO
-      uv__async_io    -> WAS_UV__ASYNC_IO
-      uv__async_event -> WAS_UV__ASYNC_EVENT
-      uv__server_io   -> WAS_UV__SERVER_IO
-      uv__signal_event -> WAS_UV__SIGNAL_EVENT */
+      uv__fs_work           -> WAS_UV__FS_WORK
+      uv__fs_done           -> WAS_UV__FS_DONE
+      uv__getaddrinfo_work  -> WAS_UV__GETADDRINFO_WORK
+      uv__getaddrinfo_done  -> WAS_UV__GETADDRINFO_DONE
+      uv__getnameinfo_work  -> WAS_UV__GETNAMEINFO_WORK
+      uv__getnameinfo_done  -> WAS_UV__GETNAMEINFO_DONE
+      uv__queue_work        -> WAS_UV__QUEUE_WORK
+      uv__queue_done        -> WAS_UV__QUEUE_DONE
+      uv__stream_io         -> WAS_UV__STREAM_IO
+      uv__async_io          -> WAS_UV__ASYNC_IO
+      uv__async_event       -> WAS_UV__ASYNC_EVENT
+      uv__server_io         -> WAS_UV__SERVER_IO
+      uv__signal_event      -> WAS_UV__SIGNAL_EVENT */
 struct callback_origin * uv__callback_origin (void *cb)
 {
   struct callback_origin *co;
@@ -1792,6 +2124,7 @@ struct callback_origin * uv__callback_origin (void *cb)
   found = 0;
   
   key = (int) (long) cb;
+  mylog("uv__callback_origin: looking up origin of cb %p\n", cb);
 
   co = (struct callback_origin *) map_lookup(callback_to_origin_map, key, &found);
   if (!found)
@@ -1801,24 +2134,30 @@ struct callback_origin * uv__callback_origin (void *cb)
       return (void *) WAS_UV__FS_WORK;
     else if (cb == uv_uv__fs_work_ptr())
       return (void *) WAS_UV__FS_DONE;
-    else if (cb == uv_uv__stream_io_ptr())
-      return (void *) WAS_UV__STREAM_IO;
-    else if (cb == uv_uv__async_io_ptr())
-      return (void *) WAS_UV__ASYNC_IO;
-    else if (cb == uv_uv__async_event_ptr())
-      return (void *) WAS_UV__ASYNC_EVENT;
-    else if (cb == uv_uv__server_io_ptr())
-      return (void *) WAS_UV__SERVER_IO;
-    else if (cb == uv_uv__signal_event_ptr())
-      return (void *) WAS_UV__SIGNAL_EVENT;
+
     else if (cb == uv_uv__getaddrinfo_work_ptr())
       return (void *) WAS_UV__GETADDRINFO_WORK;
     else if (cb == uv_uv__getaddrinfo_done_ptr())
       return (void *) WAS_UV__GETADDRINFO_DONE;
+
     else if (cb == uv_uv__queue_work_ptr())
       return (void *) WAS_UV__QUEUE_WORK;
     else if (cb == uv_uv__queue_done_ptr())
       return (void *) WAS_UV__QUEUE_DONE;
+
+    else if (cb == uv_uv__stream_io_ptr())
+      return (void *) WAS_UV__STREAM_IO;
+
+    else if (cb == uv_uv__async_io_ptr())
+      return (void *) WAS_UV__ASYNC_IO;
+    else if (cb == uv_uv__async_event_ptr())
+      return (void *) WAS_UV__ASYNC_EVENT;
+
+    else if (cb == uv_uv__server_io_ptr())
+      return (void *) WAS_UV__SERVER_IO;
+
+    else if (cb == uv_uv__signal_event_ptr())
+      return (void *) WAS_UV__SIGNAL_EVENT;
     else
       NOT_REACHED;
   }
@@ -1848,7 +2187,7 @@ void uv__mark_init_stack_begin (void)
   current_callback_node_set(init_stack_cbn);
   cbn_start(init_stack_cbn);
 
-  printf("uv__mark_init_stack_begin: inital stack has begun\n");
+  mylog("uv__mark_init_stack_begin: inital stack has begun\n");
 }
 
 /* Note that we've finished the initial application stack. 
@@ -1865,7 +2204,7 @@ void uv__mark_init_stack_end (void)
   cbn_stop(init_stack_cbn);
   current_callback_node_set(NULL);
 
-  printf("uv__mark_init_stack_end: inital stack has ended\n");
+  mylog("uv__mark_init_stack_end: inital stack has ended\n");
 }
 
 /* Returns non-zero if we're in the application's initial stack, else 0. */
@@ -1881,7 +2220,7 @@ void uv__mark_uv_run_begin (void)
 {
   assert(!uv_run_active);
   uv_run_active = 1;
-  printf("uv__mark_uv_run_begin: uv_run has begun\n");
+  mylog("uv__mark_uv_run_begin: uv_run has begun\n");
 }
 
 /* Note that we've finished the libuv uv_run loop.
@@ -1890,7 +2229,7 @@ void uv__mark_uv_run_end (void)
 {
   assert(uv_run_active);
   uv_run_active = 0;
-  printf("uv__mark_uv_run_end: uv_run has ended\n");
+  mylog("uv__mark_uv_run_end: uv_run has ended\n");
 }
 
 /* Returns non-zero if we're in the application's initial stack, else 0. */
@@ -1908,7 +2247,7 @@ void uv__mark_uv__run_pending_begin (void)
   assert(!uv__run_pending_active);
   uv__run_pending_active = 1;
   uv__uv__run_pending_set_active_cb(NULL);
-  printf("uv__mark_uv__run_pending_begin: uv__run_pending has begun\n");
+  mylog("uv__mark_uv__run_pending_begin: uv__run_pending has begun\n");
 }
 
 /* Note that we've finished the libuv uv__run_pending loop.
@@ -1918,7 +2257,7 @@ void uv__mark_uv__run_pending_end (void)
   assert(uv__run_pending_active);
   uv__run_pending_active = 0;
   uv__uv__run_pending_set_active_cb(NULL);
-  printf("uv__mark_uv__run_pending_end: uv__run_pending has ended\n");
+  mylog("uv__mark_uv__run_pending_end: uv__run_pending has ended\n");
 }
 
 /* Returns non-zero if we're in uv__run_pending, else 0. */
@@ -1952,7 +2291,7 @@ static int cbn_discover_id (struct callback_node *cbn)
   assert(cbn->true_client_id == ID_UNKNOWN);
   assert(!cbn->discovered_client_id);
 
-  mylog("cbn_discover_id: Looking for the ID associated with CBN %p\n", cbn);
+  mylog("cbn_discover_id: Looking for the ID associated with CBN %p (cb %p)\n", cbn, cbn->info->cb);
   got_peer_info = look_for_peer_info(cbn->info, cbn, &uvht);
   if (got_peer_info)
   {
@@ -1967,6 +2306,8 @@ static int cbn_discover_id (struct callback_node *cbn)
     origin = uv__callback_origin(cbn->info->cb);
     if (INTERNAL_CALLBACK_WRAPPERS_MAX < (unsigned long) origin)
     {
+      /* A registered CB rather than an internally generated one. 
+         Let's see what it is. */
       assert(origin->type == cbn->info->type);
       /* Callbacks originating internally can be colored. */
       switch (origin->origin)
@@ -1987,18 +2328,13 @@ static int cbn_discover_id (struct callback_node *cbn)
     }
   }
 
-  if (cbn->discovered_client_id)
-  {
-    cbn_color_tree(cbn_get_root(cbn), cbn->true_client_id);
-
-    if (uvht != NULL)
-      /* Embed the peer_info for this handle. Used to identify the client on CLOSE_CB. 
-         Per nodejs-mud tests, the handle can be re-used on different clients. 
-         I'm assuming that this does not happen unsafely, since I cannot imagine how
-         it would work if the same handle could be used to talk to two different clients concurrently. 
-         However, this is a potential source of error. */
-      uvht->peer_info = cbn->peer_info;
-  }
+  if (cbn->discovered_client_id && uvht)
+    /* Embed the peer_info for this handle. Used to identify the client on CLOSE_CB. 
+       As seen in nodejs-mud, the handle can be re-used on different clients. 
+       I'm assuming that this does not happen unsafely, since I cannot imagine how
+       it would work if the same handle could be used to talk to two different clients concurrently. 
+       However, this is a potential source of error. */
+    uvht->peer_info = cbn->peer_info;
 
   return cbn->discovered_client_id;
 }
@@ -2157,11 +2493,97 @@ static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handl
       break;
 
     default:
-      mylog ("invoke_callback: ERROR, unsupported type\n");
+      mylog ("cbn_execute_callback: ERROR, unsupported type\n");
       NOT_REACHED;
   }
 }
 
+/* Debugging routine. To combat the annoying <optimized out> in gdb. */
+static char * cbn_to_string (struct callback_node *cbn, char *buf, int size)
+{
+  assert(buf != NULL);
+
+  if (cbn == NULL)
+    snprintf(buf, size, "cbn %p", cbn);
+  else
+  {
+    snprintf(buf, size, "cbn %p (info %p", cbn, cbn->info); 
+    if (cbn->info)
+      snprintf(buf + strlen(buf), size - strlen(buf), " type %s)", callback_type_to_string(cbn->info->type));
+    else
+      snprintf(buf + strlen(buf), size - strlen(buf), ")");
+    snprintf(buf + strlen(buf), size - strlen(buf), " physical_level %i physical_parent %p logical_level %i logical_parent %p true_client_id %i id %i",
+      cbn->physical_level, cbn->physical_parent, cbn->logical_level, cbn->logical_parent, cbn->true_client_id, cbn->id);
+  }
+
+  return buf;
+}
+
+/* Debugging routine. To combat the annoying <optimized out> in gdb. */
+static void cbn_print (struct callback_node *cbn)
+{
+  char buf[1024];
+  mylog(cbn_to_string(cbn, buf, 1024));
+}
+
+/* Print CBN and all of its ancestors. */
+static void cbn_print_ancestry (struct callback_node *cbn)
+{
+  char buf[1024];
+  struct callback_node *parent;
+
+  mylog("cbn_print_ancestory: node %s\n", cbn_to_string(cbn, buf, 1024));
+
+  parent = cbn->physical_parent;
+  while (parent)
+  {
+    mylog("cbn_print_ancestory: physical parent %s\n", cbn_to_string(parent, buf, 1024));
+    parent = parent->physical_parent;
+  }
+
+  parent = cbn->logical_parent;
+  while (parent)
+  {
+    mylog("cbn_print_ancestory: logical parent %s\n", cbn_to_string(parent, buf, 1024));
+    parent = parent->logical_parent;
+  }
+}
+
+/* Walk the CBN tree rooted at CBN, applying F to each node with args (node, AUX). 
+   F is applied to parents before children. */
+static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_type, void (*f)(struct callback_node *, void *), void *aux)
+{
+  struct list *children;
+  struct list_elem *e;
+  struct callback_node *child;
+
+  assert(cbn != NULL);
+
+  (*f)(cbn, aux);
+
+  children = (tree_type == CALLBACK_TREE_PHYSICAL) ? &cbn->physical_children : &cbn->logical_children;
+  assert(children != NULL);
+
+  for (e = list_begin(children); e != list_end(children); e = list_next(e))
+  {
+    child = (tree_type == CALLBACK_TREE_PHYSICAL ?
+             list_entry (e, struct callback_node, physical_child_elem) :
+             list_entry (e, struct callback_node, logical_child_elem)
+            );
+    cbn_walk(child, tree_type, f, aux);
+  }
+}
+
+#if 0
+/* Function for cbn_walk. Set the level of each node to parent's level + 1. 
+   CBN and all of its children must have their PARENT field set. */
+static void cbn_update_level (struct callback_node *cbn, void *aux)
+{
+  assert(cbn != NULL);
+  assert(cbn->parent != NULL);
+  cbn->level = cbn->parent->level + 1;
+}
+#endif
 
 /* RES = STOP - START. 
    STOP must be after START. */

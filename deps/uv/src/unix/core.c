@@ -921,7 +921,9 @@ void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
 void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
   if (QUEUE_EMPTY(&w->pending_queue))
   {
-    w->parent = current_callback_node_get();
+    /* We are being registered. We must be being registered by someone. */
+    w->logical_parent = current_callback_node_get();
+    assert(w->logical_parent != NULL);
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
   }
 }

@@ -26,7 +26,6 @@
   int uv_##name##_init(uv_loop_t* loop, uv_##name##_t* handle) {              \
     uv__handle_init(loop, (uv_handle_t*)handle, UV_##type);                   \
     handle->name##_cb = NULL;                                                 \
-    handle->parent = NULL;                                                    \
     return 0;                                                                 \
   }                                                                           \
                                                                               \
@@ -37,15 +36,18 @@
     QUEUE_INSERT_HEAD(&handle->loop->name##_handles, &handle->queue);         \
     handle->name##_cb = cb;                                                   \
     uv__handle_start(handle);                                                 \
-    if (handle->parent == NULL)                                               \
-      handle->parent = current_callback_node_get();                           \
-    assert(handle->parent != NULL);                                           \
+    if (handle->logical_parent == NULL)                                       \
+      handle->logical_parent = current_callback_node_get();                   \
+    assert(handle->logical_parent != NULL);                                   \
+    handle->self_parent = 0;                                                  \
     return 0;                                                                 \
   }                                                                           \
                                                                               \
   int uv_##name##_stop(uv_##name##_t* handle) {                               \
     if (!uv__is_active(handle)) return 0;                                     \
     QUEUE_REMOVE(&handle->queue);                                             \
+    handle->logical_parent = NULL;                                            \
+    handle->self_parent = 0;                                                  \
     uv__handle_stop(handle);                                                  \
     return 0;                                                                 \
   }                                                                           \
@@ -55,11 +57,7 @@
     QUEUE* q;                                                                 \
     QUEUE_FOREACH(q, &loop->name##_handles) {                                 \
       h = QUEUE_DATA(q, uv_##name##_t, queue);                                \
-      /* Declares and sets new variable callback_cbn, which is the CBN we just generated and ran. */ \
       INVOKE_CALLBACK_1(UV_##type##_CB, h->name##_cb, h);                     \
-      h->parent = callback_cbn;                                               \
-      assert(h->parent != NULL);                                              \
-                                                                              \
       /* h->name##_cb(h); */                                                  \
     }                                                                         \
   }                                                                           \
