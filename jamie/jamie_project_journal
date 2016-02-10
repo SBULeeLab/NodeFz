@@ -750,6 +750,11 @@ TODO Discuss thoughts on inheritance and coloring
 
 4. Write a program that uses async.parallel to see what it looks like at the libuv level
 
+5. I've decided that determining which CBs are client code is probably not helpful (even if I could figure out how to do it -- via origin?). UV__WORK_WORK is not client code, but it includes the Node.js implementation of FS IO. Essentially UV__WORK_WORK *is* client code, but it's not registered as such. Rather, inheritance tells us this. But inheritance tells us this anyway.
+
+6. Working on an SQLite DB program to see how SQLite APIs are transformed to libuv CBs.
+TODO
+
 -----------
 
 NEXT STEPS:

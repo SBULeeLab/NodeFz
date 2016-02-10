@@ -53,10 +53,12 @@ void mylog (const char *format, ...)
 
   strcat(buf1, buf2);
 
+#if 1
   pthread_mutex_lock(&log_lock);
   printf(buf1);
   pthread_mutex_unlock(&log_lock);
 
   fflush(NULL);
+#else
+#endif
 }
-

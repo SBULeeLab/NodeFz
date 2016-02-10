@@ -31,4 +31,4 @@ async.parallel(
   DoneCallback
 );
 
-setInterval(function (){ console.log("TIMER"); }, 1000);
+setInterval(function (){ console.log("TIMER"); }, 5000);
