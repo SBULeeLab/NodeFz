@@ -753,7 +753,18 @@ TODO Discuss thoughts on inheritance and coloring
 5. I've decided that determining which CBs are client code is probably not helpful (even if I could figure out how to do it -- via origin?). UV__WORK_WORK is not client code, but it includes the Node.js implementation of FS IO. Essentially UV__WORK_WORK *is* client code, but it's not registered as such. Rather, inheritance tells us this. But inheritance tells us this anyway.
 
 6. Working on an SQLite DB program to see how SQLite APIs are transformed to libuv CBs.
-TODO
+
+-----------
+
+10 Feb 2016
+
+1. After a lot of wrestling, I've managed to convince node to install a development version of sqlite3 for my use. The issue was that unlike other modules I've installed (e.g. async), sqlite3 uses C++ bindings. The fix was to change the /usr/bin versions of nodejs to point to my development copy, and then to run 'npm install sqlite3' as usual. Strangely enough, I thought I'd done that already. I also installed node-gyp, not sure if that had an effect. 
+
+There was advice online about using 'npm install --nodedir /path/to/devel/copy sqlite3' but this did not work. Perhaps I was using it wrong. The npm documentation feels wanting.
+
+Now that I've got a working version of sqlite3 installed, it appears that my development versin of node segfaults when running 'node sqlite_simple.js'. HOWEVER if I 'git branch master', the code runs fine. Interesting. My guess is that it's somehow related to using the C++ binding, as I haven't tried that before. 
+
+Next step: attempt a C++ binding tutorial and see if that also segfaults on my version.
 
 -----------
 

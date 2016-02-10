@@ -1695,6 +1695,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   cbn = cbn_create();
   cbn->info = cbi;
 
+#if 1
   /* Atomically update the metadata structures.
      Prevents races in the order of a parent's children vs. global order. 
      Not too concerned about performance:
@@ -1737,7 +1738,9 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* TODO Move the determination of uvht to a separate function? */
   cbn_start(cbn);
   current_callback_node_set(cbn); /* Thread-safe. */
+#endif
   cbn_execute_callback(cbn, &uvht, handle_type);
+#if 1
   cbn_stop(cbn);
 
   mylog ("invoke_callback: Done with callback_node %i: %s. uvht <%p> handle_type <%s>\n",
@@ -1747,6 +1750,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   current_callback_node_set(cbn->physical_parent);
 
   mylog("invoke_callback: completed cbn %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
+#endif
   return cbn;
 }
 
