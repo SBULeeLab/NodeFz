@@ -781,15 +781,31 @@ version on my system.
 I made use of freenode's #node-dev IRC channel through ChatZilla to double-check that I was going through
 the right motions (except for the --build-from-source). bradleymeck and evanlucas were helpful.
 
-2. The trees arising from sqlite_simple.js are interesting. I'm going to make a collection of trees to
-walk through with Dongyoon today.
+2. The trees arising from sqlite_simple.js are interesting. I'm going to make a collection of trees to walk through with Dongyoon today. I'd like to come prepared with a "demo" like the one I did today (see the weekly_meetings folder). It was really helpful for discussion.
+
+3. Meeting with Dongyoon.
+  We are 6 weeks out from the OOPSLA deadline. We'll see how development goes, but here are some tentative milestones:
+
+  Feb. 18: 
+    - inheritance coloring, favoring logical parentage - 1/2 day
+    - explore the library used in Arun's example that offers X.thenY.thenZ semantics. I believe it's called promise.js. See whether it makes a "big blob" or uses a baton approach. Batons mean that we can find Arun's race condition; big blob means that it's truly a "threadpool race" and will only manifest if the two blobs are run concurrently. - 1/2 day
+    - visualization of execution order, including overlapping CBs - 1/2 day
+    - initial definition(s) and extraction(s) of schedule - 1 day
+    - measure variations in schedule(s) for simple and more complex apps - 1 day
+    - explore identification of "fat functions" a la word-finder. This is part of the analysis stage. 1/2 day
+
+  Feb. 25:
+    - Add a scheduled execution mode (i.e. follow the provided schedule as closely as possible). 3 days.
+        May want per-client CB tree visualization?
+        The tricky part is that the first step off of the original schedule might radically change the rest of the schedule -- e.g. httpserver_batch.js. Go back to record mode? Potentially too expensive.
+    - Try naive schedule exploration of simple apps. 2 days.
+    - This is probably too aggressive to get CORRECT in one week, but we'll see. I won't propose schedules beyond that because I'm not confident about the size of this milestone.
+  
+  Mar. 3:
+    - ?
 
 -----------
 
-NEXT STEPS:
-- Mark callbacks that send output to clients in uv_write2? To be discussed...
+STEPS:
 - Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
-- persist the parentage information for callbacks passed to uv__run_pending. These occasionally result in a WRITE, which is bad news bears if we are losing the tree color.
-
-------------------
