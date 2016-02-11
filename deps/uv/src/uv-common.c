@@ -1523,19 +1523,19 @@ static int get_client_id (struct sockaddr_storage *addr)
   if (found)
   {
     client_id = (int) entry;
-    printf("Existing client\n");
+    mylog("get_peer_info: Existing client\n");
   }
   else
   {
     client_id = next_client_id;
     map_insert(id_to_peer_info, client_id, (void *) addr);
     map_insert(peer_info_to_id, addr_hash, (void *) client_id);
-    printf("New client\n");
+    mylog("get_peer_info: New client\n");
   }
 
   /* Print the client's info. */
   addr_getnameinfo(addr, &nameinfo);
-  printf("get_peer_info: Client: %i -> %i -> %s:%s (id %i)\n", client_id, addr_hash, nameinfo.host, nameinfo.service, client_id);
+  mylog("get_peer_info: Client: %i -> %i -> %s:%s (id %i)\n", client_id, addr_hash, nameinfo.host, nameinfo.service, client_id);
 
   return client_id;
 }

@@ -242,14 +242,14 @@ int uv_tcp_getpeername(const uv_tcp_t* handle,
   if (getpeername(uv__stream_fd(handle), name, &socklen))
 #if 1
   {
-    printf("getpeername(%i, %p, %p) failed: %s\n", uv__stream_fd(handle), name, &socklen, strerror(errno));
+    mylog("getpeername(%i, %p, %p) failed: %s\n", uv__stream_fd(handle), name, &socklen, strerror(errno));
     return -errno;
   }
 #else
     return -errno;
 #endif
   else
-    printf("getpeername(%i, %p, %p) succeeded\n", uv__stream_fd(handle), name, &socklen);
+    mylog("getpeername(%i, %p, %p) succeeded\n", uv__stream_fd(handle), name, &socklen);
 
   *namelen = (int) socklen;
   return 0;
@@ -267,14 +267,14 @@ int uv_tcp_getpeername_direct(int fd,
   if (getpeername(fd, name, &socklen))
 #if 1
   {
-    printf("getpeername(%i, %p, %p) failed: %s\n", fd, name, &socklen, strerror(errno));
+    mylog("getpeername(%i, %p, %p) failed: %s\n", fd, name, &socklen, strerror(errno));
     return -errno;
   }
 #else
     return -errno;
 #endif
   else
-    printf("getpeername(%i, %p, %p) succeeded\n", fd, name, &socklen);
+    mylog("getpeername(%i, %p, %p) succeeded\n", fd, name, &socklen);
 
   *namelen = (int) socklen;
   return 0;

@@ -34,9 +34,7 @@ struct uv__work {
   void (*done)(struct uv__work *w, int status);
   struct uv_loop_s* loop;
   void* wq[2];
-#ifdef UNIFIED_CALLBACK
   struct callback_node *logical_parent;
-#endif
 };
 
 #endif /* UV_THREADPOOL_H_ */

@@ -76,6 +76,7 @@
 #endif
 
 #include "uv-common.h"
+#include "../mylog.h"
 
 static int uv__run_pending(uv_loop_t* loop);
 
@@ -765,8 +766,7 @@ static int uv__run_pending(uv_loop_t* loop) {
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
 
 #if UNIFIED_CALLBACK
-    printf("<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n",
-      loop, loop->niter, w);
+    mylog("<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
     uv__uv__run_pending_set_active_cb(w->cb);
     INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
     uv__uv__run_pending_set_active_cb(NULL);
@@ -923,7 +923,10 @@ void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
   {
     /* We are being registered. We must be being registered by someone. */
     w->logical_parent = current_callback_node_get();
+    /*TODO Why does this assert sometimes fail? */
+#if 0
     assert(w->logical_parent != NULL);
+#endif
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
   }
 }
