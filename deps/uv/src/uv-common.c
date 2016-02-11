@@ -1546,9 +1546,9 @@ static void init_unified_callback (void)
   if (unified_callback_initialized)
     return;
 
-  printf("DEBUG: Testing list\n");
+  mylog("DEBUG: Testing list\n");
   list_UT();
-  printf("DEBUG: Testing map\n");
+  mylog("DEBUG: Testing map\n");
   map_UT();
 
   pthread_mutex_init(&metadata_lock, NULL);
