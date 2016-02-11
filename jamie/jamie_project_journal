@@ -762,9 +762,27 @@ TODO Discuss thoughts on inheritance and coloring
 
 There was advice online about using 'npm install --nodedir /path/to/devel/copy sqlite3' but this did not work. Perhaps I was using it wrong. The npm documentation feels wanting.
 
-Now that I've got a working version of sqlite3 installed, it appears that my development versin of node segfaults when running 'node sqlite_simple.js'. HOWEVER if I 'git branch master', the code runs fine. Interesting. My guess is that it's somehow related to using the C++ binding, as I haven't tried that before. 
+Now that I've got a working version of sqlite3 installed, it appears that my development version of node segfaults when running 'node sqlite_simple.js'. HOWEVER if I 'git branch master', the code runs fine. Interesting. My guess is that it's somehow related to using the C++ binding, as I haven't tried that before. 
 
 Next step: attempt a C++ binding tutorial and see if that also segfaults on my version.
+
+-----------
+
+11 Feb 2016
+
+1. I found the issue. The node-sqlite3 documentation wasn't quite up to snuff. Here's the secret sauce:
+
+npm install --build-from-source --verbose --sqlite=/usr/local --nodedir=/home/jamie3/Desktop/node_project/node
+
+The key was to add --build-from-source, which makes use of the src directory. Without it, any
+local changes in src are just ignored.
+I actually think the --nodedir is unnecessary since I've run 'make install' and installed the development
+version on my system.
+I made use of freenode's #node-dev IRC channel through ChatZilla to double-check that I was going through
+the right motions (except for the --build-from-source). bradleymeck and evanlucas were helpful.
+
+2. The trees arising from sqlite_simple.js are interesting. I'm going to make a collection of trees to
+walk through with Dongyoon today.
 
 -----------
 
