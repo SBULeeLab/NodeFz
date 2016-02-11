@@ -32,20 +32,10 @@ void mylog (const char *format, ...)
 
   now = time (NULL);
   now_s = ctime (&now);
-  now_s [strlen (now_s) - 1] = '\0'; /* Remove the trailing newline. */
-#if 0
-  generation = get_generation ();
-  indents[0] = '\0';
-  for (i = 0; i < generation; i++)
-    strncat (indents, "  ", 512);
-
-  my_pid = getpid ();
-  printf("%s %s gen %i process %i: ", indents, now_s, generation, my_pid);
-#else
+  now_s[strlen (now_s) - 1] = '\0'; /* Remove the trailing newline. */
   my_pid = getpid();
   my_tid = pthread_self();
   sprintf(buf1, "%s process %i thread %li: ", now_s, my_pid, (long) my_tid);
-#endif
 
   va_start(args, format);
   vsprintf(buf2, format, args);
@@ -53,7 +43,7 @@ void mylog (const char *format, ...)
 
   strcat(buf1, buf2);
 
-#if 0
+#if 1
   pthread_mutex_lock(&log_lock);
   printf(buf1);
   pthread_mutex_unlock(&log_lock);

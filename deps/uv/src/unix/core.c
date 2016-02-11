@@ -921,12 +921,12 @@ void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
 void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
   if (QUEUE_EMPTY(&w->pending_queue))
   {
-    /* We are being registered. We must be being registered by someone. */
+    /* We are being registered. If an active CB is registering it, it is our parent.
+       It is possible that there is no visible active parent, due to internal v8 machinery.
+       This shows up when running npm install. I'm not sure if it shows up in other places. */
     w->logical_parent = current_callback_node_get();
-    /*TODO Why does this assert sometimes fail? */
-#if 0
-    assert(w->logical_parent != NULL);
-#endif
+    if (!w->logical_parent)
+      mylog("uv__io_feed: w has no logical parent\n");
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
   }
 }
