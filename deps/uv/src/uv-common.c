@@ -940,6 +940,7 @@ static void cbn_determine_parentage (struct callback_node *cbn)
   uv_handle_t *handle;
   struct callback_info *info;
   enum callback_type expected_parent_type;
+  struct callback_node *parent_to_inherit_from;
   uv__io_t *iot;
 
   assert(cbn != NULL);
@@ -1013,6 +1014,27 @@ static void cbn_determine_parentage (struct callback_node *cbn)
 
   /* Verify integrity of CBN. */
   assert(cbn->physical_parent || cbn->physical_level == 0);
+
+  /* Inherit client info from parent, if any, favoring the logical parent. */
+  if (cbn->logical_parent)
+    parent_to_inherit_from = cbn->logical_parent;
+  else if (cbn->physical_parent)
+    parent_to_inherit_from = cbn->physical_parent;
+  else
+    parent_to_inherit_from = NULL;
+
+  if (parent_to_inherit_from)
+  {
+    /* Inherit client ID. */
+    cbn->orig_client_id = parent_to_inherit_from->true_client_id; /* If parent started unknown and was colored, we inherit the color. */
+    cbn->true_client_id = parent_to_inherit_from->true_client_id;
+    cbn->discovered_client_id = 0;
+
+    /* Inherit peer_info. */
+    free(cbn->peer_info);
+    cbn->peer_info = parent_to_inherit_from->peer_info;
+    assert(cbn->peer_info != NULL);
+  }
 
 #if 0
   /* TODO Some issue with UV_TIMER_CB having a UV_READ_CB for a parent while having handle->self_parent true. */
