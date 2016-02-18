@@ -138,6 +138,8 @@ struct callback_node
 
   int id; /* Unique ID for this node. This is the index of the node in global_order_list, i.e. the order in which it was evaluated relative to the other nodes. */
 
+  int executing_thread; /* Which thread ran me? This is an internal tid beginning at 0. -1 means no thread ran me (implies a 'marker' CBN). */
+
   struct list physical_children;
   struct list logical_children;
   

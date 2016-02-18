@@ -687,6 +687,8 @@ static void cbn_stop (struct callback_node *cbn);
 static int cbn_embed_parentage (struct callback_node *cbn);
 static void cbn_determine_parentage (struct callback_node *cbn);
 
+static void cbn_determine_executing_thread (struct callback_node *cbn);
+
 static int cbn_have_peer_info (const struct callback_node *cbn);
 
 #if 0
@@ -784,6 +786,9 @@ struct map *callback_to_origin_map;
    If the value is NULL, the next callback by that node will be a root
      (unless the callback is an asynchronous one for which the parent is already known). */
 struct map *tid_to_current_cbn;
+
+/* Maps pthread_t to internal id, yielding human-readable thread IDs. */
+struct map *pthread_to_tid;
 
 /* Printing nodes with colors based on client ID. */
 #define RESERVED_IDS 6
@@ -1030,11 +1035,17 @@ static void cbn_determine_parentage (struct callback_node *cbn)
     cbn->true_client_id = parent_to_inherit_from->true_client_id;
     cbn->discovered_client_id = 0;
 
-    /* Inherit peer_info. */
-    free(cbn->peer_info);
-    cbn->peer_info = parent_to_inherit_from->peer_info;
-    assert(cbn->peer_info != NULL);
+    /* If the parent is from a client, inherit its peer_info. */
+    if (0 <= cbn->true_client_id)
+    {
+      free(cbn->peer_info);
+      cbn->peer_info = parent_to_inherit_from->peer_info;
+    }
   }
+
+  assert(cbn->peer_info != NULL);
+  if (cbn->true_client_id < 0) 
+    assert(!cbn_have_peer_info(cbn));
 
 #if 0
   /* TODO Some issue with UV_TIMER_CB having a UV_READ_CB for a parent while having handle->self_parent true. */
@@ -1368,7 +1379,35 @@ static struct callback_node * cbn_create (void)
   memset(cbn->peer_info, 0, sizeof *cbn->peer_info);
 
   cbn->id = -1;
+  cbn->executing_thread = 0;
+
   return cbn;
+}
+
+/* Set the executing_thread member of CBN 
+   (to the internal tid of the currently-executing thread). 
+
+   Thread safe. */
+static void cbn_determine_executing_thread (struct callback_node *cbn)
+{
+  int found;
+  void *value;
+  int pthread_id;
+  
+  assert(cbn != NULL);
+  
+  pthread_id = (int) pthread_self();
+
+  map_lock(pthread_to_tid);
+  value = map_lookup(pthread_to_tid, pthread_id, &found);
+  if (found)
+    cbn->executing_thread = (int) value;
+  else
+  {
+    cbn->executing_thread = map_size(pthread_to_tid);
+    map_insert(pthread_to_tid, pthread_id, (void *) cbn->executing_thread);
+  }
+  map_unlock(pthread_to_tid);
 }
 
 /* Code in support of tracking the initial stack. */
@@ -1589,6 +1628,9 @@ static void init_unified_callback (void)
   tid_to_current_cbn = map_create();
   assert(tid_to_current_cbn != NULL);
 
+  pthread_to_tid = map_create();
+  assert(pthread_to_tid != NULL);
+
 #if 1
   signal(SIGUSR1, dump_all_trees_and_exit_sighandler);
   signal(SIGUSR2, dump_all_trees_and_exit_sighandler);
@@ -1741,6 +1783,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   if (cbn->true_client_id == ID_UNKNOWN)
     cbn_discover_id(cbn);
 
+  cbn_determine_executing_thread(cbn);
   uv__metadata_unlock();
 
   /* Is CBN coherent? */
@@ -1843,8 +1886,8 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
   /* Example listing:
     1 [label="client 12\ntype UV_ALLOC_CB\nactive 0\nstart 1 (s) duration 10s50ns\nID 1..."];
   */
-  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nclient ID %i (%s)\\n was_pending_cb %i\" style=\"filled\" colorscheme=\"%s\" color=\"%s\" shape=\"%s\" penwidth=\"%s\"];\n",
-    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->true_client_id, client_info, cbn->was_pending_cb, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS], shape, penwidth);
+  dprintf(fd, "    %i [label=\"client %i\\ntype %s\\nactive %i\\nstart %is %lins (since beginning) duration %is %lins\\nID %i\\nexecuting_thread %i\\nclient ID %i (%s)\\n was_pending_cb %i\" style=\"filled\" colorscheme=\"%s\" color=\"%s\" shape=\"%s\" penwidth=\"%s\"];\n",
+    cbn->id, cbn->true_client_id, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->active, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->id, cbn->executing_thread, cbn->true_client_id, client_info, cbn->was_pending_cb, graphviz_colorscheme, graphviz_colors[cbn->true_client_id + RESERVED_IDS], shape, penwidth);
 }
 
 /* Prints callback node CBN to FD.
@@ -1863,8 +1906,8 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
       strcat (spaces, " ");
   }
 
-  dprintf(fd, "%s%s | <cbn> <%p> | <id> <%i> | <info> <%p> | <type> <%s> | <logical level> <%i> | <physical level> <%i> | <logical parent> <%p> | <logical parent_id> <%i> | <logical parent> <%p> | <logical parent_id> <%i> |<active> <%i> | <n_physical_children> <%i> | <n_logical_children> <%i> | <client_id> <%i> | <relative start> <%is %lins> | <duration> <%is %lins> |\n", 
-    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->logical_level, cbn->physical_level, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, cbn->active, list_size (&cbn->physical_children), list_size (&cbn->logical_children), cbn->true_client_id, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec);
+  dprintf(fd, "%s%s | <cbn> <%p> | <id> <%i> | <info> <%p> | <type> <%s> | <logical level> <%i> | <physical level> <%i> | <logical parent> <%p> | <logical parent_id> <%i> | <logical parent> <%p> | <logical parent_id> <%i> |<active> <%i> | <n_physical_children> <%i> | <n_logical_children> <%i> | <client_id> <%i> | <relative start> <%is %lins> | <duration> <%is %lins> | <executing_thread> <%i> |\n", 
+    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->logical_level, cbn->physical_level, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, cbn->active, list_size (&cbn->physical_children), list_size (&cbn->logical_children), cbn->true_client_id, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->executing_thread);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -1897,6 +1940,9 @@ void dump_callback_globalorder (void)
   {
     assert(e != NULL);
     cbn = list_entry (e, struct callback_node, global_order_elem);
+    /* Don't emit the "fake" initial stack callback node. */
+    if (cbn == get_init_stack_callback_node())
+      continue;
     snprintf(prefix, 64, "Callback %i: ", cbn_num);
     dump_callback_node (fd, cbn, prefix, 0);
     cbn_num++;
@@ -2392,6 +2438,7 @@ static int cbn_discover_id (struct callback_node *cbn)
   assert(cbn != NULL);
   assert(cbn->peer_info != NULL);
   assert(cbn->true_client_id == ID_UNKNOWN);
+  assert(!cbn_have_peer_info(cbn));
   assert(!cbn->discovered_client_id);
 
   mylog("cbn_discover_id: Looking for the ID associated with CBN %p (cb %p)\n", cbn, cbn->info->cb);
@@ -2615,8 +2662,8 @@ static char * cbn_to_string (struct callback_node *cbn, char *buf, int size)
       snprintf(buf + strlen(buf), size - strlen(buf), " type %s)", callback_type_to_string(cbn->info->type));
     else
       snprintf(buf + strlen(buf), size - strlen(buf), ")");
-    snprintf(buf + strlen(buf), size - strlen(buf), " physical_level %i physical_parent %p logical_level %i logical_parent %p true_client_id %i id %i",
-      cbn->physical_level, cbn->physical_parent, cbn->logical_level, cbn->logical_parent, cbn->true_client_id, cbn->id);
+    snprintf(buf + strlen(buf), size - strlen(buf), " physical_level %i physical_parent %p logical_level %i logical_parent %p true_client_id %i id %i executing_thread %i",
+      cbn->physical_level, cbn->physical_parent, cbn->logical_level, cbn->logical_parent, cbn->true_client_id, cbn->id, cbn->executing_thread);
   }
 
   return buf;
