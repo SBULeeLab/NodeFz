@@ -786,13 +786,61 @@ the right motions (except for the --build-from-source). bradleymeck and evanluca
 3. Meeting with Dongyoon.
   We are 6 weeks out from the OOPSLA deadline. We'll see how development goes, but here are some tentative milestones:
 
+-----------
+
+12 Feb 2016
+
+1. I've finally figured out how to add debug breakpoints to node.cc. In $NODE, run './configure --debug' and then 'make; make install'. This produces binaries called 'node' in $NODE/out/Release and $NODE/out/Debug. Use gdb on the Debug version. Then in gdb run 'break node::StartNodeInstance' or 'break node.cc:3972'. There's a symlink in ~/bin called node-debug for ease of use.
+
+2. Explored promises for the ghost engine. I haven't finished learning about these but I'm making progress. An initial example is in /home/jamie3/Desktop/node_project/node/jamie/simple_node_programs/promises/promise_rsvp.js. See squid.ore email for reading material. My conclusion is that promises can be used asynchronously in a ``baton'' fashion, and that in the Ghost example they are used in that fashion. If *not* used in this fashion, they're basically being used incorrectly. Their purpose is to order asynchronous events; if each promise includes only synchronous code then there's no reason not to write it synchronously. Example:
+
+if(x = 1).then(y = 2).then... 
+  should be
+x = 1
+y = 2
+...
+
+-----------
+
+15 Feb 2016
+
+1. Resume client inheritance
+2. Research timeline software
+
+-----------
+
+16 Feb 2016
+17 Feb 2016
+
+I spent these days learning about TheTimelineProj and developing a library to automatically generate XML for examination with it.
+A default view was not useful because the range in time between events was too large.
+Steps taken to address this:
+  - normalization
+  - era detection
+
+-----------
+
+18 Feb 2016
+
+1. Complete working version of timeline interface. Still needs a true CLI. Use it to produce visualizations for identical executions against the three httpserver instances. timeline_demo is on my laptop. I've checked the timeline code into the node git repo on woody.
+
+-----------
+
+STEPS:
+- Assess flippability calculations I can do "now". Am I missing anything?
+- callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
+
+
+- An interesting comparison: "random testing" inspired by the empirical study. At the JS level, insert rand_sleep into any asynchronous method. See how much variation in the schedule arises.
+
+
   Feb. 18: 
-    - inheritance coloring, favoring logical parentage - 1/2 day
-    - explore the library used in Arun's example that offers X.thenY.thenZ semantics. I believe it's called promise.js. See whether it makes a "big blob" or uses a baton approach. Batons mean that we can find Arun's race condition; big blob means that it's truly a "threadpool race" and will only manifest if the two blobs are run concurrently. - 1/2 day
-    - visualization of execution order, including overlapping CBs - 1/2 day
-    - initial definition(s) and extraction(s) of schedule - 1 day
-    - measure variations in schedule(s) for simple and more complex apps - 1 day
-    - explore identification of "fat functions" a la word-finder. This is part of the analysis stage. 1/2 day
+    X inheritance coloring, favoring logical parentage - 1/2 day
+    X explore the library used in Arun's example that offers X.thenY.thenZ semantics. I believe it's called promise.js. See whether it makes a "big blob" or uses a baton approach. Batons mean that we can find Arun's race condition; big blob means that it's truly a "threadpool race" and will only manifest if the two blobs are run concurrently. - 1/2 day
+    X visualization of execution order, including overlapping CBs - 1/2 day
+    o initial definition(s) and extraction(s) of schedule - 1 day
+    o measure variations in schedule(s) for simple and more complex apps - 1 day
+    o explore identification of "fat functions" a la word-finder. This is part of the analysis stage. 1/2 day
 
   Feb. 25:
     - Add a scheduled execution mode (i.e. follow the provided schedule as closely as possible). 3 days.
@@ -803,9 +851,3 @@ the right motions (except for the --build-from-source). bradleymeck and evanluca
   
   Mar. 3:
     - ?
-
------------
-
-STEPS:
-- Assess flippability calculations I can do "now". Am I missing anything?
-- callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
