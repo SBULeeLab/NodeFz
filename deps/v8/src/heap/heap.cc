@@ -888,6 +888,11 @@ void Heap::EnsureFillerObjectAtTop() {
 bool Heap::CollectGarbage(GarbageCollector collector, const char* gc_reason,
                           const char* collector_reason,
                           const v8::GCCallbackFlags gc_callback_flags) {
+#if 1
+  printf("Heap::CollectGarbage: Skipping garbage collection\n");
+  return false; 
+#else
+  printf("Heap::CollectGarbage: Collecting garbage\n");
   // The VM is in the GC state until exiting this function.
   VMState<GC> state(isolate_);
 
@@ -990,6 +995,7 @@ bool Heap::CollectGarbage(GarbageCollector collector, const char* gc_reason,
   }
 
   return next_gc_likely_to_collect_more;
+#endif
 }
 
 
