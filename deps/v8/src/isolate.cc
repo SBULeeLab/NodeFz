@@ -6,6 +6,7 @@
 
 #include <fstream>  // NOLINT(readability/streams)
 #include <sstream>
+#include <assert.h>
 
 #include "src/v8.h"
 
@@ -2648,6 +2649,8 @@ void Isolate::RunMicrotasks() {
     heap()->set_microtask_queue(heap()->empty_fixed_array());
 
     for (int i = 0; i < num_tasks; i++) {
+      printf("Isolate::RunMicrotasks: Running task %i/%i\n", i+1, num_tasks);
+      assert(0 == 1); /* JD: If this ever happens from Node-land, we'll fail to detect these callbacks. */
       HandleScope scope(this);
       Handle<Object> microtask(queue->get(i), this);
       if (microtask->IsJSFunction()) {
