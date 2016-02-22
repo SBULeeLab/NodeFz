@@ -281,8 +281,11 @@
     // calls into JS land.
     const tickInfo = process._setupNextTick(_tickCallback, _runMicrotasks);
 
+    //console.log("processNextTick: RUNNING MICROTASKS");
     _runMicrotasks = _runMicrotasks.runMicrotasks;
+    //console.log("processNextTick: DONE RUNNING MICROTASKS");
 
+    // JD: The rest is function declarations.
     function tickDone() {
       if (tickInfo[kLength] !== 0) {
         if (tickInfo[kLength] <= tickInfo[kIndex]) {

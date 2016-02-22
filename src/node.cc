@@ -156,7 +156,9 @@ static void CheckImmediate(uv_check_t* handle) {
   Environment* env = Environment::from_immediate_check_handle(handle);
   HandleScope scope(env->isolate());
   Context::Scope context_scope(env->context());
+  printf("node::CheckImmediate: MakeCallback\n");
   MakeCallback(env, env->process_object(), env->immediate_callback_string());
+  printf("node::CheckImmediate: MakeCallback done\n");
 }
 
 
@@ -941,7 +943,11 @@ void SetupDomainUse(const FunctionCallbackInfo<Value>& args) {
 }
 
 void RunMicrotasks(const FunctionCallbackInfo<Value>& args) {
+  printf("node::RunMicrotasks: Running tasks\n");
+  fflush(NULL);
   args.GetIsolate()->RunMicrotasks();
+  printf("node::RunMicrotasks: Done running tasks\n");
+  fflush(NULL);
 }
 
 
@@ -3011,11 +3017,11 @@ void LoadEnvironment(Environment* env) {
   env->SetMethod(env->process_object(), "_rawDebug", RawDebug);
 
   Local<Value> arg = env->process_object();
-  //printf("node::LoadEnvironment: f->Call\n");
+  printf("node::LoadEnvironment: f->Call\n");
   uv_mark_init_stack_begin();
   f->Call(global, 1, &arg);
   uv_mark_init_stack_end();
-  //printf("node::LoadEnvironment: Done with f\n");
+  printf("node::LoadEnvironment: Done with f\n");
 }
 
 static void PrintHelp();
@@ -3931,9 +3937,9 @@ static void StartNodeInstance(void* arg) {
     if (instance_data->use_debug_agent())
       StartDebug(env, debug_wait_connect);
 
-    //printf("node::StartNodeInstance: Loading the environment\n");
+    printf("node::StartNodeInstance: Loading the environment\n");
     LoadEnvironment(env);
-    //printf("node::StartNodeInstance: Done loading the environment\n");
+    printf("node::StartNodeInstance: Done loading the environment\n");
 
     env->set_trace_sync_io(trace_sync_io);
 
@@ -3960,8 +3966,12 @@ static void StartNodeInstance(void* arg) {
 #endif
 
       do {
+        printf("node::StartNodeInstance: beginning of loop\n");
         v8::platform::PumpMessageLoop(default_platform, isolate);
+
+        printf("node::StartNodeInstance: uv_run\n");
         more = uv_run(env->event_loop(), UV_RUN_ONCE);
+        printf("node::StartNodeInstance: uv_run done\n");
 
         if (more == false) {
           v8::platform::PumpMessageLoop(default_platform, isolate);
@@ -3973,6 +3983,7 @@ static void StartNodeInstance(void* arg) {
           if (uv_run(env->event_loop(), UV_RUN_NOWAIT) != 0)
             more = true;
         }
+        printf("node::StartNodeInstance: end of loop\n");
       } while (more == true);
     }
 
