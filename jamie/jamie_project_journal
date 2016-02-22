@@ -846,6 +846,7 @@ I attempted a first draft at a callback deferral mechanism. This version uses a 
 
 Unfortunately this leads us to two related concerns. First, libuv thinks of itself as the bottom of the stack. Once a callback is invoked, libuv believes that it is done (and might proceed to free memory, dismantle the handle with which it's associated, etc.). If instead I've squirreled it away to execute later, that's a segfault waiting to happen. Second, once libuv thinks it is done, it may eventually (?) communicate to Node.js that the callback is no longer needed, and the V8 GC will scoop it up.
 
+I do not think that pursuing this approach is worthwhile.
 
 ----------
 
