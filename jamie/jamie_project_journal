@@ -824,6 +824,35 @@ Steps taken to address this:
 
 1. Complete working version of timeline interface. Still needs a true CLI. Use it to produce visualizations for identical executions against the three httpserver instances. timeline_demo is on my laptop. I've checked the timeline code into the node git repo on woody.
 
+----------
+
+19 Feb 2016
+
+I spent today thinking about deterministic replay.
+
+I wondered whether scheduling callbacks in pure JS seemed feasible.
+
+I think to do so would require instrumenting the source code of any module that "rolls its own" libuv interactions. I don't like this idea, and it also introduces overhead (not as much as Jalangi, I think, but still non-trivial).
+
+Scheduling them instead in libuv seems wiser. I think by disabling the V8 garbage collector we can safely retain references to callbacks forever, and only invoke them when we want to. In libuv we also have full control over the threadpool without having to worry about multiple components (JS and libuv) and communication between them.
+
+
+----------
+
+21 Feb 2016
+22 Feb 2016
+
+I attempted a first draft at a callback deferral mechanism. This version uses a scheduler thread. invoke_callback routes callbacks into a scheduler list for eventual execution. The scheduler thread picks callbacks off of the list and executes them.
+
+Unfortunately this leads us to two related concerns. First, libuv thinks of itself as the bottom of the stack. Once a callback is invoked, libuv believes that it is done (and might proceed to free memory, dismantle the handle with which it's associated, etc.). If instead I've squirreled it away to execute later, that's a segfault waiting to happen. Second, once libuv thinks it is done, it may eventually (?) communicate to Node.js that the callback is no longer needed, and the V8 GC will scoop it up.
+
+
+----------
+
+21 Feb 2016
+
+
+
 -----------
 
 STEPS:
