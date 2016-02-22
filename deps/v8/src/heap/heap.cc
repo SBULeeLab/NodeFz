@@ -888,7 +888,7 @@ void Heap::EnsureFillerObjectAtTop() {
 bool Heap::CollectGarbage(GarbageCollector collector, const char* gc_reason,
                           const char* collector_reason,
                           const v8::GCCallbackFlags gc_callback_flags) {
-#if 1
+#if 0
   printf("Heap::CollectGarbage: Skipping garbage collection\n");
   return false; 
 #else
