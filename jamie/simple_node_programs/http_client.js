@@ -1,5 +1,9 @@
 #!/usr/bin/nodejs
 
+/* 
+   http client. Makes one HTTP GET request to localhost:8000.
+*/
+
 var http = require('http');
 
 var options = {

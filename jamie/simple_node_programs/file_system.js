@@ -28,10 +28,6 @@ fs.stat(before, function (err, stats) {
 fs.rename(before, after, function (err) {
   if (err) throw err;
 
-  /* Testing: See what happens to fork()'d fds when parent bails out. */
-  console.log('APP: rename is exiting');
-  process.exit(1);
-
   console.log('APP: ' + 'rename complete: ' + before + ' -> ' + after);
   fs.openSync(newFile, 'w')
 });
