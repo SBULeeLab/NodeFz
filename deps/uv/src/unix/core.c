@@ -867,7 +867,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
 #endif
 
-  if (QUEUE_EMPTY(&w->watcher_queue))
+  if (QUEUE_EMPTY(&w->watcher_queue)) /* JD: i.e. if w not already in loop->watcher_queue */
     QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
 
   if (loop->watchers[w->fd] == NULL) {

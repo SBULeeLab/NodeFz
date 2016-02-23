@@ -165,9 +165,9 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
     if (((h)->flags & UV__HANDLE_ACTIVE) != 0) break;                         \
     (h)->flags |= UV__HANDLE_ACTIVE;                                          \
     if (((h)->flags & UV__HANDLE_REF) != 0) uv__active_handle_add(h);         \
+    (h)->logical_parent = current_callback_node_get();                        \
   }                                                                           \
-  while (0);                                                                  \
-  (h)->logical_parent = current_callback_node_get();                               
+  while (0);
 
 
 #define uv__handle_stop(h)                                                    \

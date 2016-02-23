@@ -59,7 +59,6 @@ var delayStat = function () {
 /* Wait a second, then call delayStat. */
 setTimeout(delayStat, 1000);
 
-
 /* Uncaught/thrown exception handling. */
 process.on('uncaughtException', function(err) {
   console.log('APP: ' + "Caught exception " + err);

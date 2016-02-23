@@ -453,6 +453,8 @@ Addressing these requirements:
         it looks like epoll maintains a linked list of ready fds. Consequently the arrival order is preserved for non-wrapped fds. For wrapped fds, the arrival order
         may be unclear, but I expect that we can determine the arrival order ourselves.
 
+        **Is this true if I use level-triggered mode and ignore some of the ready fds? Do they remain at the front of the list or are they popped and pushed?
+
         Consider async events. These will only be scheduled when uv_async_send is invoked, and so the caller of uv_async_send is the logical parent.
         Now, uv_async_send is thread safe, which means that a "race" from the caller (if application or Node-C++ code) could result in varying logical trees.
 

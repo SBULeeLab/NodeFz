@@ -10,7 +10,9 @@ var options = {
 protocol : 'http:', 
 host : 'localhost', 
 port : 8000,
-method : 'GET'
+/* method : 'GET' */
+/* method : 'PUT' */
+method : 'POST'
 };
 
 http.request( options, function log_response (response) {

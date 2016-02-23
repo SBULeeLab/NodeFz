@@ -567,7 +567,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       stream->connection_cb(stream, err);
 #endif
       continue;
-    }
+    } /* end of err < 0 case */
 
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;

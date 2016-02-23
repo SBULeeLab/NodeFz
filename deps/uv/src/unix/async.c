@@ -40,9 +40,6 @@ static int uv__async_eventfd(void);
 static void uv__async_io(uv_loop_t* loop,
                          uv__io_t* w,
                          unsigned int events);
-static void uv__async_event(uv_loop_t* loop,
-                            struct uv__async* w,
-                            unsigned int nevents);
 
 void * uv_uv__async_io_ptr (void)
 {
@@ -56,10 +53,6 @@ void * uv_uv__async_event_ptr (void)
 
 int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   int err;
-
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(async_cb, UV_ASYNC_CB);
-#endif
 
   err = uv__async_start(loop, &loop->async_watcher, uv__async_event);
   if (err)
@@ -78,9 +71,19 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
 
 int uv_async_send(uv_async_t* handle) {
   /* Do a cheap read first. */
+  /* JD: If already pending, coalesce. */
   if (ACCESS_ONCE(int, handle->pending) != 0)
     return 0;
 
+#ifdef UNIFIED_CALLBACK
+  /* TODO this uv_async_send will cause handle->async_cb to be executed
+      and is this the logical parent of it. However, we only care
+      if it's an externally-defined async handle. For internal async handles
+      (those defined on the loop), we don't want to record logical parentage here. */
+  /* uv__register_callback(handle->async_cb, UV_ASYNC_CB); */
+#endif
+
+  /* JD: Mark this handle as pending. Write a byte to loop->async_watcher's wfd so that it will be discovered by epoll. */
   if (cmpxchgi(&handle->pending, 0, 1) == 0)
     uv__async_send(&handle->loop->async_watcher);
 
