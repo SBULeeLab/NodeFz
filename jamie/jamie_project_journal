@@ -842,16 +842,31 @@ Scheduling them instead in libuv seems wiser. I think by disabling the V8 garbag
 21 Feb 2016
 22 Feb 2016
 
-I attempted a first draft at a callback deferral mechanism. This version uses a scheduler thread. invoke_callback routes callbacks into a scheduler list for eventual execution. The scheduler thread picks callbacks off of the list and executes them.
+1. I attempted a first draft at a callback deferral mechanism. This version uses a scheduler thread. invoke_callback routes callbacks into a scheduler list for eventual execution. The scheduler thread picks callbacks off of the list and executes them.
 
 Unfortunately this leads us to two related concerns. First, libuv thinks of itself as the bottom of the stack. Once a callback is invoked, libuv believes that it is done (and might proceed to free memory, dismantle the handle with which it's associated, etc.). If instead I've squirreled it away to execute later, that's a segfault waiting to happen. Second, once libuv thinks it is done, it may eventually (?) communicate to Node.js that the callback is no longer needed, and the V8 GC will scoop it up.
 
 I do not think that pursuing this approach is worthwhile.
 
+2. I pondered an alternative mechanism, still libuv-based. 
+Suppose that in linux-core:uv__io_poll:
+  1. Each pending fd was associated with exactly one "relevant" user-defined callback (e.g. ignore UV_ALLOC_CB and focus on UV_READ_CB) 
+  2. We could determine the user-defined callback with which it was associated in a uniquely-identifiable way
+Then we could defer invoking the UV__IO_CB whose turn has not come up yet, and have determinism without needing to worry about the V8 GC or the Node-C++ implementation.
+
+Now, examining the timelines I've generated so far, I see that a single UV__IO_CB can actually wrap multiple user callbacks.
+This occurs due to indirection in libuv. I think the indirection is to reduce the number of fds on which to epoll_wait. For example, instead of one fd for each async event, we have a single "async fd" and arm it when IO is observed on any of the async events. The specific fd(s) triggered is determined by the async handler. However, we can fudge the "ready" events to pinpoint the precise CBs we want to invoke out of the set of ready fds.
+
+This approach seems much more promising. I'll have to think about the details further after lunch.
+See jamie_libuv_src_notes for details.
+
 ----------
 
-21 Feb 2016
+23 Feb 2016
 
+1. Lots of pondering in jamie_libuv_src_notes regarding the feasibility of my second approach.
+
+----------
 
 
 -----------

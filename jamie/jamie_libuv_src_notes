@@ -228,3 +228,251 @@ Lineage information:
 Path from UV__WORK_WORK [UV_WORK_CB] ---> UV__WORK_DONE:
   threadpool::worker calls uv_async_send after the completion of UV__WORK_WORK.
     This results in a call to uv__io_poll, with: UV__IO_CB (uv__async_io) -> UV__ASYNC_CB (uv__async_event) -> UV_ASYNC_CB (uv__work_done) -> UV__WORK_DONE (uv__queue_done, uv__fs_done, uv__ggetaddrinfo_done, uv__getnameinfo_done, leading to UV_AFTER_WORK_CB, UV_FS_CB, UV_GETADDRINFO_CB, UV_GETNAMEINFO_CB respectively)
+
+--------------------------
+
+Questions: 
+  What happens in linux-core.c:uv__io_poll? 
+  Is there a way to identify the callback that will be invoked, at least to the level of determining the client or the logical parent?
+
+uv__io_poll: eventually calls uv__epoll_wait with loop->backend_fd
+
+backend_fd is set in linux-core.c::uv__platform_loop_init to the result of epoll_create
+
+fds of interest are added to a loop in uv__io_start. They are pushed onto the watcher_queue.
+In uv__io_poll, any fds on the watcher_queue are added to the epoll set (using epoll_ctl). These fds are tested each time through the loop until uv__io_close, when uv__platform_invalidate_fd is called to remove it from the epoll set. Due to a possible race, fds are also removed from the epoll set in uv__io_poll if the discovered uv__io_t is NULL.
+The callback invoked when they are ready is defined by the callback passed to uv__io_init.
+
+Uses of uv__io_start:
+
+Here's the full list. Details follow.
+    File            Function                  Line
+  1 async.c         uv__async_start            250 uv__io_start(loop, &wa->io_watcher, UV__POLLIN);
+  <omitted, aix.c>
+  3 kqueue.c        uv_fs_event_start          407 uv__io_start(handle->loop, &handle->event_watcher, UV__POLLIN);
+  4 linux-inotify.c init_inotify               104 uv__io_start(loop, &loop->inotify_read_watcher, UV__POLLIN);
+  5 pipe.c          uv_pipe_listen             105 uv__io_start(handle->loop, &handle->io_watcher, UV__POLLIN);
+  6 pipe.c          uv_pipe_connect            192 uv__io_start(handle->loop, &handle->io_watcher, UV__POLLIN | UV__POLLOUT);
+  7 poll.c          uv_poll_start              115 uv__io_start(handle->loop, &handle->io_watcher, events);
+  8 signal.c        uv__signal_loop_once_init  230 uv__io_start(loop, &loop->signal_io_watcher, UV__POLLIN);
+  9 stream.c        uv__server_io              536 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
+  a stream.c        uv_accept                  661 uv__io_start(server->loop, &server->io_watcher, UV__POLLIN);
+  b stream.c        uv__write                  956 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLOUT);
+  c stream.c        uv__read                  1209 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
+  d stream.c        uv_shutdown               1296 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLOUT);
+  e stream.c        uv_write2                 1499 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLOUT);
+  f stream.c        uv_read_start             1602 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
+  <omitted, sunos.c>
+  h tcp.c           uv__tcp_connect            184 uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT);
+  i tcp.c           uv_tcp_listen              310 uv__io_start(tcp->loop, &tcp->io_watcher, UV__POLLIN);
+  j udp.c           uv__udp_send               445 uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT);
+  k udp.c           uv__udp_recv_start         876 uv__io_start(handle->loop, &handle->io_watcher, UV__POLLIN);
+
+Detail:
+1  async.c:uv__async_start (with CB uv__async_io)
+    uv_async_init is passed a uv_async_cb.
+      it calls uv__async_start (with loop->async_watcher and CB uv__async_event)
+        (This adds loop->async_watcher itself to the loop's epoll set, with uv__async_event as the CB)
+      then initializes a handle with the uv_async_cb
+      then inserts the handle on the tail of the loop's async_handles
+
+      This causes the specified handle
+      to be a candidate for having its CB (the uv_async_cb passed to uv_async_init) invoked
+      when the fd is signaled. When the async fd is signaled it actually triggers
+
+      The wrapper fd is signaled by a call to uv_async_send, either externally by the user,
+      or internally by one of the following:
+          0 threadpool.c worker                  105 uv_async_send(&w->loop->wq_async);
+          1 threadpool.c uv__work_cancel         222 uv_async_send(&loop->wq_async);
+          <omitted, IPHONE> 2 fsevents.c   uv__fsevents_push_event 217 uv_async_send(handle->cf_cb);
+          <omitted, apple>  3 stream.c     uv__stream_osx_select   221 uv_async_send(&s->async);
+      uv_async_send calls uv__async_send, which writes 1 byte to the async handle->loop->async_watcher if this handle is not yet pending.
+      This means that when uv_async_send is called, the next time through uv__io_poll the loop->async_watcher
+        will be found ready (with <= N bytes pending where N is the number of attached async handles). 
+        Then its associated CB (uv__async_io) will fire, which will exhaust the fd and then invoke its UV__ASYNC_CB (uv__async_event)
+        to discover and invoke the UV_ASYNC_CB for each of the send'd fds.
+
+    My understanding is that where possible, libuv will "compress" the number of fds it has to monitor in epoll_wait for performance purposes.
+    This cannot be done for individual sockets, but for cases where libuv can be architected to accommodate this goal (e.g. the threadpool or FS event monitoring) this is done. 
+
+2. <omitted>
+
+3. uv_fs_event_start: per-handle. http://docs.libuv.org/en/v1.x/fs_event.html implies that each handle will have one callback.
+
+4. linux-inotify.c init_inotify               104 uv__io_start(loop, &loop->inotify_read_watcher, UV__POLLIN);
+    This initializes loop->inotify_read_watcher with uv__inotify_read
+    uv__inotify_read goes over loop->inotify_fd extracting inotify_event structs and invoking the associated UV_FS_EVENT_CBs
+
+  Looks to me like 3. and 4. are related, but I'm not going to dig into the details now. At any event,
+  uv__inotify_read is a wrapper like uv__async_event, compressing multiple watchers into a single fd
+    and then invoking the registered CBs when uv__io_poll signals it.
+
+5. pipe.c   uv_pipe_listen
+i. tcp.c    uv_tcp_listen
+  These are analogous and are called to implement stream.c's uv_listen
+  Neither is externally documented.
+
+Considering each...
+5. pipe.c uv_pipe_listen
+  uv__io_start with a handle->io_watcher set to uv__server_io
+  I think this is per-listener and not wrapped, since UV__IO_CB calls uv__server_io directly.
+  uv__server_io appears to handle a single callback at a time
+
+i. tcp.c uv_tcp_listen:
+  uv__io_start with a tcp->io_watcher set to uv__server_io
+  I think this is per-listener and not wrapped, since UV__IO_CB calls uv__server_io directly.
+  uv__server_io appears to handle a single callback at a time
+
+Both pipe and tcp call uv__stream_init, which runs uv__io_init with the stream's (pipe's, tcp's) io_watcher and CB uv__stream_io)
+
+uv__stream_io: 
+  If there is a connect_req, calls uv__stream_connect (-> UV_CONNECT_CB) and returns
+  Else 
+    calls uv__read if there's data available
+      (which will consume all the input -> sequence of UV_ALLOC_CB and UV_READ_CB calls)
+    calls uv__write if ready for output
+      (which will emit all the pending output, then call UV_WRITE_CB once)
+
+
+6. pipe.c   uv_pipe_connect
+h. tcp.c    uv_tcp_connect (through uv__tcp_connect)
+
+7 poll.c          uv_poll_start              115 uv__io_start(handle->loop, &handle->io_watcher, events);
+8 signal.c        uv__signal_loop_once_init  230 uv__io_start(loop, &loop->signal_io_watcher, UV__POLLIN);
+9 stream.c        uv__server_io              536 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
+a stream.c        uv_accept                  661 uv__io_start(server->loop, &server->io_watcher, UV__POLLIN);
+b stream.c        uv__write                  956 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLOUT);
+c stream.c        uv__read                  1209 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
+d stream.c        uv_shutdown               1296 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLOUT);
+e stream.c        uv_write2                 1499 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLOUT);
+f stream.c        uv_read_start             1602 uv__io_start(stream->loop, &stream->io_watcher, UV__POLLIN);
+<omitted, sunos.c>
+j udp.c           uv__udp_send               445 uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT);
+k udp.c           uv__udp_recv_start         876 uv__io_start(handle->loop, &handle->io_watcher, UV__POLLIN);
+
+
+-------------
+
+How requests are handled:
+
+Per http://docs.libuv.org/en/v1.x/design.html, handles are long-lived and requests are short-lived. Requests can be used to request some asynchronous work on a handle. The work is specified based on the request API; the request itself has a data pointer for context info and is passed to the CBs.
+
+Requests like uv_fs_write do not use a handle. The handle is, I suppose, implied.
+
+I have *not* yet figured out how a request gets executed. I may need to use gdb, though it's hard to track control flow in an epoll-driven program. In uv__write, for example, the stream maintains a queue of write requests and works its way through them. What causes the stream to acknowledge the pending write request?
+
+------------
+
+Question: Where do "logical" (i.e. user-provided) CBs come from in libuv?
+Answer:   Either "as part of a request" or "a response triggered as a result of external input".
+
+Logical trees: This is a list of trees that describe all of the user callbacks that are executed, as well as the connections between them.
+Question: How to describe logical trees?
+Answer:   Each node can be described with a four-tuple:
+  - tree (index in the sequence of trees)
+  - level (how distant is the root)
+  - entry (how distant from the first CB in its level)
+  - global_id (the order in which it was executed relative to all other callbacks)
+
+Tree indicates the index of the root node of the tree.
+The root node of a logical tree is either a request made as part of the initial stack, or responses described for external input.
+
+Example 1:
+  In the initial stack, the application registers a repeating timer. 
+  The resulting logical tree will look like this:
+      INITIAL_STACK -> TIMER_CB -> TIMER_CB -> TIMER_CB -> ...
+  Each timer has the same tree, an increasing level, and entry 0.
+  Each timer is the logical child of the previous timer.
+
+Example 2:
+  In the initial stack, the application starts an HTTP server and registers a callback for connections.
+  If three connections come, the resulting logical trees will look like this:
+      CONNECTION_CB -> READ_CB -> <tree structure based on the READ_CB>
+      CONNECTION_CB -> READ_CB
+      CONNECTION_CB -> READ_CB
+    
+Example 3:
+  In the initial stack, the application calls fs.readFile three times.
+  The resulting logical tree will look like this:
+      INITIAL_STACK  -> WORK_WORK -> UV_FS_CB
+                \  \ 
+                 \  --> WORK_WORK -> UV_FS_CB
+                  ----> WORK_WORK -> UV_FS_CB
+      Each WORK_WORK has the same level (1), as does each UV_FS_CB (2)
+      The first to be registered is entry 0, then entry 1, then entry 2
+
+Question: How to construct logical trees?
+Answer:   For requests, the logical tree can be computed at registration time.
+          When the request is submitted, the currently-executing callback is the parent, and the request is appended to the parent's list of children.
+          If there is no currently-executing callback, the request must come from internals (Node-C++ or libuv) and is not application code that we 
+            need to worry about. Consequently it can be disregarded.
+
+          For responses, the logical tree begins with a CONNECTION_CB or a READ_CB (or analogous CB for non-network events).
+          For a root response CB there should be no currently-executing callback.
+          Such an event instantiates a new logical tree.
+          Once the first event in the tree is executed, the tree can only develop further through requests. This technique is described above.
+
+Question: How to record and replay (or record and play an altered version of events)?
+Answer:
+  Record: Run the application and feed it whatever external inputs are required.
+          When the application ends, emit the logical trees constructed during the execution.
+  Replay: Input is a list of logical trees and identical external input.
+          Construct the list of logical trees as it emerges.
+          Start with global_id = 0
+          When we encounter a callback, compare its {tree,level,entry} to those of node with the next-ready global_id.
+          If there's a match, invoke the callback and increment the global_id. Iterate over the list of deferred callbacks (sorted by lowest global_id) and re-evaluate each one.
+          Otherwise, defer callback execution.
+          Optional: After a timeout threshold, increase the current global_id to that of the smallest global_id in the list of deferred callbacks.
+
+  This algorithm requires a few things.
+    1. The ability to defer callback execution.
+    2. The ability to correctly identify the {tree,level,entry} tuple for pending callbacks. This is relatively straightforward for non-root nodes. For root nodes, things are less clear.
+
+Addressing these requirements:
+1. The ability to defer callback execution.
+
+  Attempt 1: I attempted to solve this problem by running libuv as normal, and "skipping over" the invocation of user callbacks.
+    User callbacks and their arguments were given to a scheduler thread for execution at the appropriate time.
+    This approach failed because libuv and Node-C++/V8 invalidate resources once the libuv code finishes execution.
+    For example, libuv would close handles believing that there was nothing more to do for them, while the scheduler thread still held callbacks tied to those handles.
+    Consequently, the approach failed.
+
+  Attempt 2: Not yet made. Per the notes above about uv__io_start, I believe that in uv__io_poll I can identify the user-level callback associated with each fd.
+    Some fds indicate that one or more sub-events are ready (e.g. async). These "compressing" fds maintain a list of "listeners", so I can still extract the
+    listeners that were triggered.
+    For non-root logical nodes, I can uniquely determine where in the logical scheme they fall.
+    For root logical nodes, things are a bit trickier. Suppose that a server is listening on port 8000 and there are two client connections ready.
+    What happens? We have to rely on the underlying APIs to be well behaved. Here's how this "should" work:
+
+      Pending new connections: (a listen()'ing fd that has multiple connection requests):
+        man accept: "It extracts the first connection request on the queue of pending connections for the listening socket"
+        This means that new inputs will be handled in a FIFO order.
+      Pending data on existing connections:
+        Each connection has its own socket fd.  
+        Based on http://stackoverflow.com/questions/19114001/does-epoll-preserve-the-order-in-which-fds-was-registered and http://lxr.free-electrons.com/source/fs/eventpoll.c,
+        it looks like epoll maintains a linked list of ready fds. Consequently the arrival order is preserved for non-wrapped fds. For wrapped fds, the arrival order
+        may be unclear, but I expect that we can determine the arrival order ourselves.
+
+        Consider async events. These will only be scheduled when uv_async_send is invoked, and so the caller of uv_async_send is the logical parent.
+        Now, uv_async_send is thread safe, which means that a "race" from the caller (if application or Node-C++ code) could result in varying logical trees.
+
+        Use of async in the threadpool: 
+          The looper thread has an async handle loop->wq_async, whose CB is uv__work_done.
+          uv__work_done iterates over loop->wq and invokes the done CB associated with each work item.
+          A threadpool worker runs the work item, then adds it to loop->wq and uv_async_send's loop->wq_async.
+          So, the threadpool "done" events each uv_async_send the same handle. In a given loop iteration, all but the first one does nothing.
+          When the loop's wq_async handle is checked by epoll it is found to be ready, and uv__work_done goes off to invoke the "done" CBs. 
+
+        Conclusion: For the threadpool, we should track the logical parent of the 'WORK' item and the 'DONE' item at uv_queue_work time.
+                    For all other async handles, we can track the logical parent of the ASYNC_CB at uv_async_send time.
+
+        However, I anticipate that wrapped fds (like async events) are associated with non-root nodes, and so the logical ordering is well-known.
+
+      For "compressing" wrappers, if the CBs are all non-root nodes then they can be uniquely identified regardless of order. Are the CBs for "compressing" wrappers always non-root nods?
+
+    Anyway, the idea (which also settles requirement 2) is to simply skip the fd associated with any CB that is not logically next.
+    Since libuv appears to use level-triggered EPOLL, there would be no need to re-arm the fds that are skipped. They will just go off until I'm ready to handle the CB.
+
+    For "fd skipping", we assume that each fd (or sub-fd in the case of wrapping fds) is associated with exactly one logical callback in its execution stack.
+    libuv does not support the registration of a sequence of callbacks, so this assumption is sound. Users who want a sequence have to embed it
+      within the callbacks they register. The only exception is READ_CB, which calls an ALLOC_CB beforehand. However, ALLOC seems quite ignorable.
