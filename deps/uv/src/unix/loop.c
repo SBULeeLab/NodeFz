@@ -20,6 +20,7 @@
  */
 
 #include "uv.h"
+#include "uv-common.h"
 #include "tree.h"
 #include "internal.h"
 #include "heap-inl.h"
@@ -29,6 +30,8 @@
 
 int uv_loop_init(uv_loop_t* loop) {
   int err;
+
+  unified_callback_init();
 
   uv__signal_global_once_init();
 

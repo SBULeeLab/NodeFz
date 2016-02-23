@@ -736,7 +736,6 @@ static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo 
 static unsigned addr_calc_hash (struct sockaddr_storage *addr);
 
 /* Misc. */
-static void init_unified_callback (void);
 static int is_zeros (void *buffer, size_t size);
 static void print_buf (void *buffer, size_t size);
 static void timespec_sub (const struct timespec *stop, const struct timespec *start, struct timespec *res);
@@ -755,8 +754,6 @@ static void dump_callback_tree (int fd, struct callback_node *cbn);
 #endif
 
 /* Variables for tracking the unified callback queue. */
-static int unified_callback_initialized = 0;
-
 pthread_mutex_t metadata_lock;
 struct list root_list;
 struct list global_order_list;
@@ -1337,9 +1334,6 @@ struct callback_node *current_callback_node_get (void)
   int found;
   struct callback_node *ret;
 
-  if (!unified_callback_initialized)
-    init_unified_callback();
-
   /* My maps are thread safe. */
   ret = (struct callback_node *) map_lookup(tid_to_current_cbn, (int) pthread_self(), &found);
 
@@ -1366,8 +1360,6 @@ static struct callback_node * cbn_create (void)
 
   cbn->logical_level = 0;
   cbn->logical_parent = NULL;
-
-  cbn->discovered_parent_late = 0;
 
   cbn->orig_client_id = ID_UNKNOWN;
   cbn->true_client_id = ID_UNKNOWN;
@@ -1419,9 +1411,6 @@ static void cbn_determine_executing_thread (struct callback_node *cbn)
 struct callback_node *init_stack_cbn = NULL;
 struct callback_node * get_init_stack_callback_node (void)
 {
-  if (!unified_callback_initialized)
-    init_unified_callback();
-
   if (init_stack_cbn == NULL)
   {
     init_stack_cbn = cbn_create();
@@ -1605,9 +1594,10 @@ static int get_client_id (struct sockaddr_storage *addr)
 }
 
 /* Initialize the data structures for the unified callback code. */
-static void init_unified_callback (void)
+void unified_callback_init (void)
 {
-  if (unified_callback_initialized)
+  static int initialized = 0;
+  if (initialized)
     return;
 
   mylog("DEBUG: Testing list\n");
@@ -1645,7 +1635,7 @@ static void init_unified_callback (void)
 
   mark_global_start();
 
-  unified_callback_initialized = 1;
+  initialized = 1;
 }
 
 /* Look for the peer info for CBI, and update CBN->peer_info if possible.
@@ -1751,13 +1741,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       assert(pthread_self() == sync_cb_thread);
   }
 
-  /* First time through, initialize things. */
-  if (!unified_callback_initialized)
-  {
-    assert(cbi->type != UV__WORK_WORK && cbi->type != UV_WORK_CB); /* init_unified_callback mustn't be racy, nor does that seem possible. */
-    init_unified_callback();
-  }
-  
   /* Prep a new callback node (CBN). */
   cbn = cbn_create();
   cbn->info = cbi;
@@ -2199,9 +2182,6 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
   if (cb == NULL)
     return;
 
-  if (!unified_callback_initialized)
-    init_unified_callback();
-
   /* Are callbacks ever registered by more than one thread? */
   if ((int) registering_thread == -1)
     registering_thread = pthread_self();
@@ -2265,7 +2245,9 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
       uv__async_io          -> WAS_UV__ASYNC_IO
       uv__async_event       -> WAS_UV__ASYNC_EVENT
       uv__server_io         -> WAS_UV__SERVER_IO
-      uv__signal_event      -> WAS_UV__SIGNAL_EVENT */
+      uv__signal_event      -> WAS_UV__SIGNAL_EVENT 
+      uv__work_done         -> WAS_UV__WORK_DONE 
+*/
 struct callback_origin * uv__callback_origin (void *cb)
 {
   struct callback_origin *co;
@@ -2310,6 +2292,8 @@ struct callback_origin * uv__callback_origin (void *cb)
 
     else if (cb == uv_uv__signal_event_ptr())
       return (void *) WAS_UV__SIGNAL_EVENT;
+    else if (cb == uv__work_done)
+      return (void *) WAS_UV__WORK_DONE;
     else
       NOT_REACHED;
   }

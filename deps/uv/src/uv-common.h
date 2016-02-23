@@ -234,6 +234,7 @@ int get_generation ();
 void mylog (const char *format, ...);
 
 /* davisjam: New APIs for instrumentation. */ 
+void unified_callback_init (void);
 
 /* APIs to determine the origin of a callback at registration time. */
 void uv__mark_init_stack_begin (void);

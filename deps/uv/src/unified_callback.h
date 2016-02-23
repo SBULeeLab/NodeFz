@@ -28,7 +28,8 @@ enum internal_callback_wrappers
   WAS_UV__GETADDRINFO_DONE,
   WAS_UV__QUEUE_WORK,
   WAS_UV__QUEUE_DONE,
-  INTERNAL_CALLBACK_WRAPPERS_MAX = WAS_UV__QUEUE_DONE
+  WAS_UV__WORK_DONE,
+  INTERNAL_CALLBACK_WRAPPERS_MAX = WAS_UV__WORK_DONE
 };
 
 enum callback_tree_type
@@ -98,6 +99,7 @@ struct callback_origin
   void (*cb)();
 };
 
+
 /* Nodes that comprise a callback tree. */
 struct callback_node
 {
@@ -106,8 +108,6 @@ struct callback_node
   int logical_level; /* What level in the logical callback tree is it? For root nodes this is 0. */
   struct callback_node *physical_parent; /* What callback ACTUALLY started us? For root nodes this is NULL. */
   struct callback_node *logical_parent; /* What callback was LOGICALLY responsible for starting us? NULL means that physical parent is also logical parent. */
-
-  int discovered_parent_late; /* Did we correctly deduce our parentage at CB execution time? */
 
   /* These fields are to track our internal ID of the client incurring this CB. 
      The first client has ID 0, the second ID 1, ... -1 == unknown. -2 == originating from the initial stack. 
@@ -180,6 +180,7 @@ char * callback_type_to_string (enum callback_type);
    && (int) co != WAS_UV__GETADDRINFO_DONE                              \
    && (int) co != WAS_UV__QUEUE_WORK                                    \
    && (int) co != WAS_UV__QUEUE_DONE                                    \
+   && (int) co != WAS_UV__WORK_DONE                                     \
      )                                                                  \
   {                                                                     \
     cbi_p->origin = co->origin;                                         \
