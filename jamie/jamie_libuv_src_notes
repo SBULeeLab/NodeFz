@@ -369,9 +369,9 @@ Answer:   Either "as part of a request" or "a response triggered as a result of 
 Logical trees: This is a list of trees that describe all of the user callbacks that are executed, as well as the connections between them.
 Question: How to describe logical trees?
 Answer:   Each node can be described with a four-tuple:
-  - tree (index in the sequence of trees)
-  - level (how distant is the root)
-  - entry (how distant from the first CB in its level)
+  - tree_number (index in the sequence of trees)
+  - tree_level (how distant is the root)
+  - level_entry (how distant from the first CB in its level)
   - global_id (the order in which it was executed relative to all other callbacks)
 
 Tree indicates the index of the root node of the tree.
@@ -479,3 +479,27 @@ Addressing these requirements:
     For "fd skipping", we assume that each fd (or sub-fd in the case of wrapping fds) is associated with exactly one logical callback in its execution stack.
     libuv does not support the registration of a sequence of callbacks, so this assumption is sound. Users who want a sequence have to embed it
       within the callbacks they register. The only exception is READ_CB, which calls an ALLOC_CB beforehand. However, ALLOC seems quite ignorable.
+    
+    The "physical trees" I've been collecting so far have included all of the internal CBs: UV__ASYNC_CB, UV__IO_CB, etc.
+    In terms of analyzing user code, user CBs are all that matter. The "physical trees" are unnecessary, since each one will now contain
+    exactly one user CB. The user CB will imply its physical parents. Call it "tree collapsing".
+
+    User CBs are only registered by Node-C++, libuv, or other user CBs. This means that at registration time we can identify the logical
+      parent and be good to go.
+
+    Visualization:
+      Timeline -- this will show the chronological order in which user CBs were invoked, and takes the place of the physical trees.
+      The relationship graph I've been generating will show only the logical trees.
+      Any non-user CB is just a distraction.
+
+    Question: How do I differentiate between multiple callbacks that execute the same code?
+      Using timers.js, I see that Node re-uses the compiled version of JS functions. The same callback is registered 20 times in uv_timer_start. 
+    Answer: At registration time we know the parent. We establish a logical node describing the child, and save it somewhere that the child can
+            reach it. For one-CB handles we can save it in the parent. For multi-CB things like timers or workers, we can save it in the timer/worker structure.
+            This is similar to how we embed parentage at the moment.
+
+      
+     
+
+
+

@@ -867,6 +867,12 @@ See jamie_libuv_src_notes for details.
 1. Lots of pondering in jamie_libuv_src_notes regarding the feasibility of my second approach.
 2. I think I've reached a good point with my second approach. It'll require a decent amount of mucking about in libuv, but it seems sound.
    I think I should try to implement a first draft using something easy -- timers.
+   Based on sample_prog timers.js, the only CBs that are triggered in a timer-only workload are UV__IO_CB and UV_TIMER_CB. This is as expected.
+   A quick count suggests that timer callbacks are coalesced by Node. A poke around node/lib/timers.js and IRC suggests that:
+    1. Timers are indeed coalesced
+    2. These are the only callbacks coalesced above libuv
+
+    Commit 7d2b9009 disables timer coalescing, at least roughly.
 
 ----------
 
