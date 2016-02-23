@@ -467,6 +467,7 @@ Addressing these requirements:
 
         Conclusion: For the threadpool, we should track the logical parent of the 'WORK' item and the 'DONE' item at uv_queue_work time.
                     For all other async handles, we can track the logical parent of the ASYNC_CB at uv_async_send time.
+                    I wonder if application code has any ability to trigger async handles.
 
         However, I anticipate that wrapped fds (like async events) are associated with non-root nodes, and so the logical ordering is well-known.
 

@@ -1337,6 +1337,9 @@ struct callback_node *current_callback_node_get (void)
   int found;
   struct callback_node *ret;
 
+  if (!unified_callback_initialized)
+    init_unified_callback();
+
   /* My maps are thread safe. */
   ret = (struct callback_node *) map_lookup(tid_to_current_cbn, (int) pthread_self(), &found);
 

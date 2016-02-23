@@ -865,6 +865,8 @@ See jamie_libuv_src_notes for details.
 23 Feb 2016
 
 1. Lots of pondering in jamie_libuv_src_notes regarding the feasibility of my second approach.
+2. I think I've reached a good point with my second approach. It'll require a decent amount of mucking about in libuv, but it seems sound.
+   I think I should try to implement a first draft using something easy -- timers.
 
 ----------
 
