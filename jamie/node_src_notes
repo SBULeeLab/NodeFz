@@ -216,3 +216,7 @@ node/lib/timers:
        bnoordhuis suggests that this is the only case of CB coalescing in Node.
     2. setInterval doesn't make use of the "repeating timer" feature of libuv. If it did so it could not coalesce the timers.
        Consequently each repeating timer is implemented as a sequence of evenly-spaced new timers.
+
+    This means that at the libuv level we cannot see the logical relationship between repeating timers (setInterval)?
+    Well, no, the new timer is created while the TIMER_CB of the parent is active. So really repeating timers do
+    look like a line of logical children. I confirmed this using timer_repeat.js.
