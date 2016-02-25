@@ -1450,14 +1450,15 @@ lcbn_t * get_init_stack_lcbn (void)
 
     init_stack_lcbn->tree_level = 0;
     init_stack_lcbn->level_entry = 0;
-    init_stack_lcbn->global_id = 0;
+
+    init_stack_lcbn->cb_type = CALLBACK_TYPE_INITIAL_STACK;
 
     /* Add to global order list and to root list. */
-    list_push_back(&lcbn_global_order_list, &init_stack_lcbn->global_order_elem);
     init_stack_lcbn->global_id = list_size(&lcbn_global_order_list);
+    list_push_back(&lcbn_global_order_list, &init_stack_lcbn->global_order_elem);
 
-    list_push_back(&lcbn_root_list, &init_stack_lcbn->root_elem); 
     init_stack_lcbn->tree_number = list_size(&lcbn_root_list);
+    list_push_back(&lcbn_root_list, &init_stack_lcbn->root_elem); 
   }
   uv__metadata_unlock();
 
@@ -1863,11 +1864,16 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     /* Add to metadata structures. */
     /* TODO Problem: For large reads, ALLOC and READ are currently using the same LCBNs repeatedly. This
         will corrupt these lists. See notes about the problem. */
-    list_push_back(&lcbn_global_order_list, &lcbn_new->global_order_elem);
     lcbn_new->global_id = list_size(&lcbn_global_order_list);
+    list_push_back(&lcbn_global_order_list, &lcbn_new->global_order_elem);
 
-    list_push_back(&lcbn_root_list, &lcbn_new->root_elem); 
-    lcbn_new->tree_number = list_size(&lcbn_root_list);
+    if (!lcbn_new->tree_parent)
+    {
+      lcbn_new->tree_number = list_size(&lcbn_root_list);
+      list_push_back(&lcbn_root_list, &lcbn_new->root_elem); 
+      lcbn_new->tree_level = 0;
+      lcbn_new->level_entry = 0;
+    }
   }
 
   uv__metadata_unlock();
@@ -1907,7 +1913,10 @@ static char *callback_type_strings[] = {
   "UV__IO_CB", "UV__ASYNC_CB", 
 
   /* include/uv-threadpool.h */
-  "UV__WORK_WORK", "UV__WORK_DONE", "ANY_CALLBACK"
+  "UV__WORK_WORK", "UV__WORK_DONE", 
+
+  "INITIAL STACK",
+  "ANY_CALLBACK"
 };
 
 
@@ -2026,6 +2035,30 @@ void dump_callback_globalorder (void)
   fflush(NULL);
 
   list_unlock(&global_order_list);
+  close(fd);
+}
+
+void dump_lcbn_globalorder(void)
+{
+  int fd;
+  char out_file[128];
+
+  snprintf(out_file, 128, "/tmp/lcbn_global_order_%i_%i.txt", (int) time(NULL), getpid());
+  printf("Dumping all %i LCBNs in their global order to %s\n", list_size (&lcbn_global_order_list), out_file);
+
+  fd = open(out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+  if (fd < 0)
+  {
+    printf("Error, open (%s, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO) failed, returning %i. errno %i: %s\n",
+      out_file, fd, errno, strerror (errno));
+    fflush(NULL);
+    exit (1);
+  }
+
+  list_lock(&lcbn_global_order_list);
+  list_apply(&lcbn_global_order_list, lcbn_globallist_print_f, &fd);
+  list_unlock(&lcbn_global_order_list);
+
   close(fd);
 }
 
@@ -2234,6 +2267,9 @@ void dump_all_trees_and_exit_sighandler (int signum)
   fflush(NULL);
   printf("Callback trees\n");
   dump_callback_trees ();
+  fflush(NULL);
+  printf("lcbn global order\n");
+  dump_lcbn_globalorder();
   fflush(NULL);
   exit (0);
 }
