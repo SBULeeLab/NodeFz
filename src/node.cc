@@ -3989,6 +3989,9 @@ static void StartNodeInstance(void* arg) {
 
     env->set_trace_sync_io(false);
 
+    /* TODO This emits the 'exit' event. Applications may have registered process.on('exit') listeners,
+       which will now be invoked. Need to tell libuv that we're running a dummy "exit" stack, just like
+       the dummy "initial" stack. */
     int exit_code = EmitExit(env);
     if (instance_data->is_main())
       instance_data->set_exit_code(exit_code);
