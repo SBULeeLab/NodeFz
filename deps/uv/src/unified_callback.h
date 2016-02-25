@@ -17,6 +17,8 @@
 #define NOT_REACHED assert (0 == 1);
 #endif
 
+enum callback_context callback_type_to_context (enum callback_type cb_type);
+enum callback_behavior callback_type_to_behavior (enum callback_type cb_type);
 
 struct callback_origin
 {
@@ -25,6 +27,14 @@ struct callback_origin
   void (*cb)();
 };
 
+/* Description of an instance of a callback. */
+struct callback_info
+{
+  enum callback_type type;
+  enum callback_origin_type origin;
+  void (*cb)();
+  long args[MAX_CALLBACK_NARGS]; /* Must be wide enough for the widest arg type. Seems to be 8 bytes. */
+};
 
 /* Nodes that comprise a callback tree. */
 struct callback_node
@@ -80,6 +90,7 @@ struct callback_node
 void current_callback_node_set (struct callback_node *);
 struct callback_node * current_callback_node_get (void);
 struct callback_node * get_init_stack_callback_node (void);
+lcbn_t * get_init_stack_lcbn (void);
 struct callback_node * invoke_callback (struct callback_info *);
 
 char * callback_type_to_string (enum callback_type);
@@ -153,15 +164,6 @@ char * callback_type_to_string (enum callback_type);
 #define INVOKE_CALLBACK_5(type, cb, arg0, arg1, arg2, arg3, arg4) \
   PREP_CBI_5(type, cb, arg0, arg1, arg2, arg3, arg4)              \
   struct callback_node *callback_cbn = invoke_callback(cbi_p);
-
-/* Description of a callback. */
-struct callback_info
-{
-  enum callback_type type;
-  enum callback_origin_type origin;
-  void (*cb)();
-  long args[MAX_CALLBACK_NARGS]; /* Must be wide enough for the widest arg type. Seems to be 8 bytes. */
-};
 
 time_t get_relative_time (void);
 

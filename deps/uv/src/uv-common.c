@@ -754,6 +754,9 @@ pthread_mutex_t metadata_lock;
 struct list root_list;
 struct list global_order_list;
 
+struct list lcbn_root_list;
+struct list lcbn_global_order_list;
+
 /* We identify unique clients based on the associated 'peer info' (struct sockaddr).
    A map 'peer -> client ID' tells us whether a given peer is an already-known client.
    A map 'client ID -> peer' gives us information about the internal client ID 1, 2, 3, ... . */
@@ -1434,6 +1437,33 @@ struct callback_node * get_init_stack_callback_node (void)
   return init_stack_cbn;
 }
 
+/* Returns the CBN associated with the initial stack.
+   Acquires and releases the metadata lock. */
+lcbn_t * get_init_stack_lcbn (void)
+{
+  static lcbn_t *init_stack_lcbn = NULL;
+  uv__metadata_lock();
+  if (!init_stack_lcbn)
+  {
+    init_stack_lcbn = lcbn_create(NULL, NULL, 0);
+    assert(init_stack_lcbn != NULL);
+
+    init_stack_lcbn->tree_level = 0;
+    init_stack_lcbn->level_entry = 0;
+    init_stack_lcbn->global_id = 0;
+
+    /* Add to global order list and to root list. */
+    list_push_back(&lcbn_global_order_list, &init_stack_lcbn->global_order_elem);
+    init_stack_lcbn->global_id = list_size(&lcbn_global_order_list);
+
+    list_push_back(&lcbn_root_list, &init_stack_lcbn->root_elem); 
+    init_stack_lcbn->tree_number = list_size(&lcbn_root_list);
+  }
+  uv__metadata_unlock();
+
+  return init_stack_lcbn;
+}
+
 /* Returns 1 if BUFFER is all 0's, else 0. */
 static int is_zeros (void *buffer, size_t size)
 {
@@ -1604,6 +1634,9 @@ void unified_callback_init (void)
   list_init(&global_order_list);
   list_init(&root_list);
 
+  list_init(&lcbn_global_order_list);
+  list_init(&lcbn_root_list);
+
   peer_info_to_id = map_create();
   assert(peer_info_to_id != NULL);
 
@@ -1716,7 +1749,39 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   char handle_type[64];
   int async_cb, sync_cb, is_threadpool_CB;
 
+  void *context;
+  uv_handle_t *context_handle;
+  uv_req_t *context_req;
+  struct map *cb_type_to_lcbn;
+  enum callback_context cb_context;
+  enum callback_behavior cb_behavior;
+  int is_logical_cb;
+  lcbn_t *lcbn_orig, *lcbn_new;
+
   assert (cbi != NULL);  
+
+  /* Determine the context. */
+  cb_context = callback_type_to_context(cbi->type);
+  cb_behavior = callback_type_to_behavior(cbi->type);
+  is_logical_cb = (cb_context != CALLBACK_CONTEXT_UNKNOWN);
+  context = context_handle = context_req = cb_type_to_lcbn = NULL;
+  lcbn_orig = lcbn_new = NULL;
+  if (is_logical_cb)
+  {
+    context = (void *) cbi->args[0];
+    if (cb_context == CALLBACK_CONTEXT_HANDLE)
+    {
+      context_handle = (uv_handle_t *) context;
+      cb_type_to_lcbn = context_handle->cb_type_to_lcbn;
+    }
+    else if (cb_context == CALLBACK_CONTEXT_REQ)
+    {
+      context_req = (uv_req_t *) context;
+      cb_type_to_lcbn = context_req->cb_type_to_lcbn;
+    }
+    else
+      NOT_REACHED;
+  }
 
   is_threadpool_CB = (cbi->type == UV__WORK_WORK || cbi->type == UV_WORK_CB);
   if (sync_cb_thread == 0 && !is_threadpool_CB)
@@ -2387,6 +2452,7 @@ struct callback_origin * uv__callback_origin (void *cb)
 void uv__mark_init_stack_begin (void)
 {
   struct callback_node *init_stack_cbn;
+  lcbn_t *init_stack_lcbn;
 
   /* Call at most once. */
   static int here = 0;
@@ -2397,6 +2463,10 @@ void uv__mark_init_stack_begin (void)
   current_callback_node_set(init_stack_cbn);
   cbn_start(init_stack_cbn);
 
+  init_stack_lcbn = get_init_stack_lcbn();
+  lcbn_current_set(init_stack_lcbn);
+  lcbn_mark_begin(init_stack_lcbn);
+
   mylog("uv__mark_init_stack_begin: inital stack has begun\n");
 }
 
@@ -2406,13 +2476,19 @@ void uv__mark_init_stack_begin (void)
 void uv__mark_init_stack_end (void)
 {
   struct callback_node *init_stack_cbn;
+  lcbn_t *init_stack_lcbn;
 
   assert(uv__init_stack_active()); 
+
   init_stack_cbn = get_init_stack_callback_node();
   assert(cbn_is_active(init_stack_cbn));
 
   cbn_stop(init_stack_cbn);
   current_callback_node_set(NULL);
+
+  init_stack_lcbn = get_init_stack_lcbn();
+  lcbn_mark_end(init_stack_lcbn);
+  lcbn_current_set(NULL);
 
   mylog("uv__mark_init_stack_end: inital stack has ended\n");
 }
@@ -2550,15 +2626,12 @@ static int cbn_discover_id (struct callback_node *cbn)
   return cbn->discovered_client_id;
 }
 
-/* Execute the callback described by CBN based on CBN->info. 
-   Set HANDLE and HANDLE_TYPE appropriately. */
-static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handle, char *handle_type)
+/* Execute the callback described by CBN based on CBN->info. */
+static void cbn_execute_callback (struct callback_node *cbn)
 {
   struct callback_info *info;
   assert(cbn != NULL);
   assert(cbn->info != NULL);
-  assert(handle != NULL);
-  assert(handle_type != NULL);
 
   info = cbn->info;
 
