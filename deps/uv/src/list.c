@@ -14,6 +14,8 @@ static void list__unlock (struct list *list);
 /* Initialize HEAD and TAIL to be members of an empty list. */
 void list_init (struct list *list)
 {
+  pthread_mutexattr_t attr;
+
   assert(list != NULL);
 
   /* mylog ("list_init: Initializing list %p (done_list %p)\n", list, &done_list); */
@@ -27,7 +29,6 @@ void list_init (struct list *list)
   pthread_mutex_init (&list->lock, NULL);
 
   /* Recursive internal lock. */
-  pthread_mutexattr_t attr;
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init (&list->_lock, &attr);
@@ -437,4 +438,12 @@ void list_UT (void)
 
    list_destroy(&l);
 
+}
+
+/* Apply F to each element in LIST. */
+void list_apply (struct list *list, void (*f)(struct list_elem *, void *aux), void *aux)
+{
+  struct list_elem *e;
+  for (e = list_begin (list); e != list_end (list); e = list_next (e))
+    (*f)(e, aux);
 }

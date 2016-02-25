@@ -3,6 +3,7 @@
 
 #include <pthread.h> /* Locks */
 #include <stdint.h> /* uint8_t */
+#include <stddef.h> /* offsetof */
 
 /* Doubly linked list. 
    This is a reimplementation of the Pintos linked-list scheme,
@@ -89,6 +90,8 @@ struct list_elem * list_back (struct list *list);
 struct list_elem * list_begin (struct list *list);
 struct list_elem * list_end (struct list *list);
 struct list_elem * list_head (struct list *list);
+
+void list_apply (struct list *list, void (*f)(struct list_elem *, void *aux), void *aux);
 
 /* For higher-level locking discipline. */
 void list_lock (struct list *list);
