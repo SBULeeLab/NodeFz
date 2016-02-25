@@ -669,7 +669,7 @@ int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
   int err;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) cb, UV_CONNECTION_CB);
+  uv__register_callback(stream, (void *) cb, UV_CONNECTION_CB);
 #endif
 
   switch (stream->type) {
@@ -1282,14 +1282,15 @@ int uv_shutdown(uv_shutdown_t* req, uv_stream_t* stream, uv_shutdown_cb cb) {
 
   assert(uv__stream_fd(stream) >= 0);
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) cb, UV_SHUTDOWN_CB);
-#endif
-
   /* Initialize request */
   uv__req_init(stream->loop, req, UV_SHUTDOWN);
   req->handle = stream;
   req->cb = cb;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(req, (void *) cb, UV_SHUTDOWN_CB);
+#endif
+
   stream->shutdown_req = req;
   stream->flags |= UV_STREAM_SHUTTING;
 
@@ -1311,6 +1312,8 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(!(stream->flags & UV_CLOSING));
 
   if (stream->connect_req) {
+    /* This causes a call to stream->connect_req->cb, if defined,
+        and wipes the connect_req from the stream. */
     uv__stream_connect(stream);
     return;
   }
@@ -1319,6 +1322,7 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
   /* Ignore POLLHUP here. Even it it's set, there may still be data to read. */
   if (events & (UV__POLLIN | UV__POLLERR | UV__POLLHUP))
+    /* This causes a sequence of calls to stream->alloc_cb and stream->read_cb, if defined. */
     uv__read(stream);
 
   if (uv__stream_fd(stream) == -1)
@@ -1342,7 +1346,10 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     return;  /* read_cb closed stream. */
 
   if (events & (UV__POLLOUT | UV__POLLERR | UV__POLLHUP)) {
+    /* Pops the first request off of stream->write_queue, fulfills it,
+       and calls uv__write_req_finish which puts it on stream->write_completed_queue. */
     uv__write(stream);
+    /* Iterates over stream->write_completed_queue, removing completed requests and calling their UV_WRITE_CBs. */
     uv__write_callbacks(stream);
 
     /* Write queue drained. */
@@ -1444,10 +1451,6 @@ int uv_write2(uv_write_t* req,
       return -EBADF;
   }
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) cb, UV_WRITE_CB);
-#endif
-
   /* It's legal for write_queue_size > 0 even when the write_queue is empty;
    * it means there are error-state requests in the write_completed_queue that
    * will touch up write_queue_size later, see also uv__write_req_finish().
@@ -1475,6 +1478,10 @@ int uv_write2(uv_write_t* req,
   req->nbufs = nbufs;
   req->write_index = 0;
   stream->write_queue_size += uv__count_bufs(bufs, nbufs);
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(req, (void *) cb, UV_WRITE_CB);
+#endif
 
   /* Append the request to write_queue. */
   QUEUE_INSERT_TAIL(&stream->write_queue, &req->queue);
@@ -1580,8 +1587,8 @@ int uv_read_start(uv_stream_t* stream,
     return -EINVAL;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) alloc_cb, UV_ALLOC_CB);
-  uv__register_callback((void *) read_cb, UV_READ_CB);
+  uv__register_callback(stream, (void *) alloc_cb, UV_ALLOC_CB);
+  uv__register_callback(stream, (void *) read_cb, UV_READ_CB);
 #endif
 
   /* The UV_STREAM_READING flag is irrelevant of the state of the tcp - it just

@@ -99,7 +99,7 @@ void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
   assert(!(handle->flags & (UV_CLOSING | UV_CLOSED)));
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) close_cb, UV_CLOSE_CB);
+  uv__register_callback(handle, (void *) close_cb, UV_CLOSE_CB);
 #endif
 
   handle->flags |= UV_CLOSING;
@@ -356,6 +356,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     uv__io_poll(loop, timeout);
     uv__run_check(loop);
+    /* JD: This will invoke the close_cb of any handles that have one defined. */
     uv__run_closing_handles(loop);
 
     if (mode == UV_RUN_ONCE) {

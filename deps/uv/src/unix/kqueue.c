@@ -374,7 +374,7 @@ int uv_fs_event_start(uv_fs_event_t* handle,
     return -errno;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(cb, UV_FS_EVENT_CB);
+  uv__register_callback(handle, cb, UV_FS_EVENT_CB);
 #endif
 
   uv__handle_start(handle);

@@ -60,7 +60,6 @@
 
 #define INIT(subtype)                                                         \
   do {                                                                        \
-    uv__register_callback(cb, UV_FS_CB);                                      \
     req->type = UV_FS;                                                        \
     if (cb != NULL)                                                           \
       uv__req_init(loop, req, UV_FS);                                         \
@@ -71,6 +70,7 @@
     req->path = NULL;                                                         \
     req->new_path = NULL;                                                     \
     req->cb = cb;                                                             \
+    uv__register_callback(req, cb, UV_FS_CB);                                 \
   }                                                                           \
   while (0)
 

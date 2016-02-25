@@ -301,15 +301,16 @@ int uv_queue_work(uv_loop_t* loop,
   if (work_cb == NULL)
     return UV_EINVAL;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(work_cb, UV_WORK_CB);
-  uv__register_callback(after_work_cb, UV_AFTER_WORK_CB);
-#endif
-
   uv__req_init(loop, req, UV_WORK);
   req->loop = loop;
   req->work_cb = work_cb;
   req->after_work_cb = after_work_cb;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(req, work_cb, UV_WORK_CB);
+  uv__register_callback(req, after_work_cb, UV_AFTER_WORK_CB);
+#endif
+
   uv__work_submit(loop, &req->work_req, uv__queue_work, uv__queue_done);
   return 0;
 }

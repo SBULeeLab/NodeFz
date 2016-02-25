@@ -103,7 +103,7 @@ int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
     return 0;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(poll_cb, UV_POLL_CB);
+  uv__register_callback(handle, poll_cb, UV_POLL_CB);
 #endif
 
   events = 0;

@@ -21,6 +21,8 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "logical-callback-node.h"
+#include "unified_callback.h"
 
 #define UV_LOOP_WATCHER_DEFINE(name, type)                                    \
   int uv_##name##_init(uv_loop_t* loop, uv_##name##_t* handle) {              \
@@ -32,7 +34,7 @@
   int uv_##name##_start(uv_##name##_t* handle, uv_##name##_cb cb) {           \
     if (uv__is_active(handle)) return 0;                                      \
     if (cb == NULL) return -EINVAL;                                           \
-    uv__register_callback(cb, UV_##type##_CB);                                \
+    uv__register_callback(handle, cb, UV_##type##_CB);                        \
     QUEUE_INSERT_HEAD(&handle->loop->name##_handles, &handle->queue);         \
     handle->name##_cb = cb;                                                   \
     uv__handle_start(handle);                                                 \
@@ -53,13 +55,22 @@
   }                                                                           \
                                                                               \
   void uv__run_##name(uv_loop_t* loop) {                                      \
+    lcbn_t *orig, *tmp;                                                       \
     uv_##name##_t* h;                                                         \
     QUEUE* q;                                                                 \
+                                                                              \
+    orig = lcbn_current_get();                                                \
     QUEUE_FOREACH(q, &loop->name##_handles) {                                 \
       h = QUEUE_DATA(q, uv_##name##_t, queue);                                \
       INVOKE_CALLBACK_1(UV_##type##_CB, h->name##_cb, h);                     \
+      /* Convince the just-executed LCBN to be the next LCBN's parent. TODO This is ugly, and the same trick (once refined) should be done for repeating timers. */     \
+      tmp = lcbn_get(h->cb_type_to_lcbn, UV_##type##_CB);                     \
+      assert(tmp != NULL);                                                    \
+      lcbn_current_set(tmp);                                                  \
+      uv__register_callback(h, h->name##_cb, UV_##type##_CB);                 \
       /* h->name##_cb(h); */                                                  \
     }                                                                         \
+    lcbn_current_set(orig);                                                   \
   }                                                                           \
                                                                               \
   void uv__##name##_close(uv_##name##_t* handle) {                            \

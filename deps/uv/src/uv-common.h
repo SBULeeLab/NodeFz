@@ -216,11 +216,14 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
     (h)->flags = UV__HANDLE_REF;  /* Ref the loop when active. */             \
     QUEUE_INSERT_TAIL(&(loop_)->handle_queue, &(h)->handle_queue);            \
     uv__handle_platform_init(h);                                              \
+    (h)->magic = UV_HANDLE_MAGIC;                                             \
+    (h)->cb_type_to_lcbn = map_create();                                      \
+    assert((h)->cb_type_to_lcbn != NULL);                                     \
+    (h)->logical_parent = NULL;                                               \
+    (h)->peer_info = NULL;                                                    \
+    (h)->self_parent = 0;                                                     \
   }                                                                           \
-  while (0);                                                                  \
-  (h)->logical_parent = NULL;                                                 \
-  (h)->peer_info = NULL;                                                      \
-  (h)->self_parent = 0;
+  while (0);
 
 
 /* Allocator prototypes */
@@ -254,7 +257,7 @@ int uv__uv__run_pending_active (void);
 void uv__uv__run_pending_set_active_cb (void *cb);
 void * uv__uv__run_pending_get_active_cb (void);
 
-void uv__register_callback (void *cb, enum callback_type);
+void uv__register_callback (void *context, void *cb, enum callback_type);
 struct callback_origin * uv__callback_origin (void *cb);
 
 #endif /* UV_COMMON_H_ */

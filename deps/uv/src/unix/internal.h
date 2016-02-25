@@ -292,6 +292,11 @@ UV_UNUSED(static void uv__req_init(uv_loop_t* loop,
                                    uv_req_t* req,
                                    uv_req_type type)) {
   req->type = type;
+
+  req->magic = UV_REQ_MAGIC;
+  req->cb_type_to_lcbn = map_create();
+  assert(req->cb_type_to_lcbn != NULL);
+
   uv__req_register(loop, req);
 }
 #define uv__req_init(loop, req, type) \

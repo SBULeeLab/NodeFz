@@ -68,10 +68,6 @@ int uv_timer_start(uv_timer_t* handle,
   if (cb == NULL)
     return -EINVAL;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(cb, UV_TIMER_CB);
-#endif
-
   if (uv__is_active(handle))
     uv_timer_stop(handle);
 
@@ -85,6 +81,12 @@ int uv_timer_start(uv_timer_t* handle,
 
   /* start_id is the second index to be compared in uv__timer_cmp() */
   handle->start_id = handle->loop->timer_counter++;
+
+#ifdef UNIFIED_CALLBACK
+  /* NB This won't work for repeating timers. */
+  assert(repeat == 0);
+  uv__register_callback(handle, cb, UV_TIMER_CB);
+#endif
 
   heap_insert((struct heap*) &handle->loop->timer_heap,
               (struct heap_node*) &handle->heap_node,

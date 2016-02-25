@@ -426,6 +426,10 @@ int uv__udp_send(uv_udp_send_t* req,
   req->handle = handle;
   req->nbufs = nbufs;
 
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(req, (void *) send_cb, UV_UDP_SEND_CB);
+#endif
+
   req->bufs = req->bufsml;
   if (nbufs > ARRAY_SIZE(req->bufsml))
     req->bufs = uv__malloc(nbufs * sizeof(bufs[0]));

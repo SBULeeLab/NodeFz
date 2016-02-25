@@ -66,7 +66,7 @@ int uv_fs_poll_start(uv_fs_poll_t* handle,
     return 0;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(cb, UV_POLL_CB);
+  uv__register_callback(handle, cb, UV_FS_POLL_CB);
 #endif
 
   loop = handle->loop;

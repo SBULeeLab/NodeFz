@@ -172,10 +172,6 @@ int uv_getaddrinfo(uv_loop_t* loop,
   if (buf == NULL)
     return -ENOMEM;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(cb, UV_GETADDRINFO_CB);
-#endif
-
   uv__req_init(loop, req, UV_GETADDRINFO);
   req->loop = loop;
   req->cb = cb;
@@ -184,6 +180,10 @@ int uv_getaddrinfo(uv_loop_t* loop,
   req->service = NULL;
   req->hostname = NULL;
   req->retcode = 0;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(req, cb, UV_GETADDRINFO_CB);
+#endif
 
   /* order matters, see uv_getaddrinfo_done() */
   len = 0;

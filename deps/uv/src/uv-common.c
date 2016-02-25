@@ -23,6 +23,7 @@
 #include "uv-common.h"
 #include "list.h"
 #include "map.h"
+#include "logical-callback-node.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -288,10 +289,6 @@ int uv_tcp_connect(uv_connect_t* req,
   else
     return UV_EINVAL;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) cb, UV_CONNECT_CB);
-#endif
-
   return uv__tcp_connect(req, handle, addr, addrlen, cb);
 }
 
@@ -313,10 +310,6 @@ int uv_udp_send(uv_udp_send_t* req,
     addrlen = sizeof(struct sockaddr_in6);
   else
     return UV_EINVAL;
-
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) send_cb, UV_UDP_SEND_CB);
-#endif
 
   return uv__udp_send(req, handle, bufs, nbufs, addr, addrlen, send_cb);
 }
@@ -350,8 +343,8 @@ int uv_udp_recv_start(uv_udp_t* handle,
   else
   {
     #ifdef UNIFIED_CALLBACK
-      uv__register_callback((void *) alloc_cb, UV_ALLOC_CB);
-      uv__register_callback((void *) recv_cb, UV_UDP_RECV_CB);
+      uv__register_callback(handle, (void *) alloc_cb, UV_ALLOC_CB);
+      uv__register_callback(handle, (void *) recv_cb, UV_UDP_RECV_CB);
     #endif
     return uv__udp_recv_start(handle, alloc_cb, recv_cb);
   }
@@ -370,8 +363,11 @@ void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
   QUEUE* q;
   uv_handle_t* h;
 
+#if 0
+/* TODO Do I want to bother with this? Seems irrelevant. Also, the handle it receives changes every time the CB is called, making it unsuitable for embedding. Would need another approach. */
 #ifdef UNIFIED_CALLBACK
   uv__register_callback((void *) walk_cb, UV_WALK_CB);
+#endif
 #endif
 
   QUEUE_FOREACH(q, &loop->handle_queue) {
@@ -710,7 +706,7 @@ static int cbn_is_repeated_cb (const struct callback_node *cbn);
 static int cbn_is_active_pending_cb (const struct callback_node *cbn);
 static int cbn_is_active (const struct callback_node *cbn);
 static int cbn_discover_id (struct callback_node *cbn);
-static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handle, char *handle_type);
+static void cbn_execute_callback (struct callback_node *cbn);
 
 static char * cbn_to_string (struct callback_node *cbn, char *buf, int size);
 static void cbn_print (struct callback_node *cbn);
@@ -783,6 +779,7 @@ struct map *callback_to_origin_map;
    If the value is NULL, the next callback by that node will be a root
      (unless the callback is an asynchronous one for which the parent is already known). */
 struct map *tid_to_current_cbn;
+struct map *tid_to_current_lcbn;
 
 /* Maps pthread_t to internal id, yielding human-readable thread IDs. */
 struct map *pthread_to_tid;
@@ -1368,6 +1365,7 @@ static struct callback_node * cbn_create (void)
   cbn->active = 0;
   list_init(&cbn->physical_children);
   list_init(&cbn->logical_children);
+  cbn->lcbn = NULL;
 
   cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *cbn->peer_info);
   assert(cbn->peer_info != NULL);
@@ -1407,11 +1405,13 @@ static void cbn_determine_executing_thread (struct callback_node *cbn)
 
 /* Code in support of tracking the initial stack. */
 
-/* Returns the CBN associated with the initial stack. */
-struct callback_node *init_stack_cbn = NULL;
+/* Returns the CBN associated with the initial stack.
+   Acquires and releases the metadata lock. */
 struct callback_node * get_init_stack_callback_node (void)
 {
-  if (init_stack_cbn == NULL)
+  static struct callback_node *init_stack_cbn = NULL;
+  uv__metadata_lock();
+  if (!init_stack_cbn)
   {
     init_stack_cbn = cbn_create();
     assert(init_stack_cbn != NULL);
@@ -1424,17 +1424,12 @@ struct callback_node * get_init_stack_callback_node (void)
     memset(init_stack_cbn->peer_info, 0, sizeof *init_stack_cbn->peer_info);
 
     /* Add to global order list and to root list. */
-    list_lock(&global_order_list);
-    list_lock(&root_list);
-
     list_push_back(&global_order_list, &init_stack_cbn->global_order_elem);
     init_stack_cbn->id = list_size (&global_order_list);
 
     list_push_back(&root_list, &init_stack_cbn->root_elem); 
-
-    list_unlock(&global_order_list);
-    list_unlock(&root_list);
   }
+  uv__metadata_unlock();
 
   return init_stack_cbn;
 }
@@ -1621,6 +1616,9 @@ void unified_callback_init (void)
   tid_to_current_cbn = map_create();
   assert(tid_to_current_cbn != NULL);
 
+  tid_to_current_lcbn = map_create();
+  assert(tid_to_current_lcbn != NULL);
+
   pthread_to_tid = map_create();
   assert(pthread_to_tid != NULL);
 
@@ -1745,7 +1743,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   cbn = cbn_create();
   cbn->info = cbi;
 
-#if 1
   /* Atomically update the metadata structures.
      Prevents races in the order of a parent's children vs. global order. 
      Not too concerned about performance:
@@ -1770,7 +1767,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     cbn_discover_id(cbn);
 
   cbn_determine_executing_thread(cbn);
-  uv__metadata_unlock();
 
   /* Is CBN coherent? */
   assert((cbn->physical_level == 0 && cbn->physical_parent == NULL)
@@ -1783,25 +1779,54 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* Run the callback. */
   mylog("invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
 
-  uvht = NULL;
-  snprintf(handle_type, 64, "(no handle type)");
+  /* If CB is a logical callback, retrieve the LCBN. */
+  if (is_logical_cb)
+  {
+    lcbn_new = lcbn_get(cb_type_to_lcbn, cbi->type);
+    assert(lcbn_new != NULL);
+    assert(lcbn_new->cb_type == cbi->type);
+    lcbn_new->info = cbi;
 
-  /* TODO Move the determination of uvht to a separate function? */
+    lcbn_orig = lcbn_current_get();
+    lcbn_current_set(lcbn_new);
+    assert(lcbn_orig == NULL); /* TODO Is there ever a current lcbn? */
+
+    mylog("invoke_callback: invoking lcbn %p context %p tree_parent %p registrar %p cb %p type %s lcbn_orig %p\n",
+      lcbn_new, context, lcbn_new->tree_parent, lcbn_new->registrar, cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
+    lcbn_mark_begin(lcbn_new);
+
+    /* Add to metadata structures. */
+    /* TODO Problem: For large reads, ALLOC and READ are currently using the same LCBNs repeatedly. This
+        will corrupt these lists. See notes about the problem. */
+    list_push_back(&lcbn_global_order_list, &lcbn_new->global_order_elem);
+    lcbn_new->global_id = list_size(&lcbn_global_order_list);
+
+    list_push_back(&lcbn_root_list, &lcbn_new->root_elem); 
+    lcbn_new->tree_number = list_size(&lcbn_root_list);
+  }
+
+  uv__metadata_unlock();
+
   cbn_start(cbn);
   current_callback_node_set(cbn); /* Thread-safe. */
-#endif
-  cbn_execute_callback(cbn, &uvht, handle_type);
-#if 1
+  cbn_execute_callback(cbn); 
   cbn_stop(cbn);
 
-  mylog ("invoke_callback: Done with callback_node %i: %s. uvht <%p> handle_type <%s>\n",
-    cbn, cbn_to_string(cbn, buf, 1024), uvht, handle_type); 
+  mylog("invoke_callback: Done with callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
 
   /* Done with the callback. */
   current_callback_node_set(cbn->physical_parent);
 
+  /* If a logical callback, restore the previous lcbn. */
+  if (is_logical_cb)
+  {
+    lcbn_current_set(lcbn_orig);
+    mylog("invoke_callback: Done with lcbn %p parent %p cb %p\n",
+      lcbn_new, lcbn_new->tree_parent, cbi->cb);
+    lcbn_mark_end(lcbn_new);
+  }
+
   mylog("invoke_callback: completed cbn %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
-#endif
   return cbn;
 }
 
@@ -2167,25 +2192,73 @@ static void calc_relative_time (struct timespec *start, struct timespec *res)
 }
 
 /* Call from any libuv function that is passed a user callback.
-   At callback registration time we can determine the origin. 
+   At callback registration time we can determine the origin
+     and create a new logical node.
    If CB is NULL, CB will never be called, and we ignore it. 
 
-   May be called concurrently due to threadpool. Thread safe. */
-void uv__register_callback (void *cb, enum callback_type cb_type)
+   May be called concurrently due to threadpool. Thread safe. 
+   
+   CONTEXT is the handle or request associated with this callback.
+   Use callback_type_to_context and callback_type_to_behavior to deal with it. 
+   If CONTEXT is a uv_req_t *, it must have been uv_req_init'd already. 
+   */
+void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
 {
-  static pthread_t registering_thread = -1;
   struct callback_node *cbn;
   struct callback_origin *co;
   enum callback_origin_type origin;
   int key;
+  uv_handle_t *context_handle;
+  uv_req_t *context_req;
+  struct map *cb_type_to_lcbn;
+  enum callback_context cb_context;
+  enum callback_behavior cb_behavior;
+  lcbn_t *lcbn_cur, *lcbn_new;
 
+  /* NULL callbacks will never be invoked. */
   if (cb == NULL)
     return;
 
-  /* Are callbacks ever registered by more than one thread? */
-  if ((int) registering_thread == -1)
-    registering_thread = pthread_self();
-  assert(registering_thread == pthread_self());
+  /* Identify the context of the callback. */
+  assert(context != NULL);
+  cb_context = callback_type_to_context(cb_type);
+  if (cb_context == CALLBACK_CONTEXT_HANDLE)
+  {
+    context_handle = (uv_handle_t *) context;
+    assert(context_handle->magic == UV_HANDLE_MAGIC);
+    cb_type_to_lcbn = context_handle->cb_type_to_lcbn;
+  }
+  else if (cb_context == CALLBACK_CONTEXT_REQ)
+  {
+    context_req = (uv_req_t *) context;
+    assert(context_req->magic == UV_REQ_MAGIC);
+    cb_type_to_lcbn = context_req->cb_type_to_lcbn;
+  }
+  else
+    NOT_REACHED;
+
+  /* Identify the behavior of the callback. */
+  cb_behavior = callback_type_to_behavior(cb_type);
+
+  /* Identify the origin of the callback. */
+  lcbn_cur = lcbn_current_get();
+  assert(lcbn_cur != NULL); /* All callbacks come from user code. */
+
+  /* Create a new LCBN. */
+  lcbn_new = lcbn_create(context, cb, cb_type);
+  lcbn_new->registrar = lcbn_cur;
+  /* Register it in its context. */
+  lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
+
+  /* If it's an ACTION CB, it's a child of lcbn_cur. 
+     Otherwise it will comprise a new logical tree once it is triggered (if ever). */
+  if (cb_behavior == CALLBACK_BEHAVIOR_ACTION)
+    lcbn_add_child(lcbn_cur, lcbn_new);
+
+  mylog("uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
+    lcbn_new, cb, context, callback_type_to_string(cb_type), lcbn_new->registrar);
+
+  /* OLD CODE FOLLOWS. */
 
   co = (struct callback_origin *) malloc(sizeof *co);
   assert(co != NULL);
@@ -2208,7 +2281,8 @@ void uv__register_callback (void *cb, enum callback_type cb_type)
     else
     {
       origin = LIBUV_INTERNAL;
-      NOT_REACHED;
+      /* TODO We do reach this, when mucking about with LCBN inheritance in loop-watcher.c (and someday in timer.c). */
+      /* NOT_REACHED; */
     }
   }
   else
@@ -2493,79 +2567,49 @@ static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handl
   {
     /* include/uv.h */
     case UV_ALLOC_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_handle_t", 64); 
       info->cb ((uv_handle_t *) info->args[0], (size_t) info->args[1], (uv_buf_t *) info->args[2]); /* uv_handle_t */
       break;
     case UV_READ_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_stream_t", 64); 
       info->cb ((uv_stream_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2]); /* uv_handle_t */
       break;
     case UV_WRITE_CB:
       /* Pointer to the stream where this write request is running. */
-      *handle = (uv_handle_t *) ((uv_write_t *) info->args[0])->handle;
-      strncpy(handle_type, "uv_stream_t", 64); 
       info->cb ((uv_write_t *) info->args[0], (int) info->args[1]); /* uv_write_t, has pointer to two uv_stream_t's (uv_handle_t)  */
       break;
     case UV_CONNECT_CB:
-      *handle = (uv_handle_t *) ((uv_connect_t *) info->args[0])->handle;
-      strncpy(handle_type, "uv_stream_t", 64); 
       info->cb ((uv_connect_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_SHUTDOWN_CB:
-      *handle = (uv_handle_t *) ((uv_shutdown_t *) info->args[0])->handle;
-      strncpy(handle_type, "uv_stream_t", 64); 
       info->cb ((uv_shutdown_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
       break;
     case UV_CONNECTION_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_stream_t", 64); 
       info->cb ((uv_stream_t *) info->args[0], (int) info->args[1]); /* uv_handle_t */
       break;
     case UV_CLOSE_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_handle_t", 64); 
       info->cb ((uv_handle_t *) info->args[0]); /* uv_handle_t */
       break;
     case UV_POLL_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_poll_t", 64); 
       info->cb ((uv_poll_t *) info->args[0], (int) info->args[1], (int) info->args[2]); /* uv_handle_t */
       break;
     case UV_TIMER_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_timer_t", 64); 
       info->cb ((uv_timer_t *) info->args[0]); /* uv_handle_t */
       break;
     case UV_ASYNC_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_async_t", 64); 
       info->cb ((uv_async_t *) info->args[0]); /* uv_handle_t */
       break;
     case UV_PREPARE_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_prepare_t", 64); 
       info->cb ((uv_prepare_t *) info->args[0]); /* uv_handle_t */
       break;
     case UV_CHECK_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_check_t", 64); 
       info->cb ((uv_check_t *) info->args[0]); /* uv_handle_t */
       break;
     case UV_IDLE_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_idle_t", 64); 
       info->cb ((uv_idle_t *) info->args[0]); /* uv_handle_t */
       break;
     case UV_EXIT_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_process_t", 64); 
       info->cb ((uv_process_t *) info->args[0], (int64_t) info->args[1], (int) info->args[2]); /* uv_handle_t */
       break;
     case UV_WALK_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_handle_t", 64); 
       info->cb ((uv_handle_t *) info->args[0], (void *) info->args[1]); /* uv_handle_t */
       break;
     case UV_FS_CB:
@@ -2584,28 +2628,18 @@ static void cbn_execute_callback (struct callback_node *cbn, uv_handle_t **handl
       info->cb ((uv_getnameinfo_t *) info->args[0], (int) info->args[1], (const char *) info->args[2], (const char *) info->args[3]); /* uv_req_t, no information about *handle or parent */
       break;
     case UV_FS_EVENT_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_fs_event_t", 64); 
       info->cb ((uv_fs_event_t *) info->args[0], (const char *) info->args[1], (int) info->args[2], (int) info->args[3]); /* uv_handle_t */
       break;
     case UV_FS_POLL_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_fs_poll_t", 64); 
       info->cb ((uv_fs_poll_t *) info->args[0], (int) info->args[1], (const uv_stat_t *) info->args[2], (const uv_stat_t *) info->args[3]); /* uv_handle_t */
       break;
     case UV_SIGNAL_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_signal_t", 64); 
       info->cb ((uv_signal_t *) info->args[0], (int) info->args[1]); /* uv_handle_t */
       break;
     case UV_UDP_SEND_CB:
-      *handle = ((uv_udp_send_t *) info->args[0])->handle;
-      strncpy(handle_type, "uv_udp_t", 64); 
       info->cb ((uv_udp_send_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_udp_t (uv_handle_t) */
       break;
     case UV_UDP_RECV_CB:
-      *handle = (uv_handle_t *) info->args[0];
-      strncpy(handle_type, "uv_udp_t", 64); 
       /* Peer info is in the sockaddr_storage of info->args[3]. */
       info->cb ((uv_udp_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2], (const struct sockaddr *) info->args[3], (unsigned) info->args[4]); /* uv_handle_t */
       break;
@@ -2746,4 +2780,122 @@ static void timespec_sub (const struct timespec *stop, const struct timespec *st
   }
 
   return;
+}
+
+enum callback_context callback_type_to_context (enum callback_type cb_type)
+{
+  switch (cb_type)
+  {
+    case UV_FS_POLL_CB:  
+    case UV_CLOSE_CB:    
+    case UV_FS_EVENT_CB:
+    case UV_CHECK_CB:
+    case UV_IDLE_CB:
+    case UV_PREPARE_CB:
+    case UV_POLL_CB:
+    case UV_EXIT_CB:
+    case UV_SIGNAL_CB:
+    case UV_TIMER_CB:
+    case UV_UDP_RECV_CB:
+    case UV_CONNECTION_CB:
+    case UV_ALLOC_CB:
+    case UV_READ_CB:
+      return CALLBACK_CONTEXT_HANDLE;
+
+    case UV_WORK_CB:
+    case UV_AFTER_WORK_CB:
+    case UV_FS_CB:
+    case UV_GETADDRINFO_CB:
+    case UV_CONNECT_CB:
+    case UV_SHUTDOWN_CB:
+    case UV_WRITE_CB:
+    case UV_UDP_SEND_CB:
+      return CALLBACK_CONTEXT_REQ;
+
+    default:
+      return CALLBACK_CONTEXT_UNKNOWN;
+  }
+  NOT_REACHED;
+}
+
+enum callback_behavior callback_type_to_behavior (enum callback_type cb_type)
+{
+  switch (cb_type)
+  {
+    case UV_FS_POLL_CB:     /* One active CB per handle. uv_fs_poll_start returns if the handle is active. */
+    case UV_CLOSE_CB:       /* Moves handle to "closing" state, where it is finished in uv_run by a call to uv__run_closing_handles. The handle might have other callbacks pending as well. */
+    case UV_CHECK_CB:       /* One active CB per handle. loop-watcher.c returns if the handle is active. */
+    case UV_IDLE_CB:        /* Ditto. */
+    case UV_PREPARE_CB:     /* Ditto. */
+    case UV_TIMER_CB:       /* A timer handle can be re-used. If there was already a timer active it will be removed from the heap and the CB replaced. I don't know if Node actually does this, and it would also depend on lib/timers.js. However, this means that there is one CB per handle. */
+    case UV_WORK_CB:        /* This is a request. Assume no simultaneous request reuse. */
+    case UV_AFTER_WORK_CB:  /* This is a request. Assume no simultaneous request reuse. */
+    case UV_FS_CB:          /* This is a request. Assume no simultaneous request reuse. */
+    case UV_GETADDRINFO_CB: /* This is a request. Assume no simultaneous request reuse. */
+    case UV_CONNECT_CB:     /* This is a request. Assume no simultaneous request reuse. */
+    case UV_SHUTDOWN_CB:    /* This is a request. Assume no simultaneous request reuse. */
+    case UV_WRITE_CB:       /* This is a request. Assume no simultaneous request reuse. */
+    case UV_UDP_SEND_CB:    /* This is a request. Assume no simultaneous request reuse. */
+      return CALLBACK_BEHAVIOR_ACTION;
+
+    case UV_FS_EVENT_CB:    /* One active CB per handle. uv_fs_poll_start returns if the handle is active. */
+    case UV_POLL_CB:        /* One active CB per handle. uv_poll_start stops the handle before proceeding. */
+    case UV_EXIT_CB:        /* One active CB per process handle. */
+    case UV_SIGNAL_CB:      /* One active CB per handle. */
+    case UV_UDP_RECV_CB:    /* One active CB per handle. */
+    case UV_CONNECTION_CB:  /* uv_tcp_listen: One active CB per handle; uv_pipe_listen: one active CB per handle. */
+    case UV_ALLOC_CB:       /* One active CB per handle. */
+    case UV_READ_CB:        /* One active CB per handle. */
+      return CALLBACK_BEHAVIOR_RESPONSE;
+
+    default:
+      return CALLBACK_BEHAVIOR_UNKNOWN;
+  }
+  NOT_REACHED;
+}
+
+/* Associate LCBN with CALLBACK_TYPE in CB_TYPE_TO_LCBN. */
+void lcbn_register (struct map *cb_type_to_lcbn, enum callback_type cb_type, lcbn_t *lcbn)
+{
+  assert(cb_type_to_lcbn != NULL);
+  assert(lcbn != NULL);
+  map_insert(cb_type_to_lcbn, cb_type, lcbn);
+}
+
+/* Return the LCBN stored in CB_TYPE_TO_LCBN for CALLBACK_TYPE. */
+lcbn_t * lcbn_get (struct map *cb_type_to_lcbn, enum callback_type cb_type)
+{
+  int found;
+  assert(cb_type_to_lcbn != NULL);
+  return (lcbn_t *) map_lookup(cb_type_to_lcbn, cb_type, &found);
+}
+
+/* APIs that let us build lineage trees: nodes can identify their parents. 
+   current_callback_node_{set,get} are thread safe and maintain per-thread mappings. */
+
+/* Sets the current callback node for this thread to CBN. 
+   NULL signifies the end of a callback tree. */
+void lcbn_current_set (lcbn_t *lcbn)
+{
+  /* My maps are thread safe. */
+  map_insert(tid_to_current_lcbn, (int) pthread_self(), (void *) lcbn);
+  if (lcbn == NULL)
+    mylog("lcbn_current_set: Next callback will be a root\n");
+  else
+    mylog("lcbn_current_set: Current CBN for %li is %p\n", (long) pthread_self(), (void *) lcbn);
+}
+
+/* Retrieves the current callback node for this thread, or NULL if no such node. 
+   This function is thread safe. */
+lcbn_t * lcbn_current_get (void)
+{
+  int found;
+  lcbn_t *ret;
+
+  /* My maps are thread safe. */
+  ret = (struct callback_node *) map_lookup(tid_to_current_lcbn, (int) pthread_self(), &found);
+
+  if (!found)
+    assert(ret == NULL);
+  return ret;
 }

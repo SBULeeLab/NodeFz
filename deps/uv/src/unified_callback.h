@@ -172,4 +172,12 @@ void dump_callback_global_order_sighandler (int);
 void dump_callback_trees_sighandler (int);
 void dump_all_trees_and_exit_sighandler (int);
 
+/* Register and retrieve an LCBN in its context (handle or req). */
+void lcbn_register (struct map *cb_type_to_lcbn, enum callback_type cb_type, lcbn_t *lcbn);
+lcbn_t * lcbn_get (struct map *cb_type_to_lcbn, enum callback_type cb_type);
+
+/* Set and get the current LCBN for this thread. */
+void lcbn_current_set (lcbn_t *lcbn);
+lcbn_t * lcbn_current_get (void);
+
 #endif /* UV_UNIFIED_CALLBACK_H_ */

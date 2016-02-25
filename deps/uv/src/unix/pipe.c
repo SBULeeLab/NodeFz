@@ -152,10 +152,6 @@ void uv_pipe_connect(uv_connect_t* req,
   int err;
   int r;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(cb, UV_CONNECT_CB);
-#endif
-
   new_sock = (uv__stream_fd(handle) == -1);
 
   if (new_sock) {
@@ -198,6 +194,11 @@ out:
   uv__req_init(handle->loop, req, UV_CONNECT);
   req->handle = (uv_stream_t*)handle;
   req->cb = cb;
+
+#ifdef UNIFIED_CALLBACK
+  uv__register_callback(req, cb, UV_CONNECT_CB);
+#endif
+
   QUEUE_INIT(&req->queue);
 
   /* Force callback to run on next tick in case of error. */

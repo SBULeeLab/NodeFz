@@ -61,6 +61,9 @@ extern "C" {
 # include "uv-unix.h"
 #endif
 
+#include "../src/map.h"
+#include "../src/unified_callback.h"
+
 /* Expand this list if necessary. */
 #define UV_ERRNO_MAP(XX)                                                      \
   XX(E2BIG, "argument list too long")                                         \
@@ -366,7 +369,7 @@ typedef enum {
 UV_EXTERN const char* uv_strerror(int err);
 UV_EXTERN const char* uv_err_name(int err);
 
-
+#define UV_REQ_MAGIC 87654321
 #define UV_REQ_FIELDS                                                         \
   /* public */                                                                \
   void* data;                                                                 \
@@ -375,6 +378,8 @@ UV_EXTERN const char* uv_err_name(int err);
   /* private */                                                               \
   void* active_queue[2];                                                      \
   void* reserved[4];                                                          \
+  struct map *cb_type_to_lcbn;                                                \
+  int magic;                                                                  \
   UV_REQ_PRIVATE_FIELDS                                                       \
 
 /* Abstract base class of all requests. */
@@ -398,6 +403,7 @@ struct uv_shutdown_s {
   UV_SHUTDOWN_PRIVATE_FIELDS
 };
 
+#define UV_HANDLE_MAGIC 12345678
 
 #define UV_HANDLE_FIELDS                                                      \
   /* public */                                                                \
@@ -413,6 +419,8 @@ struct uv_shutdown_s {
     void* reserved[4];                                                        \
   } u;                                                                        \
   UV_HANDLE_PRIVATE_FIELDS                                                    \
+  struct map *cb_type_to_lcbn;                                                \
+  int magic;                                                                  \
   struct callback_node *logical_parent;                                       \
   struct sockaddr_storage *peer_info;                                         \
   int self_parent; /* For timer and loop-watcher. */                          \
