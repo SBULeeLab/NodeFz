@@ -731,6 +731,9 @@ static int get_client_id (struct sockaddr_storage *addr);
 static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo *nameinfo);
 static unsigned addr_calc_hash (struct sockaddr_storage *addr);
 
+lcbn_t * get_init_stack_lcbn (void);
+void lcbn_determine_executing_thread (lcbn_t *lcbn);
+
 /* Misc. */
 static int is_zeros (void *buffer, size_t size);
 static void print_buf (void *buffer, size_t size);
@@ -1382,28 +1385,22 @@ static struct callback_node * cbn_create (void)
 
 /* Set the executing_thread member of CBN 
    (to the internal tid of the currently-executing thread). 
+   Call in invoke_callback prior to execution.
 
    Thread safe. */
 static void cbn_determine_executing_thread (struct callback_node *cbn)
 {
-  int found;
-  void *value;
-  int pthread_id;
-  
-  assert(cbn != NULL);
-  
-  pthread_id = (int) pthread_self();
+  cbn->executing_thread = pthread_self_internal();
+}
 
-  map_lock(pthread_to_tid);
-  value = map_lookup(pthread_to_tid, pthread_id, &found);
-  if (found)
-    cbn->executing_thread = (int) value;
-  else
-  {
-    cbn->executing_thread = map_size(pthread_to_tid);
-    map_insert(pthread_to_tid, pthread_id, (void *) cbn->executing_thread);
-  }
-  map_unlock(pthread_to_tid);
+/* Set the executing_thread member of LCBN 
+   (to the internal tid of the currently-executing thread). 
+   Call in invoke_callback prior to execution.
+
+   Thread safe. */
+void lcbn_determine_executing_thread (lcbn_t *lcbn)
+{
+  lcbn->executing_thread = pthread_self_internal();
 }
 
 /* Code in support of tracking the initial stack. */
@@ -1845,7 +1842,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* Run the callback. */
   mylog("invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
 
-  /* If CB is a logical callback, retrieve the LCBN. */
+  /* If CB is a logical callback, retrieve and update the LCBN. */
   if (is_logical_cb)
   {
     lcbn_new = lcbn_get(cb_type_to_lcbn, cbi->type);
@@ -1874,6 +1871,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       lcbn_new->tree_level = 0;
       lcbn_new->level_entry = 0;
     }
+
+    lcbn_determine_executing_thread(lcbn_new);
   }
 
   uv__metadata_unlock();
@@ -2500,6 +2499,8 @@ void uv__mark_init_stack_begin (void)
   cbn_start(init_stack_cbn);
 
   init_stack_lcbn = get_init_stack_lcbn();
+
+  lcbn_determine_executing_thread(init_stack_lcbn);
   lcbn_current_set(init_stack_lcbn);
   lcbn_mark_begin(init_stack_lcbn);
 
@@ -3007,4 +3008,22 @@ lcbn_t * lcbn_current_get (void)
   if (!found)
     assert(ret == NULL);
   return ret;
+}
+
+int pthread_self_internal (void)
+{
+  int found, pthread_id, internal_id;
+  
+  pthread_id = (int) pthread_self();
+
+  map_lock(pthread_to_tid);
+  internal_id = (int) map_lookup(pthread_to_tid, pthread_id, &found);
+  if (!found)
+  {
+    internal_id = map_size(pthread_to_tid);
+    map_insert(pthread_to_tid, pthread_id, (void *) internal_id);
+  }
+  map_unlock(pthread_to_tid);
+
+  return internal_id;
 }

@@ -177,4 +177,7 @@ lcbn_t * lcbn_get (struct map *cb_type_to_lcbn, enum callback_type cb_type);
 void lcbn_current_set (lcbn_t *lcbn);
 lcbn_t * lcbn_current_get (void);
 
+/* Return the internal ID for the current pthread. */
+int pthread_self_internal (void);
+
 #endif /* UV_UNIFIED_CALLBACK_H_ */

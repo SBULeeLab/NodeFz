@@ -35,6 +35,8 @@ struct lcbn_s
 
   int active;   /* Is this LCBN currently executing? */
   int finished; /* Has this LCBN finished executing? */
+
+  pthread_t executing_thread; /* Which thread executes us? */
   
   struct list_elem global_order_elem; /* For inclusion in the global callback order list. */
   struct list_elem child_elem; /* For inclusion in logical parent's list of children. */
