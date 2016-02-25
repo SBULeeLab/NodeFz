@@ -17,9 +17,9 @@ struct lcbn_s
   void *cb;
   enum callback_type cb_type; 
 
-  int tree_number; /* Index in the sequence of trees */
-  int tree_level;  /* Level in the tree */
-  int level_entry; /* What number lcbn in this level of the tree? */
+  int tree_number; /* Index in the sequence of trees. First is 0. */
+  int tree_level;  /* Level in the tree. Root is 0. */
+  int level_entry; /* What number lcbn in this level of the tree? First is 0. */
 
   int global_id; /* The order in which it was executed relative to all other LCBNs */
 
@@ -42,10 +42,13 @@ struct lcbn_s
 };
 
 lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type);
-lcbn_t * lcbn_add_child (lcbn_t *parent, lcbn_t *child);
+void lcbn_add_child (lcbn_t *parent, lcbn_t *child);
 void lcbn_destroy (lcbn_t *lcbn);
 
 void lcbn_mark_begin (lcbn_t *lcbn);
 void lcbn_mark_end (lcbn_t *lcbn);
+
+char * lcbn_to_string (lcbn_t *cbn, char *buf, int size);
+void lcbn_globallist_print_f (struct list_elem *e, int *fd);
 
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */
