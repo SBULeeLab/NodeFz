@@ -368,10 +368,11 @@ Answer:   Either "as part of a request" or "a response triggered as a result of 
 
 Logical trees: This is a list of trees that describe all of the user callbacks that are executed, as well as the connections between them.
 Question: How to describe logical trees?
-Answer:   Each node can be described with a four-tuple:
+Answer:   Each node can be described with a five-tuple:
   - tree_number (index in the sequence of trees)
   - tree_level (how distant is the root)
   - level_entry (how distant from the first CB in its level)
+  - type (allows identification of root nodes)
   - global_id (the order in which it was executed relative to all other callbacks)
 
 Tree indicates the index of the root node of the tree.
@@ -499,7 +500,222 @@ Addressing these requirements:
             This is similar to how we embed parentage at the moment.
 
       
-     
+--------------------
+
+Places where callbacks are registered:
+
+cscope with an extra "Registrant info" column:
+Functions calling this function: uv__register_callback
+
+  File           Function               Line                                              Registrant info
+0 fs-poll.c      uv_fs_poll_start         69 uv__register_callback(cb,                    Handle of type uv_fs_poll_t is specified. UV_FS_POLL_CB gets the handle.
+                                             UV_FS_POLL_CB);
+1 threadpool.c   uv_queue_work           305 uv__register_callback(work_cb,               uv_work_t (req) is provided
+                                             UV_WORK_CB);
+2 threadpool.c   uv_queue_work           306 uv__register_callback(after_work_cb          Ditto
+                                             , UV_AFTER_WORK_CB);
+3 core.c         uv_close                102 uv__register_callback((void *)               uv_handle_t handle. close_cb gets the handle.
+                                             close_cb, UV_CLOSE_CB);
+4 fs.c           INIT                     63 uv__register_callback(cb,                    This is a macro used by the FS wrappers. There's a uv_fs_t req. uv_fs_cb gets the req.
+                                             UV_FS_CB); \
+5 getaddrinfo.c  uv_getaddrinfo          176 uv__register_callback(cb,                    There's a uv_getaddrinfo_t req. uv_getaddrinfo_cb gets the req.
+                                             UV_GETADDRINFO_CB);
+6 kqueue.c       uv_fs_event_start       377 uv__register_callback(cb,                    uv_fs_event_t handle and uv_fs_event_cb gets it.
+                                             UV_FS_EVENT_CB);
+7 loop-watcher.c UV_LOOP_WATCHER_DEFINE   35 uv__register_callback(cb,                    check, idle, prepare: Handle of each type. cb gets the handle.
+                                             UV_##type##_CB); \
+8 pipe.c         uv_pipe_connect         156 uv__register_callback(cb,                    uv_connect_req and CB gets it.
+                                             UV_CONNECT_CB);
+9 poll.c         uv_poll_start           106 uv__register_callback(poll_cb,               uv_poll_t handle and CB gets it.
+                                             UV_POLL_CB);
+a process.c      uv_spawn                518 uv__register_callback(process->exit          uv_process_t handle and CB gets it.
+                                             _cb, UV_EXIT_CB);
+b signal.c       uv_signal_start         306 uv__register_callback(signal_cb,             uv_signal_t handle and CB gets it.
+                                             UV_SIGNAL_CB);
+c stream.c       uv_listen               672 uv__register_callback((void *) cb,           uv_stream_t handle and CB gets it.
+                                             UV_CONNECTION_CB);
+d stream.c       uv_shutdown            1286 uv__register_callback((void *) cb,           There's a uv_shutdown_t req and CB gets it.
+                                             UV_SHUTDOWN_CB);
+e stream.c       uv_write2              1448 uv__register_callback((void *) cb,           There's a uv_write_t req and CB gets it.
+                                             UV_WRITE_CB);
+f stream.c       uv_read_start          1583 uv__register_callback((void *)               uv_stream_t handle and CB gets it. ALLOC can probably be ignored.
+                                             alloc_cb, UV_ALLOC_CB);
+g stream.c       uv_read_start          1584 uv__register_callback((void *)               uv_stream_t handle and CB gets it. READ should be handled.
+                                             read_cb, UV_READ_CB);
+h timer.c        uv_timer_start           72 uv__register_callback(cb,                    There's a uv_timer_t handle and CB gets it.
+                                             UV_TIMER_CB);
+i uv-common.c    uv_tcp_connect          292 uv__register_callback((void *) cb,           There's a uv_connect_t req and CB gets it.
+                                             UV_CONNECT_CB);
+j uv-common.c    uv_udp_send             318 uv__register_callback((void *)               There's a uv_udp_send_t req and CB gets it.
+                                             send_cb, UV_UDP_SEND_CB);
+k uv-common.c    uv_udp_recv_start       353 uv__register_callback((void *)               There's a uv_udp_t handle and CB gets it. ALLOC can probably be ignored.
+                                             alloc_cb, UV_ALLOC_CB);
+l uv-common.c    uv_udp_recv_start       354 uv__register_callback((void *)               There's a uv_udp_t handle and CB gets it. READ should be handled.
+                                             recv_cb, UV_UDP_RECV_CB);
+m uv-common.c    uv_walk                 374 uv__register_callback((void *)               This prompts a synchronous series of UV_WALK_CB calls. There's not an obvious way to capture this one. Node seems to use it only once, to close the handles in a loop prior to exit, so I'm not particularly worried about it.
+                                             walk_cb, UV_WALK_CB);
 
 
+What do we learn from this?
+  At any given time, any given handle type can have at most one CB that will be invoked with the handle itself as an arg.
+  At any given time, any given handle type may have several pending req's, each of which will be called with the req as an arg.
+  At any given time, any given req type can have at most one CB associated with its completion.
+This suggests that embedding the logical_node in the handle or the req should work.
 
+Use callback_type_to_context (HANDLE or REQ) and callback_type_to_behavior (ACTION or RESPONSE) to differentiate between the types of callbacks.
+
+The notes in callback_type_to_behavior indicate that each request and each handle has only one callback per callback type. However, a handle may have multiple types of callbacks pending. Consequently storing a single lcbn in the handle would not work. Instead we can store a map of cb_type->lcbn in the handle; there is at most one CB of each type that the handle supports. We can do the same for the request (though only one type is expected) so that the code to retrieve the lcbn can be the same.
+
+
+-------------------
+
+Steps to add new c files to libuv:
+  
+- create the header (if any)
+- create the c file
+- include the header where needed
+- add the c file to uv/uv.gyp appropriately. Don't forget the comma at the end of the line!
+- go back to the root and run './configure --debug' (not sure if this is necessary?)
+
+node/node.gyp references uv's uv.gyp file
+
+Note that if you don't run './configure --debug', you won't have debug info for node/src.
+
+-------------------
+
+Node does not make use of the "repeating timers" feature of libuv, so there's no need to make lcbn inheritance work at the moment.
+I added an assert that no repeating timers are used in unix/timer.c
+
+-------------------
+
+linux-core.c:uv__io_poll
+  Callbacks are invoked as
+
+#if UNIFIED_CALLBACK
+  INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, pe->events);
+#else
+  w->cb(loop, w, pe->events);
+#endif
+
+w is a uv__io_t:
+  struct uv__io_s {
+  uv__io_cb cb; 
+  void* pending_queue[2];
+  void* watcher_queue[2];
+  unsigned int pevents; /* Pending event mask i.e. mask at next tick. */
+  unsigned int events;  /* Current event mask. */
+  int fd; 
+  UV_IO_PRIVATE_PLATFORM_FIELDS
+  struct callback_node *logical_parent; /* The current CBN at the time of uv__io_feed. That parent always completes before CB is executed. */
+};
+
+The cb is of type uv__io_cb. The functions that can be registered as w->cb are:
+  Text string: loop, uv__io_t
+
+      File       Line
+  0 aix.c       705 static void uv__ahafs_event(uv_loop_t* loop, uv__io_t* event_watch, unsigned int
+                    fflags) {
+  1 async.c     122 static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  2 core.c      848 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  3 core.c      881 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  4 core.c      913 void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
+  5 core.c      922 void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
+  6 internal.h  178 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  7 internal.h  179 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  8 internal.h  180 void uv__io_close(uv_loop_t* loop, uv__io_t* w);
+  9 internal.h  181 void uv__io_feed(uv_loop_t* loop, uv__io_t* w);
+  a internal.h  204 void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  b kqueue.c     37 static void uv__fs_event(uv_loop_t* loop, uv__io_t* w, unsigned int fflags);
+  c kqueue.c    307 static void uv__fs_event(uv_loop_t* loop, uv__io_t* w, unsigned int fflags) {
+  d poll.c       30 static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  e signal.c     41 static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  f stream.c     68 static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  g stream.c    527 void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  h stream.c   1304 static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  i udp.c        41 static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents);
+  j udp.c       134 static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
+
+Assessing each:
+  0 aix.c       705 static void uv__ahafs_event(uv_loop_t* loop, uv__io_t* event_watch, unsigned int fflags) {
+    Omitted, aix
+
+  1 async.c     122 static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+    Wrapper. Empties the fd (it's a pipe, I think?) and then calls uv__async_event for those handles that were send'd.
+             Wraps any async handles registered by the user as well as pending threadpool WORK_DONE events.
+
+  f signal.c    350 static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+    Wrapper. Empties the fd (it's a pipe) and then calls uv__signal_cb for those signals that were received.
+    (Signals are external input, so on identical inputs we should get identical ordering.)
+
+  2 core.c      848 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  3 core.c      881 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  5 core.c      922 void uv__io_feed(uv_loop_t* loop, uv__io_t* w) { 
+    I do not believe these are functions that could be called from uv__io_poll.
+
+  4 core.c      913 void uv__io_close(uv_loop_t* loop, uv__io_t* w) { 
+    Let's not worry about this for now.
+
+  6 internal.h  178 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  7 internal.h  179 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  8 internal.h  180 void uv__io_close(uv_loop_t* loop, uv__io_t* w);
+  9 internal.h  181 void uv__io_feed(uv_loop_t* loop, uv__io_t* w);
+  a internal.h  204 void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  b kqueue.c     37 static void uv__fs_event(uv_loop_t* loop, uv__io_t* w, unsigned int fflags);
+  e signal.c     41 static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+  j udp.c        41 static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents);
+    Declarations, not definitions
+
+  c kqueue.c    307 static void uv__fs_event(uv_loop_t* loop, uv__io_t* w, unsigned int fflags) {
+  d poll.c       30 static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+    Associated with a single handle. Easily extracted.
+
+  g stream.c     68 static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+    While there are connections pending, calls UV_CONNECTION_CB.
+    (This is external input, so on identical inputs we should get identical ordering of pending connections.)
+
+  h stream.c    527 void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+  i stream.c   1304 static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+    This is associated with a single stream. 
+    Triggers either "connect" or 
+      'read? read!' and 'write? write!'.
+        More specifically, the steps seem to be: 
+          "if read is ready, make all the reads" (uv__read) 
+          "if write is ready, make one(? Looks like a TODO "TODO: start trying to write the next request") write and then call the cb (UV_WRITE_CB) for all reqs on stream->write_completed_queue". (via uv__write, uv__write_callbacks)
+          "if no write requests left and the stream has been closed, close the connection" (uv__drain)
+
+  k udp.c       134 static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
+    Similar to uv__stream_io.
+    This is associated with a single stream. 
+    Triggers 'read? read!' and 'write? write!'.
+        More specifically, the steps seem to be: 
+          "if read is ready, make all the reads, calling a sequence of UV_ALLOC_CB and UV_READ_CB" (uv__udp_recvmsg) and 
+          "if write is ready, make all the writes and then call all of the UV_WRITE_CBs" (uv__udp_sendmsg, uv__udp_run_completed)
+
+Conclusion from this exercise:
+  Based on the value of the cb, I should be able to write APIs to determine the possible LCBNs available from each uv__io_t *w.
+  This would let me ask the scheduler whether or not I should run w.
+  An alternative design would be to put this code in the possible UV__IO_CB functions. The first thing that they would do is
+  check whether their set of potential LCBNs includes the "next" LCBN. If so, they would execute only that one, and ultimately
+  return a value indicating whether or not they should be re-armed.
+  
+  It would be preferable to have not a set of LCBNs but rather a single LCBN. How difficult would it be to break up the wrappers?
+  Would this work, or would I still be caught by things like uv__stream_io and uv__udp_io that contain a list of requests?
+
+  Let's develop the scheduling API using something simple to start with: timers
+
+Proposed scheduling API:
+  Input: LCBN
+  Output: Whether or not it is the next-to-be-invoked
+         This is certainly the most basic API.
+
+  Input: context, cb_type
+  Output: Whether or not the suggested CB is the next-to-be-invoked
+
+  Input: context, type (handle or req)
+  Output: Whether or not the suggested handle/req contains the next-to-be-invoked LCBN
+
+The scheduler gets as input a list of LCBNs of the form {tree,level,entry,type,id}.
+It sets global_id to 0.
+Every time it invokes a callback it increments global_id.
+To determine the next callback to invoke, it looks at the next LCBN in its schedule.
+It compares this "next" LCBN against pending LCBNs until it finds a match. The 'type' is needed to identify the next root node correctly. It could be a UV_CONNECTION_CB, UV_FS_EVENT_CB, etc. (any of the CALLBACK_BEHAVIOR_RESPONSE cb_types), but with fixed inputs the first matching CB in the list of pending CBs from epol should be a match due to the FIFO nature of epoll.

@@ -206,3 +206,13 @@ uv__work_submit is defined in libuv's src/threadpool.c:
 
 uv__fs_work, on the other hand, is found in libuv's src/unix/fs.c. It calls the requested syscall directly
 and places the result in req->result.
+
+--------------------------------
+
+node/lib/timers:
+  setTimeout, setInterval:
+    1. Node coalesces timers going off at "about the same time" into a single CB that goes through a linked list of timer CBs.
+       I have undone this coalescing.
+       bnoordhuis suggests that this is the only case of CB coalescing in Node.
+    2. setInterval doesn't make use of the "repeating timer" feature of libuv. If it did so it could not coalesce the timers.
+       Consequently each repeating timer is implemented as a sequence of evenly-spaced new timers.
