@@ -33,6 +33,9 @@
 
 #include "unified_callback.h"
 #include "mylog.h"
+#include "map.h"
+#include "logical-callback-node.h"
+#include <assert.h>
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
 # include "stdint-msvc2008.h"

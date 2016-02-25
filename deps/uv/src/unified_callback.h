@@ -2,7 +2,9 @@
 #define UV_UNIFIED_CALLBACK_H_
 
 #include "list.h"
+#include "map.h"
 #include "mylog.h"
+#include "logical-callback-node.h"
 #include "unified-callback-enums.h"
 #include <sys/types.h> /* struct sockaddr_storage */
 #include <sys/socket.h>
@@ -66,6 +68,8 @@ struct callback_node
 
   struct list physical_children;
   struct list logical_children;
+
+  lcbn_t *lcbn; /* The logical CBN associated with this CBN. */
   
   struct list_elem global_order_elem; /* For inclusion in the global callback order. */
   struct list_elem physical_child_elem; /* For inclusion in physical parent's list of children. */
