@@ -288,7 +288,7 @@ static struct list_elem * list_tail (struct list *list)
 unsigned list_size (struct list *list)
 {
   int size = 0;
-  struct list_elem *n;
+  struct list_elem *e;
 
   assert(list != NULL);
 
@@ -296,9 +296,9 @@ unsigned list_size (struct list *list)
   assert(list_looks_valid(list));
 
   /* DEBUG: Verify LIST->N_ELTS is correct. */
-  for (n = list_begin (list); n != list_end (list); n = n->next)
+  for (e = list_begin (list); e != list_end (list); e = list_next (e))
     size++;
-  assert (size == list->n_elts);
+  assert(size == list->n_elts);
 
   list__unlock(list);
 
