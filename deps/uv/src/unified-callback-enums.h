@@ -75,6 +75,8 @@ enum callback_type
   UV__WORK_WORK,
   UV__WORK_DONE,
 
+  CALLBACK_TYPE_INITIAL_STACK,
+
   CALLBACK_TYPE_ANY,
   CALLBACK_TYPE_MAX
 };
@@ -98,13 +100,9 @@ enum callback_behavior
   CALLBACK_BEHAVIOR_UNKNOWN
 };
 
-/* Whether a callback will be invoked immediately (as part of the caller's 
-   Some callbacks are part of a request for an action, while others indicate
-   the response to take based on external input.  */
-enum callback_timing
-{
-  CALLBACK_BEHAVIOR_SYNCHRONOUS,
-  CALLBACK_BEHAVIOR_ASYNCHRONOUS,
-};
+char * callback_type_to_string (enum callback_type);
+enum callback_context callback_type_to_context (enum callback_type cb_type);
+enum callback_behavior callback_type_to_behavior (enum callback_type cb_type);
+
 
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */

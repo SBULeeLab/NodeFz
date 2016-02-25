@@ -17,9 +17,6 @@
 #define NOT_REACHED assert (0 == 1);
 #endif
 
-enum callback_context callback_type_to_context (enum callback_type cb_type);
-enum callback_behavior callback_type_to_behavior (enum callback_type cb_type);
-
 struct callback_origin
 {
   enum callback_origin_type origin;
@@ -92,8 +89,6 @@ struct callback_node * current_callback_node_get (void);
 struct callback_node * get_init_stack_callback_node (void);
 lcbn_t * get_init_stack_lcbn (void);
 struct callback_node * invoke_callback (struct callback_info *);
-
-char * callback_type_to_string (enum callback_type);
 
 /* Instantiate a struct callback_info * named cbi_p. */
 #define INIT_CBI(_cb_type, _cb_p)                      \
