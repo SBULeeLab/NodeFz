@@ -52,13 +52,15 @@ class Event:
 
 	#give one of:
 	# xml (an Element)
-	# eventString (a string of fields formatted as: 'Callback X: | <name> <value> | <name> <value> | .... |'
+	# eventString (a string of fields formatted as: 'Callback X: | <key> <value> | <key> <value> | .... |'
+  #   An eventString must include the keys: 'start', 'end', 'id', 'type', 'executing_thread'
+  #     'start', 'end' must have value of the form '<Xs Yns>'
 	# {start, end, text, categoryName, containerName} (strings)
 	def __init__ (self, xml=None, eventString="", start=-1, end=-1, text="", categoryName="", containerName="", description=""):
 		if (xml):
 			self.fromXML(xml)
 		elif (eventString):
-			#Callback 34:  | <cbn> <0x2fb7930> | <id> <35> | <info> <0x2f9e9f0> | <type> <UV_SHUTDOWN_CB> | <logical level> <0> | <physical level> <0> | <logical parent> <(nil)> | <logical parent_id> <-1> | <logical parent> <(nil)> | <logical parent_id> <-1> |<active> <0> | <n_physical_children> <0> | <n_logical_children> <0> | <client_id> <-3> | <relative start> <12s 948599137ns> | <duration> <0s 4729ns> |
+			#Callback 34:	| <cbn> <0x2fb7930> | <id> <35> | <info> <0x2f9e9f0> | <type> <UV_SHUTDOWN_CB> | <logical level> <0> | <physical level> <0> | <logical parent> <(nil)> | <logical parent_id> <-1> | <logical parent> <(nil)> | <logical parent_id> <-1> |<active> <0> | <n_physical_children> <0> | <n_logical_children> <0> | <client_id> <-3> | <relative start> <12s 948599137ns> | <duration> <0s 4729ns> |
 			kvs = eventString.split("|")
 			for kv in kvs:
 				match = re.search('<(?P<key>.*?)>\s+<(?P<value>.*)>', kv)
@@ -67,19 +69,20 @@ class Event:
 					
 			#compute the standard event fields: start, end, text, categoryName, containerName
 			
-			#convert 'relative start, duration' to 'start, end'
-			relative_start = getattr(self, 'relative start', None)
-			duration = getattr(self, 'duration', None)
-			assert(relative_start and duration)
+			#convert 'start', 'end' in s,ns to ns
+			start = getattr(self, 'start', None)
+			end = getattr(self, 'end', None)
+			assert(start and end)
 			
-			match = re.search('(?P<sec>\d+)s\s+(?P<nsec>\d+)ns', relative_start)
+			match = re.search('(?P<sec>\d+)s\s+(?P<nsec>\d+)ns', start)
 			assert(match)
 			self.start = int(match.group('sec'))*1e9 + int(match.group('nsec'))
 			
-			match = re.search('(?P<sec>\d+)s\s+(?P<nsec>\d+)ns', duration)
+			match = re.search('(?P<sec>\d+)s\s+(?P<nsec>\d+)ns', end)
 			assert(match)
-			duration_ns = int(match.group('sec'))*1e9 + int(match.group('nsec'))
-			self.end = self.start + duration_ns
+			self.end = int(match.group('sec'))*1e9 + int(match.group('nsec'))
+			assert(self.start <= self.end)
+
 			assert(getattr(self, 'id', None) and getattr(self, 'type', None))
 			self.text = "%s: %s" % (getattr(self, 'id', None), getattr(self, 'type', None))			
 			
@@ -89,8 +92,10 @@ class Event:
 				self.containerName = self.categoryName			
 
 			#compose an alt-text description based on other available data
-			assert(getattr(self, 'client_id', None) and getattr(self, 'logical parent_id', None))
-			self.description = "clientID %s hasLogicalParent %s" %(getattr(self, 'client_id', None), '0' if getattr(self, 'logical parent_id', None) == str(-1) else '1')
+			if(getattr(self, 'client_id', None) and getattr(self, 'logical parent_id', None)):
+				self.description = "clientID %s hasLogicalParent %s" %(getattr(self, 'client_id', None), '0' if getattr(self, 'logical parent_id', None) == str(-1) else '1')
+			else:
+				self.description = ""
 		else:
 			self.start = start
 			self.end = end
