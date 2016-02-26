@@ -1,6 +1,10 @@
 #ifndef UV_UNIFIED_CALLBACK_ENUMS_H_
 #define UV_UNIFIED_CALLBACK_ENUMS_H_
 
+#ifndef NOT_REACHED
+#define NOT_REACHED assert (0 == 1);
+#endif
+
 /* Special values for uv__callback_origin. */
 enum internal_callback_wrappers
 {
@@ -90,9 +94,14 @@ enum callback_context
 
 /* Whether a callback is part of an action or part of a response. 
    Some callbacks are part of a request for an action, while others indicate
-   the response to take based on external input.
+   the response to take based on some condition (typically external input).
+
    Action callbacks ultimately result in an action and the subsequent invocation of the callback.
-   Response callbacks indicate the response to take if the event ever occurs, aka a 'listener' */
+   Response callbacks indicate the response to take if the event ever occurs, aka a 'listener'. 
+   
+   Action callbacks will be called at most once, and are expected to be called once.
+   Response callbacks will be called 0 or more times. There is no guarantee that they will
+    be called. */
 enum callback_behavior
 {
   CALLBACK_BEHAVIOR_ACTION,
@@ -103,6 +112,5 @@ enum callback_behavior
 char * callback_type_to_string (enum callback_type);
 enum callback_context callback_type_to_context (enum callback_type cb_type);
 enum callback_behavior callback_type_to_behavior (enum callback_type cb_type);
-
 
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */

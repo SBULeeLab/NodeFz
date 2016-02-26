@@ -55,6 +55,7 @@
         'src/list.c',
         'src/map.c',
         'src/logical-callback-node.c',
+        'src/unified-callback-enums.c',
         'include/uv-errno.h',
         'include/uv-threadpool.h',
         'include/uv-version.h',
