@@ -1852,15 +1852,13 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
-    assert(lcbn_orig == NULL); /* TODO Is there ever a current lcbn? */
+    assert(lcbn_orig == NULL); /* TODO Is there ever a current lcbn? It seems like this is possible if an LCBN invokes a synchronous libuv request. This depends on Node implementations, too. When this assert is triggered (if ever), we will learn something. */
 
     mylog("invoke_callback: invoking lcbn %p context %p tree_parent %p registrar %p cb %p type %s lcbn_orig %p\n",
       lcbn_new, context, lcbn_new->tree_parent, lcbn_new->registrar, cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
     lcbn_mark_begin(lcbn_new);
 
     /* Add to metadata structures. */
-    /* TODO Problem: For large reads, ALLOC and READ are currently using the same LCBNs repeatedly. This
-        will corrupt these lists. See notes about the problem. */
     lcbn_new->global_id = list_size(&lcbn_global_order_list);
     list_push_back(&lcbn_global_order_list, &lcbn_new->global_order_elem);
 
@@ -1870,6 +1868,15 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       list_push_back(&lcbn_root_list, &lcbn_new->root_elem); 
       lcbn_new->tree_level = 0;
       lcbn_new->level_entry = 0;
+    }
+
+    if (callback_type_to_behavior(lcbn_new->cb_type) == CALLBACK_BEHAVIOR_RESPONSE)
+    {
+      /* If this LCBN is a response, it may repeat. If so, the next response must come after this response,
+         and is in some sense caused by this response. Consequently, register after setting LCBN so that it becomes a child of this LCBN. */
+      mylog("invoke_callback: registering cb %p under context %p with type %s as child of LCBN %p\n",
+        lcbn_get_cb(lcbn_new), lcbn_get_context(lcbn_new), callback_type_to_string(lcbn_get_cb_type(lcbn_new)), lcbn_new);
+      uv__register_callback(lcbn_get_context(lcbn_new), lcbn_get_cb(lcbn_new), lcbn_get_cb_type(lcbn_new));
     }
 
     lcbn_determine_executing_thread(lcbn_new);
@@ -2324,11 +2331,7 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
   lcbn_new->registrar = lcbn_cur;
   /* Register it in its context. */
   lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
-
-  /* If it's an ACTION CB, it's a child of lcbn_cur. 
-     Otherwise it will comprise a new logical tree once it is triggered (if ever). */
-  if (cb_behavior == CALLBACK_BEHAVIOR_ACTION)
-    lcbn_add_child(lcbn_cur, lcbn_new);
+  lcbn_add_child(lcbn_cur, lcbn_new);
 
   mylog("uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
     lcbn_new, cb, context, callback_type_to_string(cb_type), lcbn_new->registrar);
