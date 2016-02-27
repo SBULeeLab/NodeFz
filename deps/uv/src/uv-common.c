@@ -1407,11 +1407,10 @@ void lcbn_determine_executing_thread (lcbn_t *lcbn)
 /* Code in support of tracking the initial stack. */
 
 /* Returns the CBN associated with the initial stack.
-   Acquires and releases the metadata lock. */
+   Not thread safe the first time it is called. */
 struct callback_node * get_init_stack_callback_node (void)
 {
   static struct callback_node *init_stack_cbn = NULL;
-  uv__metadata_lock();
   if (!init_stack_cbn)
   {
     init_stack_cbn = cbn_create();
@@ -1430,17 +1429,15 @@ struct callback_node * get_init_stack_callback_node (void)
 
     list_push_back(&root_list, &init_stack_cbn->root_elem); 
   }
-  uv__metadata_unlock();
 
   return init_stack_cbn;
 }
 
 /* Returns the CBN associated with the initial stack.
-   Acquires and releases the metadata lock. */
+   Not thread safe the first time it is called. */
 lcbn_t * get_init_stack_lcbn (void)
 {
   static lcbn_t *init_stack_lcbn = NULL;
-  uv__metadata_lock();
   if (!init_stack_lcbn)
   {
     init_stack_lcbn = lcbn_create(NULL, NULL, 0);
@@ -1458,7 +1455,6 @@ lcbn_t * get_init_stack_lcbn (void)
     init_stack_lcbn->tree_number = list_size(&lcbn_root_list);
     list_push_back(&lcbn_root_list, &init_stack_lcbn->root_elem); 
   }
-  uv__metadata_unlock();
 
   return init_stack_lcbn;
 }
@@ -1653,6 +1649,9 @@ void unified_callback_init (void)
 
   pthread_to_tid = map_create();
   assert(pthread_to_tid != NULL);
+
+  (void) get_init_stack_callback_node();
+  (void) get_init_stack_lcbn();
 
 #if 1
   signal(SIGUSR1, dump_all_trees_and_exit_sighandler);
