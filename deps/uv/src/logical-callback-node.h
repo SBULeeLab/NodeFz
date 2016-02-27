@@ -13,7 +13,7 @@ typedef struct lcbn_s lcbn_t;
 struct lcbn_s
 {
   /* Set at registration time. */
-  void *context;
+  void *context; /* Request or handle with which this LCBN is associated. */
   void *cb;
   enum callback_type cb_type; 
 
@@ -52,5 +52,9 @@ void lcbn_mark_end (lcbn_t *lcbn);
 
 char * lcbn_to_string (lcbn_t *cbn, char *buf, int size);
 void lcbn_globallist_print_f (struct list_elem *e, int *fd);
+
+void * lcbn_get_context (lcbn_t *lcbn);
+void * lcbn_get_cb (lcbn_t *lcbn);
+enum callback_type lcbn_get_cb_type (lcbn_t *lcbn);
 
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */

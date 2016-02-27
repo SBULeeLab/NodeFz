@@ -109,3 +109,22 @@ void lcbn_globallist_print_f (struct list_elem *e, int *fd)
 
   dprintf(*fd, "%s\n", buf);
 }
+
+/* Return the context of LCBN. */
+void * lcbn_get_context (lcbn_t *lcbn)
+{
+  assert(lcbn != NULL);
+  return lcbn->context;
+}
+
+void * lcbn_get_cb (lcbn_t *lcbn)
+{
+  assert(lcbn != NULL);
+  return lcbn->cb;
+}
+
+enum callback_type lcbn_get_cb_type (lcbn_t *lcbn)
+{
+  assert(lcbn != NULL);
+  return lcbn->cb_type;
+}
