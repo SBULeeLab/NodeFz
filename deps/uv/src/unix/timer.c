@@ -83,8 +83,6 @@ int uv_timer_start(uv_timer_t* handle,
   handle->start_id = handle->loop->timer_counter++;
 
 #ifdef UNIFIED_CALLBACK
-  /* NB This won't work for repeating timers. */
-  assert(repeat == 0);
   uv__register_callback(handle, cb, UV_TIMER_CB);
 #endif
 
