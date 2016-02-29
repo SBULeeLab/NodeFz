@@ -25,6 +25,13 @@ char *callback_type_to_string (enum callback_type type)
   return callback_type_strings[type];
 }
 
+static char *callback_context_strings[] = { "HANDLE", "REQ", "UNKNOWN" };
+
+char *callback_context_to_string (enum callback_context type)
+{
+  return callback_context_strings[type];
+}
+
 enum callback_context callback_type_to_context (enum callback_type cb_type)
 {
   switch (cb_type)
@@ -59,6 +66,13 @@ enum callback_context callback_type_to_context (enum callback_type cb_type)
       return CALLBACK_CONTEXT_UNKNOWN;
   }
   NOT_REACHED;
+}
+
+static char *callback_behavior_strings[] = { "ACTION", "RESPONSE", "UNKNOWN" };
+
+char *callback_behavior_to_string (enum callback_behavior type)
+{
+  return callback_behavior_strings[type];
 }
 
 enum callback_behavior callback_type_to_behavior (enum callback_type cb_type)

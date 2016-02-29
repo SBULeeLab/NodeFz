@@ -109,8 +109,11 @@ enum callback_behavior
   CALLBACK_BEHAVIOR_UNKNOWN
 };
 
-char * callback_type_to_string (enum callback_type);
 enum callback_context callback_type_to_context (enum callback_type cb_type);
 enum callback_behavior callback_type_to_behavior (enum callback_type cb_type);
+
+char * callback_type_to_string (enum callback_type);
+char *callback_context_to_string (enum callback_context type);
+char *callback_behavior_to_string (enum callback_behavior type);
 
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */
