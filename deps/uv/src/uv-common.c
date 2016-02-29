@@ -1774,14 +1774,22 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     }
     else if (cb_context == CALLBACK_CONTEXT_REQ)
     {
-      context_req = (uv_req_t *) context;
+      if (cbi->type == UV_FS_WORK_CB) /* args[0] is the uv__work of a uv_fs_t request. */
+        context_req = (uv_req_t *) container_of(cbi->args[0], uv_fs_t, work_req);
+      else if (cbi->type == UV_GETADDRINFO_WORK_CB) /* args[0] is the uv__work of a uv_getaddrinfo_t request. */
+        context_req = (uv_req_t *) container_of(cbi->args[0], uv_getaddrinfo_t, work_req);
+      else if (cbi->type == UV_GETNAMEINFO_WORK_CB) /* args[0] is the uv__work of a uv_getnameinfo_t request. */
+        context_req = (uv_req_t *) container_of(cbi->args[0], uv_getnameinfo_t, work_req);
+      else
+        context_req = (uv_req_t *) context;
       cb_type_to_lcbn = context_req->cb_type_to_lcbn;
     }
     else
       NOT_REACHED;
   }
 
-  is_threadpool_CB = (cbi->type == UV__WORK_WORK || cbi->type == UV_WORK_CB);
+  is_threadpool_CB = (cbi->type == UV__WORK_WORK || cbi->type == UV_WORK_CB || 
+                      cbi->type == UV_FS_WORK_CB || cbi->type == UV_GETADDRINFO_WORK_CB || cbi->type == UV_GETNAMEINFO_WORK_CB);
   if (sync_cb_thread == 0 && !is_threadpool_CB)
   {
     /* First non-threadpool CB: note the tid. 
@@ -1852,7 +1860,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
-    assert(lcbn_orig == NULL); /* TODO Is there ever a current lcbn? It seems like this is possible if an LCBN invokes a synchronous libuv request. This depends on Node implementations, too. When this assert is triggered (if ever), we will learn something. */
 
     mylog("invoke_callback: invoking lcbn %p context %p tree_parent %p registrar %p cb %p type %s lcbn_orig %p\n",
       lcbn_new, context, lcbn_new->tree_parent, lcbn_new->registrar, cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
@@ -2703,6 +2710,9 @@ static void cbn_execute_callback (struct callback_node *cbn)
     case UV_WALK_CB:
       info->cb ((uv_handle_t *) info->args[0], (void *) info->args[1]); /* uv_handle_t */
       break;
+    case UV_FS_WORK_CB:
+      info->cb ((struct uv__work *) info->args[0]); /* JD: Added by me. */
+      break;
     case UV_FS_CB:
       info->cb ((uv_fs_t *) info->args[0]); /* uv_req_t, no information about *handle or parent */
       break;
@@ -2711,6 +2721,12 @@ static void cbn_execute_callback (struct callback_node *cbn)
       break;
     case UV_AFTER_WORK_CB:
       info->cb ((uv_work_t *) info->args[0], (int) info->args[1]); /* uv_req_t, no information about *handle or parent */
+      break;
+    case UV_GETADDRINFO_WORK_CB:
+      info->cb ((struct uv__work *) info->args[0]); /* JD: Added by me. */
+      break;
+    case UV_GETNAMEINFO_WORK_CB:
+      info->cb ((struct uv__work *) info->args[0]); /* JD: Added by me. */
       break;
     case UV_GETADDRINFO_CB:
       info->cb ((uv_getaddrinfo_t *) info->args[0], (int) info->args[1], (struct addrinfo *) info->args[2]); /* uv_req_t, no information about *handle or parent */

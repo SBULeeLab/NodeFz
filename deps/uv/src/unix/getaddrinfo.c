@@ -93,7 +93,6 @@ int uv__getaddrinfo_translate_error(int sys_err) {
   return 0;  /* Pacify compiler. */
 }
 
-
 static void uv__getaddrinfo_work(struct uv__work* w) {
   uv_getaddrinfo_t* req;
   int err;
@@ -101,6 +100,13 @@ static void uv__getaddrinfo_work(struct uv__work* w) {
   req = container_of(w, uv_getaddrinfo_t, work_req);
   err = getaddrinfo(req->hostname, req->service, req->hints, &req->addrinfo);
   req->retcode = uv__getaddrinfo_translate_error(err);
+}
+
+static void uv__getaddrinfo_work_wrapper (uv_work_t *req)
+{
+  uv_getaddrinfo_t *addr_req;
+  addr_req = (uv_getaddrinfo_t *) req->data;
+  INVOKE_CALLBACK_1(UV_GETADDRINFO_WORK_CB, uv__getaddrinfo_work, &addr_req->work_req);
 }
 
 void * uv_uv__getaddrinfo_work_ptr (void)
@@ -143,6 +149,15 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   }
 }
 
+static void uv__getaddrinfo_done_wrapper (uv_work_t *req, int status)
+{
+  uv_getaddrinfo_t *addr_req;
+  addr_req = (uv_getaddrinfo_t *) req->data;
+
+  uv__getaddrinfo_done(&addr_req->work_req, status);
+  free(req);
+}
+
 void * uv_uv__getaddrinfo_done_ptr (void)
 {
   return (void *) uv__getaddrinfo_done;
@@ -160,6 +175,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
   size_t hints_len;
   size_t len;
   char* buf;
+  uv_work_t *work_req;
 
   if (req == NULL || (hostname == NULL && service == NULL))
     return -EINVAL;
@@ -181,10 +197,6 @@ int uv_getaddrinfo(uv_loop_t* loop,
   req->hostname = NULL;
   req->retcode = 0;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, cb, UV_GETADDRINFO_CB);
-#endif
-
   /* order matters, see uv_getaddrinfo_done() */
   len = 0;
 
@@ -202,10 +214,21 @@ int uv_getaddrinfo(uv_loop_t* loop,
     req->hostname = memcpy(buf + len, hostname, hostname_len);
 
   if (cb) {
+#ifdef UNIFIED_CALLBACK
+    uv__register_callback(req, uv__getaddrinfo_work_wrapper, UV_GETADDRINFO_WORK_CB);
+    uv__register_callback(req, cb, UV_GETADDRINFO_CB);
+
+    work_req = (uv_work_t *) malloc(sizeof *work_req);
+    assert(work_req != NULL);
+    memset(work_req, 0, sizeof *work_req);
+    work_req->data = req;
+    uv_queue_work(loop, work_req, uv__getaddrinfo_work_wrapper, uv__getaddrinfo_done_wrapper);
+#else
     uv__work_submit(loop,
                     &req->work_req,
                     uv__getaddrinfo_work,
                     uv__getaddrinfo_done);
+#endif
     return 0;
   } else {
     uv__getaddrinfo_work(&req->work_req);

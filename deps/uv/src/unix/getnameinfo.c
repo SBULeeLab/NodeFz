@@ -53,6 +53,13 @@ static void uv__getnameinfo_work(struct uv__work* w) {
   req->retcode = uv__getaddrinfo_translate_error(err);
 }
 
+static void uv__getnameinfo_work_wrapper (uv_work_t *req)
+{
+  uv_getnameinfo_t *name_req;
+  name_req = (uv_getnameinfo_t *) req->data;
+  INVOKE_CALLBACK_1(UV_GETNAMEINFO_WORK_CB, uv__getnameinfo_work, &name_req->work_req);
+}
+
 static void uv__getnameinfo_done(struct uv__work* w, int status) {
   uv_getnameinfo_t* req;
   char* host;
@@ -80,6 +87,15 @@ static void uv__getnameinfo_done(struct uv__work* w, int status) {
   }
 }
 
+static void uv__getnameinfo_done_wrapper (uv_work_t *req, int status)
+{
+  uv_getnameinfo_t *name_req;
+  name_req = (uv_getnameinfo_t *) req->data;
+
+  uv__getnameinfo_done(&name_req->work_req, status);
+  free(req);
+}
+
 /*
 * Entry point for getnameinfo
 * return 0 if a callback will be made
@@ -90,6 +106,8 @@ int uv_getnameinfo(uv_loop_t* loop,
                    uv_getnameinfo_cb getnameinfo_cb,
                    const struct sockaddr* addr,
                    int flags) {
+  uv_work_t *work_req;
+
   if (req == NULL || addr == NULL)
     return UV_EINVAL;
 
@@ -114,10 +132,21 @@ int uv_getnameinfo(uv_loop_t* loop,
   req->retcode = 0;
 
   if (getnameinfo_cb) {
+#ifdef UNIFIED_CALLBACK
+    uv__register_callback(req, uv__getnameinfo_work_wrapper, UV_GETNAMEINFO_WORK_CB);
+    uv__register_callback(req, getnameinfo_cb, UV_GETNAMEINFO_CB);
+
+    work_req = (uv_work_t *) malloc(sizeof *work_req);
+    assert(work_req != NULL);
+    memset(work_req, 0, sizeof *work_req);
+    work_req->data = req;
+    uv_queue_work(loop, work_req, uv__getnameinfo_work_wrapper, uv__getnameinfo_done_wrapper);
+#else
     uv__work_submit(loop,
                     &req->work_req,
                     uv__getnameinfo_work,
                     uv__getnameinfo_done);
+#endif
     return 0;
   } else {
     uv__getnameinfo_work(&req->work_req);

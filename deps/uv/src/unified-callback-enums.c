@@ -5,7 +5,10 @@ static char *callback_type_strings[] = {
   "UV_ALLOC_CB", "UV_READ_CB", "UV_WRITE_CB", "UV_CONNECT_CB", "UV_SHUTDOWN_CB", 
   "UV_CONNECTION_CB", "UV_CLOSE_CB", "UV_POLL_CB", "UV_TIMER_CB", "UV_ASYNC_CB", 
   "UV_PREPARE_CB", "UV_CHECK_CB", "UV_IDLE_CB", "UV_EXIT_CB", "UV_WALK_CB", 
-  "UV_FS_CB", "UV_WORK_CB", "UV_AFTER_WORK_CB", "UV_GETADDRINFO_CB", "UV_GETNAMEINFO_CB", 
+  "UV_FS_WORK_CB", "UV_FS_CB", 
+  "UV_WORK_CB", "UV_AFTER_WORK_CB", 
+  "UV_GETADDRINFO_WORK_CB", "UV_GETADDRINFO_CB", 
+  "UV_GETNAMEINFO_WORK_CB", "UV_GETNAMEINFO_CB", 
   "UV_FS_EVENT_CB", "UV_FS_POLL_CB", "UV_SIGNAL_CB", "UV_UDP_SEND_CB", "UV_UDP_RECV_CB", 
   "UV_THREAD_CB", 
 
@@ -54,8 +57,12 @@ enum callback_context callback_type_to_context (enum callback_type cb_type)
 
     case UV_WORK_CB:
     case UV_AFTER_WORK_CB:
+    case UV_FS_WORK_CB:
     case UV_FS_CB:
+    case UV_GETADDRINFO_WORK_CB:
     case UV_GETADDRINFO_CB:
+    case UV_GETNAMEINFO_WORK_CB:
+    case UV_GETNAMEINFO_CB:
     case UV_CONNECT_CB:
     case UV_SHUTDOWN_CB:
     case UV_WRITE_CB:
@@ -84,8 +91,12 @@ enum callback_behavior callback_type_to_behavior (enum callback_type cb_type)
     /* Requests. Assume no simultaneous request reuse. */
     case UV_WORK_CB:
     case UV_AFTER_WORK_CB:
+    case UV_FS_WORK_CB:
     case UV_FS_CB:
+    case UV_GETADDRINFO_WORK_CB:
     case UV_GETADDRINFO_CB:
+    case UV_GETNAMEINFO_WORK_CB:
+    case UV_GETNAMEINFO_CB:
     case UV_CONNECT_CB:
     case UV_SHUTDOWN_CB:
     case UV_WRITE_CB:

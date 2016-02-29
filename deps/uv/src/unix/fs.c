@@ -70,7 +70,6 @@
     req->path = NULL;                                                         \
     req->new_path = NULL;                                                     \
     req->cb = cb;                                                             \
-    uv__register_callback(req, cb, UV_FS_CB);                                 \
   }                                                                           \
   while (0)
 
@@ -110,10 +109,18 @@
 #define POST                                                                  \
   do {                                                                        \
     if (cb != NULL) {                                                         \
-      uv__work_submit(loop, &req->work_req, uv__fs_work, uv__fs_done);        \
+      uv__register_callback(req, uv__fs_work_wrapper, UV_FS_WORK_CB);         \
+      uv__register_callback(req, cb, UV_FS_CB);                               \
+                                                                              \
+      work_req = (uv_work_t *) malloc(sizeof *work_req);                      \
+      assert(work_req != NULL);                                               \
+      memset(work_req, 0, sizeof *work_req);                                  \
+      work_req->data = req;                                                   \
+      uv_queue_work(loop, work_req, uv__fs_work_wrapper, uv__fs_done_wrapper); \
       return 0;                                                               \
     }                                                                         \
     else {                                                                    \
+      /* Synchronous call, no need to track. */                               \
       uv__fs_work(&req->work_req);                                            \
       return req->result;                                                     \
     }                                                                         \
@@ -893,6 +900,12 @@ static void uv__fs_work(struct uv__work* w) {
   }
 }
 
+static void uv__fs_work_wrapper(uv_work_t *req) {
+  uv_fs_t *fs_req;
+  fs_req = (uv_fs_t *) req->data;
+  INVOKE_CALLBACK_1(UV_FS_WORK_CB, uv__fs_work, &fs_req->work_req);
+}
+
 static void uv__fs_done(struct uv__work* w, int status) {
   uv_fs_t* req;
 
@@ -911,6 +924,14 @@ static void uv__fs_done(struct uv__work* w, int status) {
 #endif
 }
 
+static void uv__fs_done_wrapper(uv_work_t *req, int status) {
+  uv_fs_t *addr_req;
+  addr_req = (uv_fs_t *) req->data;
+
+  uv__fs_done(&addr_req->work_req, status);
+  free(req);
+}
+
 void * uv_uv__fs_work_ptr (void)
 {
   return (void *) uv__fs_work;
@@ -927,6 +948,7 @@ int uv_fs_access(uv_loop_t* loop,
                  const char* path,
                  int flags,
                  uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(ACCESS);
   PATH;
   req->flags = flags;
@@ -939,6 +961,7 @@ int uv_fs_chmod(uv_loop_t* loop,
                 const char* path,
                 int mode,
                 uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(CHMOD);
   PATH;
   req->mode = mode;
@@ -952,6 +975,7 @@ int uv_fs_chown(uv_loop_t* loop,
                 uv_uid_t uid,
                 uv_gid_t gid,
                 uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(CHOWN);
   PATH;
   req->uid = uid;
@@ -961,6 +985,7 @@ int uv_fs_chown(uv_loop_t* loop,
 
 
 int uv_fs_close(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(CLOSE);
   req->file = file;
   POST;
@@ -972,6 +997,7 @@ int uv_fs_fchmod(uv_loop_t* loop,
                  uv_file file,
                  int mode,
                  uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(FCHMOD);
   req->file = file;
   req->mode = mode;
@@ -985,6 +1011,7 @@ int uv_fs_fchown(uv_loop_t* loop,
                  uv_uid_t uid,
                  uv_gid_t gid,
                  uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(FCHOWN);
   req->file = file;
   req->uid = uid;
@@ -994,6 +1021,7 @@ int uv_fs_fchown(uv_loop_t* loop,
 
 
 int uv_fs_fdatasync(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(FDATASYNC);
   req->file = file;
   POST;
@@ -1001,6 +1029,7 @@ int uv_fs_fdatasync(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
 
 
 int uv_fs_fstat(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(FSTAT);
   req->file = file;
   POST;
@@ -1008,6 +1037,7 @@ int uv_fs_fstat(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
 
 
 int uv_fs_fsync(uv_loop_t* loop, uv_fs_t* req, uv_file file, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(FSYNC);
   req->file = file;
   POST;
@@ -1019,6 +1049,7 @@ int uv_fs_ftruncate(uv_loop_t* loop,
                     uv_file file,
                     int64_t off,
                     uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(FTRUNCATE);
   req->file = file;
   req->off = off;
@@ -1032,6 +1063,7 @@ int uv_fs_futime(uv_loop_t* loop,
                  double atime,
                  double mtime,
                  uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(FUTIME);
   req->file = file;
   req->atime = atime;
@@ -1041,6 +1073,7 @@ int uv_fs_futime(uv_loop_t* loop,
 
 
 int uv_fs_lstat(uv_loop_t* loop, uv_fs_t* req, const char* path, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(LSTAT);
   PATH;
   POST;
@@ -1052,6 +1085,7 @@ int uv_fs_link(uv_loop_t* loop,
                const char* path,
                const char* new_path,
                uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(LINK);
   PATH2;
   POST;
@@ -1063,6 +1097,7 @@ int uv_fs_mkdir(uv_loop_t* loop,
                 const char* path,
                 int mode,
                 uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(MKDIR);
   PATH;
   req->mode = mode;
@@ -1074,6 +1109,7 @@ int uv_fs_mkdtemp(uv_loop_t* loop,
                   uv_fs_t* req,
                   const char* tpl,
                   uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(MKDTEMP);
   req->path = uv__strdup(tpl);
   if (req->path == NULL)
@@ -1088,6 +1124,7 @@ int uv_fs_open(uv_loop_t* loop,
                int flags,
                int mode,
                uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(OPEN);
   PATH;
   req->flags = flags;
@@ -1102,6 +1139,7 @@ int uv_fs_read(uv_loop_t* loop, uv_fs_t* req,
                unsigned int nbufs,
                int64_t off,
                uv_fs_cb cb) {
+  uv_work_t *work_req;
   if (bufs == NULL || nbufs == 0)
     return -EINVAL;
 
@@ -1128,6 +1166,7 @@ int uv_fs_scandir(uv_loop_t* loop,
                   const char* path,
                   int flags,
                   uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(SCANDIR);
   PATH;
   req->flags = flags;
@@ -1139,6 +1178,7 @@ int uv_fs_readlink(uv_loop_t* loop,
                    uv_fs_t* req,
                    const char* path,
                    uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(READLINK);
   PATH;
   POST;
@@ -1150,6 +1190,7 @@ int uv_fs_rename(uv_loop_t* loop,
                  const char* path,
                  const char* new_path,
                  uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(RENAME);
   PATH2;
   POST;
@@ -1157,6 +1198,7 @@ int uv_fs_rename(uv_loop_t* loop,
 
 
 int uv_fs_rmdir(uv_loop_t* loop, uv_fs_t* req, const char* path, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(RMDIR);
   PATH;
   POST;
@@ -1170,6 +1212,7 @@ int uv_fs_sendfile(uv_loop_t* loop,
                    int64_t off,
                    size_t len,
                    uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(SENDFILE);
   req->flags = in_fd; /* hack */
   req->file = out_fd;
@@ -1180,6 +1223,7 @@ int uv_fs_sendfile(uv_loop_t* loop,
 
 
 int uv_fs_stat(uv_loop_t* loop, uv_fs_t* req, const char* path, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(STAT);
   PATH;
   POST;
@@ -1192,6 +1236,7 @@ int uv_fs_symlink(uv_loop_t* loop,
                   const char* new_path,
                   int flags,
                   uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(SYMLINK);
   PATH2;
   req->flags = flags;
@@ -1200,6 +1245,7 @@ int uv_fs_symlink(uv_loop_t* loop,
 
 
 int uv_fs_unlink(uv_loop_t* loop, uv_fs_t* req, const char* path, uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(UNLINK);
   PATH;
   POST;
@@ -1212,6 +1258,7 @@ int uv_fs_utime(uv_loop_t* loop,
                 double atime,
                 double mtime,
                 uv_fs_cb cb) {
+  uv_work_t *work_req;
   INIT(UTIME);
   PATH;
   req->atime = atime;
@@ -1227,6 +1274,7 @@ int uv_fs_write(uv_loop_t* loop,
                 unsigned int nbufs,
                 int64_t off,
                 uv_fs_cb cb) {
+  uv_work_t *work_req;
   if (bufs == NULL || nbufs == 0)
     return -EINVAL;
 
