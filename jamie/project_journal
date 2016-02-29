@@ -876,6 +876,24 @@ See jamie_libuv_src_notes for details.
 
 ----------
 
+24-29 Feb 2016
+
+1. I've implemented the new tracking scheme (Logical Callback Nodes - LCBNs) alongside the original CBN code.
+   I figured why delete the CBN code unless I was sure I wouldn't need it?
+2. I've done refactoring and improvements (e.g. unified-callback-enums.[ch]).
+3. I've moved the graphviz stuff into Python. All I need is a printout of the LCBNs and I can produce a tree. This is better; with a constant input file I can tweak the display. More modular.
+
+----------
+
+29 Feb 2016
+
+1. All threadpool code is now routed through uv_queue_work. This required adding wrappers in fs.c, getaddrinfo.c, and getnameinfo.c.
+
+STILL TO DO TODAY:
+  - LCBN: Add notion of physical dependencies. For ALLOC/READ, ALLOC -> READ. For threadpool, WORK [-> UV_FS/GETADDRINFO/GETNAMEINFO_WORK_CB] -> AFTER_WORK [-> UV_FS/GETADDRINFO/GETNAMEINFO_CB]
+  - Plot these in Python using dotted lines
+  - Refactor TimelineCLI to use the CallbackNode class
+  - One-shot CBN file -> timeline and tree
 
 -----------
 
