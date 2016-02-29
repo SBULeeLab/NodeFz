@@ -719,3 +719,23 @@ It sets global_id to 0.
 Every time it invokes a callback it increments global_id.
 To determine the next callback to invoke, it looks at the next LCBN in its schedule.
 It compares this "next" LCBN against pending LCBNs until it finds a match. The 'type' is needed to identify the next root node correctly. It could be a UV_CONNECTION_CB, UV_FS_EVENT_CB, etc. (any of the CALLBACK_BEHAVIOR_RESPONSE cb_types), but with fixed inputs the first matching CB in the list of pending CBs from epol should be a match due to the FIFO nature of epoll.
+
+------------------
+
+Need to track the work/done CBs for all threadpool use, not just via uv_queue_work.
+As noted earlier, the following places make use of uv__work_submit (other than uv_queue_work itself):
+
+1 fs.c          POST            113 uv__work_submit(loop, &req->work_req, uv__fs_work, uv__fs_done); \
+2 getaddrinfo.c uv_getaddrinfo  205 uv__work_submit(loop,
+3 getnameinfo.c uv_getnameinfo  117 uv__work_submit(loop,
+
+Want to capture the invocation of the 'WORK' CB. How to deal with these?
+Options:
+  1. Conditional tracking of the work CB in uv__work_submit. We can identify people not coming from uv_queue_work and track only their UV__WORK_WORK. This seems like a good option: preserve the most info.
+  2. Always-on tracking of CBs in uv__work_submit rather than/in addition to the callers.
+    > "Rather than" -- lose info about what type of work request it was: FS vs. user vs. ...
+    > "In addition to" -- every uv_queue_work work item produces two CBs. Clutter.
+  3. Wrap the "work" CB and route them through uv_queue_work.
+    > Looks mildly tricky because the structs are different. Cleanest option. Add CB types for the 'work' components.
+    > Initial implementation for GETADDRINFO works. Huzzah! Note that *every* async request will now produce UV_WORK_CB and UV_DONE_CB requests. This seems OK. Can patch up later with 'other dependencies'. Need to do this anyway. 
+    > I completed changes for GETNAMEINFO and FS too.
