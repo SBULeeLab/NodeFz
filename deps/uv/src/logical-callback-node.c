@@ -88,8 +88,13 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   assert(lcbn != NULL);
   assert(buf != NULL);
 
-  snprintf(buf, size, "<lcbn> <%p> | <context> <%p> | <cb> <%p> | <type> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <start> <%is %lins> | <end> <%is %lins> | <executing_thread> <%i>",
-    lcbn, lcbn->context, lcbn->cb, callback_type_to_string(lcbn->cb_type), lcbn->tree_number, lcbn->tree_level, lcbn->level_entry, lcbn->global_id, lcbn->info, lcbn->registrar, lcbn->tree_parent, lcbn->start.tv_sec, lcbn->start.tv_nsec, lcbn->end.tv_sec, lcbn->end.tv_nsec, lcbn->executing_thread);
+  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <start> <%is %lins> | <end> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i>",
+    lcbn, 
+    lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
+    lcbn->cb, callback_type_to_string(lcbn->cb_type), 
+    callback_behavior_to_string(callback_type_to_behavior(lcbn->cb_type)), 
+    lcbn->tree_number, lcbn->tree_level, lcbn->level_entry, lcbn->global_id, lcbn->info, lcbn->registrar, lcbn->tree_parent, lcbn->start.tv_sec, lcbn->start.tv_nsec, lcbn->end.tv_sec, lcbn->end.tv_nsec, lcbn->executing_thread, lcbn->active, lcbn->finished);
+
   return buf;
 }
 
