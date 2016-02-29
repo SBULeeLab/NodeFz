@@ -331,12 +331,13 @@ int list_looks_valid (struct list *list)
   int is_valid; 
 
   assert(list != NULL);
+  /* Magic must be correct. */
+  if (list->magic != LIST_MAGIC)
+    return 0;
+
   list__lock(list);
 
   is_valid = 1;
-  /* Magic must be correct. */
-  if (list->magic != LIST_MAGIC)
-    is_valid = 0;
   /* Head's prev and tail's next should be null. */
   if (list->head.prev != NULL || list->tail.next != NULL)
     is_valid = 0;

@@ -103,13 +103,14 @@ int map_looks_valid (struct map *map)
 {
   int is_valid; 
 
-  map__lock(map);
   assert(map != NULL);
-
-  is_valid = 1;
   /* Magic must be correct. */
   if (map->magic != MAP_MAGIC)
-    is_valid = 0;
+    return 0;
+
+  map__lock(map);
+
+  is_valid = 1;
   if (!list_looks_valid (&map->list))
     is_valid = 0;
 
