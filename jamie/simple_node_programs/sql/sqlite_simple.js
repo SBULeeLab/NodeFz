@@ -54,4 +54,5 @@ setTimeout(function(){
   db.close();
 }, 3000);
 
-setInterval(function (){ console.log("TIMER"); }, 5000);
+//Start reading from stdin so we don't exit.
+process.stdin.resume();
