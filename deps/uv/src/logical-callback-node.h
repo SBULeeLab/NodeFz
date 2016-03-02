@@ -21,7 +21,8 @@ struct lcbn_s
   int tree_level;  /* Level in the tree. Root is 0. */
   int level_entry; /* What number lcbn in this level of the tree? First is 0. */
 
-  int global_id; /* The order in which it was executed relative to all other LCBNs */
+  int global_exec_id; /* The order in which it was executed relative to all other LCBNs */
+  int global_reg_id; /* The order in which it was registered relative to all other LCBNs */
 
   struct callback_info *info; /* Set at invoke_callback time. */
 
@@ -40,7 +41,8 @@ struct lcbn_s
 
   pthread_t executing_thread; /* Which thread executes us? */
   
-  struct list_elem global_order_elem; /* For inclusion in the global callback order list. */
+  struct list_elem global_exec_order_elem; /* For inclusion in the global callback order list. */
+  struct list_elem global_reg_order_elem; /* For inclusion in the global callback order list. */
   struct list_elem child_elem; /* For inclusion in logical parent's list of children. */
   struct list_elem root_elem; /* For root nodes: inclusion in the list of logical root nodes. */
 };
@@ -53,7 +55,9 @@ void lcbn_mark_begin (lcbn_t *lcbn);
 void lcbn_mark_end (lcbn_t *lcbn);
 
 char * lcbn_to_string (lcbn_t *cbn, char *buf, int size);
-void lcbn_globallist_print_f (struct list_elem *e, int *fd);
+
+void lcbn_global_exec_list_print_f (struct list_elem *e, int *fd);
+void lcbn_global_reg_list_print_f (struct list_elem *e, int *fd);
 
 void * lcbn_get_context (lcbn_t *lcbn);
 void * lcbn_get_cb (lcbn_t *lcbn);

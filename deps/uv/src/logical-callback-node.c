@@ -32,7 +32,8 @@ lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
   lcbn->tree_level = -1;
   lcbn->level_entry = -1;
 
-  lcbn->global_id = -1;
+  lcbn->global_exec_id = -1;
+  lcbn->global_reg_id = -1;
 
   lcbn->registrar = NULL;
   lcbn->tree_parent = NULL;
@@ -98,12 +99,15 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   assert(lcbn != NULL);
   assert(buf != NULL);
 
-  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <start> <%is %lins> | <end> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i>",
+  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <start> <%is %lins> | <end> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i>",
     lcbn, 
     lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
     lcbn->cb, callback_type_to_string(lcbn->cb_type), 
     callback_behavior_to_string(callback_type_to_behavior(lcbn->cb_type)), 
-    lcbn->tree_number, lcbn->tree_level, lcbn->level_entry, lcbn->global_id, lcbn->info, lcbn->registrar, lcbn->tree_parent, lcbn->start.tv_sec, lcbn->start.tv_nsec, lcbn->end.tv_sec, lcbn->end.tv_nsec, lcbn->executing_thread, lcbn->active, lcbn->finished);
+    lcbn->tree_number, lcbn->tree_level, lcbn->level_entry, lcbn->global_exec_id, lcbn->global_reg_id,
+    lcbn->info, lcbn->registrar, lcbn->tree_parent, 
+    lcbn->start.tv_sec, lcbn->start.tv_nsec, lcbn->end.tv_sec, lcbn->end.tv_nsec, 
+    lcbn->executing_thread, lcbn->active, lcbn->finished);
 
   /* Add dependencies. */
   snprintf(buf + strlen(buf), size, " | <dependencies> <");
@@ -118,9 +122,9 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   return buf;
 }
 
-/* A print function for use with list_apply on a list of LCBNs using their global_order_elem.
+/* A print function for use with list_apply on a list of LCBNs using their global_exec_order_elem.
    Not thread safe. */
-void lcbn_globallist_print_f (struct list_elem *e, int *fd)
+void lcbn_global_exec_list_print_f (struct list_elem *e, int *fd)
 {
   lcbn_t *lcbn;
   static char buf[1024];
@@ -128,7 +132,24 @@ void lcbn_globallist_print_f (struct list_elem *e, int *fd)
   assert(e != NULL);
   assert(fd != NULL);
 
-  lcbn = list_entry(e, lcbn_t, global_order_elem);
+  lcbn = list_entry(e, lcbn_t, global_exec_order_elem);
+  assert(lcbn != NULL);
+  lcbn_to_string(lcbn, buf, sizeof buf);
+
+  dprintf(*fd, "%s\n", buf);
+}
+
+/* A print function for use with list_apply on a list of LCBNs using their global_reg_order_elem.
+   Not thread safe. */
+void lcbn_global_reg_list_print_f (struct list_elem *e, int *fd)
+{
+  lcbn_t *lcbn;
+  static char buf[1024];
+
+  assert(e != NULL);
+  assert(fd != NULL);
+
+  lcbn = list_entry(e, lcbn_t, global_reg_order_elem);
   assert(lcbn != NULL);
   lcbn_to_string(lcbn, buf, sizeof buf);
 

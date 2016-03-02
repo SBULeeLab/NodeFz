@@ -762,7 +762,8 @@ struct list root_list;
 struct list global_order_list;
 
 struct list lcbn_root_list;
-struct list lcbn_global_order_list;
+struct list lcbn_global_exec_order_list;
+struct list lcbn_global_reg_order_list;
 
 /* We identify unique clients based on the associated 'peer info' (struct sockaddr).
    A map 'peer -> client ID' tells us whether a given peer is an already-known client.
@@ -1451,9 +1452,12 @@ lcbn_t * get_init_stack_lcbn (void)
 
     init_stack_lcbn->cb_type = CALLBACK_TYPE_INITIAL_STACK;
 
-    /* Add to global order list and to root list. */
-    init_stack_lcbn->global_id = list_size(&lcbn_global_order_list);
-    list_push_back(&lcbn_global_order_list, &init_stack_lcbn->global_order_elem);
+    /* Add to metadata structures. */
+    init_stack_lcbn->global_exec_id = list_size(&lcbn_global_exec_order_list);
+    list_push_back(&lcbn_global_exec_order_list, &init_stack_lcbn->global_exec_order_elem);
+
+    init_stack_lcbn->global_reg_id = list_size(&lcbn_global_reg_order_list);
+    list_push_back(&lcbn_global_reg_order_list, &init_stack_lcbn->global_reg_order_elem);
 
     init_stack_lcbn->tree_number = list_size(&lcbn_root_list);
     list_push_back(&lcbn_root_list, &init_stack_lcbn->root_elem); 
@@ -1632,7 +1636,8 @@ void unified_callback_init (void)
   list_init(&global_order_list);
   list_init(&root_list);
 
-  list_init(&lcbn_global_order_list);
+  list_init(&lcbn_global_exec_order_list);
+  list_init(&lcbn_global_reg_order_list);
   list_init(&lcbn_root_list);
 
   peer_info_to_id = map_create();
@@ -1869,8 +1874,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     lcbn_mark_begin(lcbn_new);
 
     /* Add to metadata structures. */
-    lcbn_new->global_id = list_size(&lcbn_global_order_list);
-    list_push_back(&lcbn_global_order_list, &lcbn_new->global_order_elem);
+    lcbn_new->global_exec_id = list_size(&lcbn_global_exec_order_list);
+    list_push_back(&lcbn_global_exec_order_list, &lcbn_new->global_exec_order_elem);
 
     if (!lcbn_new->tree_parent)
     {
@@ -2034,23 +2039,30 @@ void dump_lcbn_globalorder(void)
   int fd;
   char out_file[128];
 
-  snprintf(out_file, 128, "/tmp/lcbn_global_order_%i_%i.txt", (int) time(NULL), getpid());
-  printf("Dumping all %i LCBNs in their global order to %s\n", list_size (&lcbn_global_order_list), out_file);
+  /* Registration order (all CBs). */
+  snprintf(out_file, 128, "/tmp/lcbn_global_reg_order_%i_%i.txt", (int) time(NULL), getpid());
+  printf("Dumping all %i registered LCBNs in their global registration order to %s\n", list_size (&lcbn_global_reg_order_list), out_file);
 
   fd = open(out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   if (fd < 0)
-  {
-    printf("Error, open (%s, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO) failed, returning %i. errno %i: %s\n",
-      out_file, fd, errno, strerror (errno));
-    fflush(NULL);
-    exit (1);
-  }
-
-  list_lock(&lcbn_global_order_list);
-  list_apply(&lcbn_global_order_list, lcbn_globallist_print_f, &fd);
-  list_unlock(&lcbn_global_order_list);
-
+    assert(!"Error, could not open output file");
+  list_lock(&lcbn_global_reg_order_list);
+  list_apply(&lcbn_global_reg_order_list, lcbn_global_reg_list_print_f, &fd);
+  list_unlock(&lcbn_global_reg_order_list);
   close(fd);
+
+  /* Exec order (does not include never-executed CBs). */
+  snprintf(out_file, 128, "/tmp/lcbn_global_exec_order_%i_%i.txt", (int) time(NULL), getpid());
+  printf("Dumping all %i executed LCBNs in their global exec order to %s\n", list_size (&lcbn_global_exec_order_list), out_file);
+
+  fd = open(out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+  if (fd < 0)
+    assert(!"Error, could not open output file");
+  list_lock(&lcbn_global_exec_order_list);
+  list_apply(&lcbn_global_exec_order_list, lcbn_global_exec_list_print_f, &fd);
+  list_unlock(&lcbn_global_exec_order_list);
+  close(fd);
+
 }
 
 #if 0
@@ -2334,7 +2346,13 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
 
   /* Identify the origin of the callback. */
   lcbn_cur = lcbn_current_get();
+#if 1
+  /* TODO simple_node_programs/sql/sqlite_simple.js uv_try_write */
+  if (lcbn_cur == NULL)
+    lcbn_cur = get_init_stack_lcbn();
+#else
   assert(lcbn_cur != NULL); /* All callbacks come from user code. */
+#endif
 
   /* Create a new LCBN. */
   lcbn_new = lcbn_create(context, cb, cb_type);
@@ -2342,6 +2360,10 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
   /* Register it in its context. */
   lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
   lcbn_add_child(lcbn_cur, lcbn_new);
+
+  /* Add to metadata structures. */
+  lcbn_new->global_reg_id = list_size(&lcbn_global_reg_order_list);
+  list_push_back(&lcbn_global_reg_order_list, &lcbn_new->global_reg_order_elem);
 
   mylog("uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
     lcbn_new, cb, context, callback_type_to_string(cb_type), lcbn_new->registrar);
