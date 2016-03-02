@@ -343,10 +343,13 @@ int uv_udp_recv_start(uv_udp_t* handle,
     return UV_EINVAL;
   else
   {
-    #ifdef UNIFIED_CALLBACK
-      uv__register_callback(handle, (void *) alloc_cb, UV_ALLOC_CB);
-      uv__register_callback(handle, (void *) recv_cb, UV_UDP_RECV_CB);
-    #endif
+#ifdef UNIFIED_CALLBACK
+    uv__register_callback(handle, (void *) alloc_cb, UV_ALLOC_CB);
+    uv__register_callback(handle, (void *) recv_cb, UV_UDP_RECV_CB);
+    /* ALLOC -> UDP_RECV. */
+    lcbn_add_dependency(lcbn_get(handle->cb_type_to_lcbn, UV_ALLOC_CB),
+                        lcbn_get(handle->cb_type_to_lcbn, UV_UDP_RECV_CB));
+#endif
     return uv__udp_recv_start(handle, alloc_cb, recv_cb);
   }
 }

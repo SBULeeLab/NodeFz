@@ -7,6 +7,12 @@
 #include <string.h>
 #include <assert.h>
 
+struct lcbn_dependency
+{
+  lcbn_t *dependency;
+  struct list_elem elem;
+};
+
 /* Returns a new logical CBN. 
    id=-1, peer_info is allocated, {orig,true}_client_id=ID_UNKNOWN. 
    All other fields are NULL or 0. */
@@ -31,6 +37,7 @@ lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
   lcbn->registrar = NULL;
   lcbn->tree_parent = NULL;
   list_init(&lcbn->children);
+  list_init(&lcbn->dependencies);
 
   lcbn->active = 0;
   lcbn->finished = 0;
@@ -85,6 +92,9 @@ void lcbn_mark_end (lcbn_t *lcbn)
 /* Write a string description of LCBN into BUF of SIZE. */
 char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
 {
+  struct lcbn_dependency *dep;
+  struct list_elem *e;
+
   assert(lcbn != NULL);
   assert(buf != NULL);
 
@@ -94,6 +104,16 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
     lcbn->cb, callback_type_to_string(lcbn->cb_type), 
     callback_behavior_to_string(callback_type_to_behavior(lcbn->cb_type)), 
     lcbn->tree_number, lcbn->tree_level, lcbn->level_entry, lcbn->global_id, lcbn->info, lcbn->registrar, lcbn->tree_parent, lcbn->start.tv_sec, lcbn->start.tv_nsec, lcbn->end.tv_sec, lcbn->end.tv_nsec, lcbn->executing_thread, lcbn->active, lcbn->finished);
+
+  /* Add dependencies. */
+  snprintf(buf + strlen(buf), size, " | <dependencies> <");
+  for (e = list_begin(&lcbn->dependencies); e != list_end(&lcbn->dependencies); e = list_next(e))
+  {
+    dep = list_entry(e, struct lcbn_dependency, elem);
+    assert(dep != NULL);
+    snprintf(buf + strlen(buf), size, "%p ", dep->dependency);
+  }
+  snprintf(buf + strlen(buf) - (list_empty(&lcbn->dependencies) ? 0 : 1), size, ">"); /* Closing >. Overwrite final space if there were any dependencies. */
 
   return buf;
 }
@@ -132,4 +152,18 @@ enum callback_type lcbn_get_cb_type (lcbn_t *lcbn)
 {
   assert(lcbn != NULL);
   return lcbn->cb_type;
+}
+
+void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ)
+{
+  struct lcbn_dependency *dep;
+
+  assert(pred != NULL);
+  assert(succ != NULL);
+
+  dep = (struct lcbn_dependency *) malloc(sizeof *dep);
+  assert(dep != NULL);
+  dep->dependency = pred;
+
+  list_push_back(&succ->dependencies, &dep->elem);
 }

@@ -111,6 +111,9 @@
     if (cb != NULL) {                                                         \
       uv__register_callback(req, uv__fs_work_wrapper, UV_FS_WORK_CB);         \
       uv__register_callback(req, cb, UV_FS_CB);                               \
+       /* FS_WORK_CB -> FS_CB. */                                             \
+       lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_FS_WORK_CB),     \
+                           lcbn_get(req->cb_type_to_lcbn, UV_FS_CB));         \
                                                                               \
       work_req = (uv_work_t *) malloc(sizeof *work_req);                      \
       assert(work_req != NULL);                                               \

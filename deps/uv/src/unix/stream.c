@@ -1589,6 +1589,9 @@ int uv_read_start(uv_stream_t* stream,
 #ifdef UNIFIED_CALLBACK
   uv__register_callback(stream, (void *) alloc_cb, UV_ALLOC_CB);
   uv__register_callback(stream, (void *) read_cb, UV_READ_CB);
+  /* ALLOC -> READ. */
+  lcbn_add_dependency(lcbn_get(stream->cb_type_to_lcbn, UV_ALLOC_CB),
+                      lcbn_get(stream->cb_type_to_lcbn, UV_READ_CB));
 #endif
 
   /* The UV_STREAM_READING flag is irrelevant of the state of the tcp - it just

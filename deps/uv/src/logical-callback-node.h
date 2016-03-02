@@ -30,6 +30,8 @@ struct lcbn_s
   lcbn_t *tree_parent; /* Parent in the tree. which tree am I in? For action CBs. */
   struct list children;
 
+  struct list dependencies; /* List of 'struct lcbn_dependency'. This LCBN will only be executed after all of the nodes in this list. */
+
   struct timespec start;
   struct timespec end;
 
@@ -56,5 +58,8 @@ void lcbn_globallist_print_f (struct list_elem *e, int *fd);
 void * lcbn_get_context (lcbn_t *lcbn);
 void * lcbn_get_cb (lcbn_t *lcbn);
 enum callback_type lcbn_get_cb_type (lcbn_t *lcbn);
+
+/* Add PRED to SUCC's list of dependencies. */
+void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ);
 
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */

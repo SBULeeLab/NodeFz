@@ -309,6 +309,9 @@ int uv_queue_work(uv_loop_t* loop,
 #ifdef UNIFIED_CALLBACK
   uv__register_callback(req, work_cb, UV_WORK_CB);
   uv__register_callback(req, after_work_cb, UV_AFTER_WORK_CB);
+  /* WORK -> AFTER_WORK. */
+  lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_WORK_CB),
+                      lcbn_get(req->cb_type_to_lcbn, UV_AFTER_WORK_CB));
 #endif
 
   uv__work_submit(loop, &req->work_req, uv__queue_work, uv__queue_done);

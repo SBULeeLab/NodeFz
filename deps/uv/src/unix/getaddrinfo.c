@@ -217,6 +217,10 @@ int uv_getaddrinfo(uv_loop_t* loop,
 #ifdef UNIFIED_CALLBACK
     uv__register_callback(req, uv__getaddrinfo_work_wrapper, UV_GETADDRINFO_WORK_CB);
     uv__register_callback(req, cb, UV_GETADDRINFO_CB);
+    /* GETADDRINFO_WORK_CB -> GETADDRINFO_CB. */
+    lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_GETADDRINFO_WORK_CB),
+                        lcbn_get(req->cb_type_to_lcbn, UV_GETADDRINFO_CB));
+
 
     work_req = (uv_work_t *) malloc(sizeof *work_req);
     assert(work_req != NULL);
