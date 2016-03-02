@@ -69,6 +69,9 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 static void uv__write_callbacks(uv_stream_t* stream);
 static size_t uv__write_req_size(uv_write_t* req);
 
+/* Dummy CB for uv_try_write. */
+void uv_try_write_cb(uv_write_t* req, int status);
+
 void * uv_uv__stream_io_ptr (void)
 {
   return (void *) uv__stream_io;
@@ -1480,7 +1483,10 @@ int uv_write2(uv_write_t* req,
   stream->write_queue_size += uv__count_bufs(bufs, nbufs);
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, (void *) cb, UV_WRITE_CB);
+  /* uv_try_write_cb is never intended to be invoked.
+     Including it in metadata structures would be misleading. */
+  if (cb != uv_try_write_cb)
+    uv__register_callback(req, (void *) cb, UV_WRITE_CB);
 #endif
 
   /* Append the request to write_queue. */
