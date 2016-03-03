@@ -33,8 +33,9 @@ struct lcbn_s
 
   struct list dependencies; /* List of 'struct lcbn_dependency'. This LCBN will only be executed after all of the nodes in this list. */
 
-  struct timespec start;
-  struct timespec end;
+  struct timespec registration_time;
+  struct timespec start_time;
+  struct timespec end_time;
 
   int active;   /* Is this LCBN currently executing? */
   int finished; /* Has this LCBN finished executing? */

@@ -13,8 +13,11 @@ struct lcbn_dependency
   struct list_elem elem;
 };
 
+static void lcbn_mark_registration_time (lcbn_t *lcbn);
+
 /* Returns a new logical CBN. 
    id=-1, peer_info is allocated, {orig,true}_client_id=ID_UNKNOWN. 
+   registration time is set.
    All other fields are NULL or 0. */
 lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
 {
@@ -42,6 +45,8 @@ lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
 
   lcbn->active = 0;
   lcbn->finished = 0;
+
+  lcbn_mark_registration_time(lcbn);
 
   return lcbn;
 }
@@ -73,21 +78,28 @@ void lcbn_destroy (lcbn_t *lcbn)
   free(lcbn);
 }
 
-/* Mark LCBN as active and update its start field. */
+/* Set the registration_time field. */
+static void lcbn_mark_registration_time (lcbn_t *lcbn)
+{
+  assert(lcbn != NULL);
+  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->registration_time) == 0);
+}
+
+/* Mark LCBN as active and update its start_time field. */
 void lcbn_mark_begin (lcbn_t *lcbn)
 {
   assert(lcbn != NULL);
   lcbn->active = 1;
-  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->start) == 0);
+  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->start_time) == 0);
 }
 
-/* Mark LCBN as finished and update its end field. */
+/* Mark LCBN as finished and update its end_time field. */
 void lcbn_mark_end (lcbn_t *lcbn)
 {
   assert(lcbn != NULL);
   lcbn->active = 0;
   lcbn->finished = 1;
-  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->end) == 0);
+  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->end_time) == 0);
 }
 
 /* Write a string description of LCBN into BUF of SIZE. */
@@ -99,14 +111,14 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   assert(lcbn != NULL);
   assert(buf != NULL);
 
-  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <start> <%is %lins> | <end> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i>",
+  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i>",
     lcbn, 
     lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
     lcbn->cb, callback_type_to_string(lcbn->cb_type), 
     callback_behavior_to_string(callback_type_to_behavior(lcbn->cb_type)), 
     lcbn->tree_number, lcbn->tree_level, lcbn->level_entry, lcbn->global_exec_id, lcbn->global_reg_id,
     lcbn->info, lcbn->registrar, lcbn->tree_parent, 
-    lcbn->start.tv_sec, lcbn->start.tv_nsec, lcbn->end.tv_sec, lcbn->end.tv_nsec, 
+    lcbn->registration_time.tv_sec, lcbn->registration_time.tv_nsec, lcbn->start_time.tv_sec, lcbn->start_time.tv_nsec, lcbn->end_time.tv_sec, lcbn->end_time.tv_nsec, 
     lcbn->executing_thread, lcbn->active, lcbn->finished);
 
   /* Add dependencies. */
