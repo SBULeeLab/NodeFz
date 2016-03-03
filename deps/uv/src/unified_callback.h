@@ -105,21 +105,24 @@ struct callback_node * invoke_callback (struct callback_info *);
   /* Determine the origin of the CB, add it to cbi_p. */                \
   struct callback_origin *co = uv__callback_origin((void *) (_cb));     \
   assert(co != NULL);                                                   \
-  /* These are internal wrapper functions and have no origin. */        \
-  if ((int) co != WAS_UV__FS_WORK && (int) co != WAS_UV__FS_DONE        \
-   && (int) co != WAS_UV__STREAM_IO                                     \
-   && (int) co != WAS_UV__ASYNC_IO && (int) co != WAS_UV__ASYNC_EVENT   \
-   && (int) co != WAS_UV__SERVER_IO && (int) co != WAS_UV__SIGNAL_EVENT \
-   && (int) co != WAS_UV__GETADDRINFO_WORK                              \
-   && (int) co != WAS_UV__GETADDRINFO_DONE                              \
-   && (int) co != WAS_UV__QUEUE_WORK                                    \
-   && (int) co != WAS_UV__QUEUE_DONE                                    \
-   && (int) co != WAS_UV__WORK_DONE                                     \
-     )                                                                  \
+  if (0)                                                                \
   {                                                                     \
-    cbi_p->origin = co->origin;                                         \
-    assert(cbi_p->type == co->type);                                    \
-  }                                                                     \
+    /* These are internal wrapper functions and have no origin. */        \
+    if ((int) co != WAS_UV__FS_WORK && (int) co != WAS_UV__FS_DONE        \
+     && (int) co != WAS_UV__STREAM_IO                                     \
+     && (int) co != WAS_UV__ASYNC_IO && (int) co != WAS_UV__ASYNC_EVENT   \
+     && (int) co != WAS_UV__SERVER_IO && (int) co != WAS_UV__SIGNAL_EVENT \
+     && (int) co != WAS_UV__GETADDRINFO_WORK                              \
+     && (int) co != WAS_UV__GETADDRINFO_DONE                              \
+     && (int) co != WAS_UV__QUEUE_WORK                                    \
+     && (int) co != WAS_UV__QUEUE_DONE                                    \
+     && (int) co != WAS_UV__WORK_DONE                                     \
+       )                                                                  \
+    {                                                                     \
+      cbi_p->origin = co->origin;                                         \
+      assert(cbi_p->type == co->type);                                    \
+    }                                                                     \
+  }                                                                       \
   mylog("PREP_CBI_0: CB %p\n", _cb);
 
 #define PREP_CBI_1(type, cb, arg0)                         \
