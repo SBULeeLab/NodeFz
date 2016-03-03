@@ -109,6 +109,11 @@ static void uv__getaddrinfo_work_wrapper (uv_work_t *req)
   INVOKE_CALLBACK_1(UV_GETADDRINFO_WORK_CB, uv__getaddrinfo_work, &addr_req->work_req);
 }
 
+void * uv_uv__getaddrinfo_work_wrapper_ptr (void)
+{
+  return (void *) uv__getaddrinfo_work_wrapper;
+}
+
 void * uv_uv__getaddrinfo_work_ptr (void)
 {
   return (void *) uv__getaddrinfo_work;

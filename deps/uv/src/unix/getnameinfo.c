@@ -60,6 +60,11 @@ static void uv__getnameinfo_work_wrapper (uv_work_t *req)
   INVOKE_CALLBACK_1(UV_GETNAMEINFO_WORK_CB, uv__getnameinfo_work, &name_req->work_req);
 }
 
+void * uv_uv__getnameinfo_work_wrapper_ptr (void)
+{
+  return (void *) uv__getnameinfo_work_wrapper;
+}
+
 static void uv__getnameinfo_done(struct uv__work* w, int status) {
   uv_getnameinfo_t* req;
   char* host;

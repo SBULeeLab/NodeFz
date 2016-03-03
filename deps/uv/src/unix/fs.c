@@ -909,6 +909,12 @@ static void uv__fs_work_wrapper(uv_work_t *req) {
   INVOKE_CALLBACK_1(UV_FS_WORK_CB, uv__fs_work, &fs_req->work_req);
 }
 
+void * uv_uv__fs_work_wrapper_ptr (void)
+{
+  return (void *) uv__fs_work_wrapper;
+}
+
+
 static void uv__fs_done(struct uv__work* w, int status) {
   uv_fs_t* req;
 
