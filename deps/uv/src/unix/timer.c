@@ -188,6 +188,11 @@ void uv__run_timers(uv_loop_t* loop) {
   }
 }
 
+struct list * uv__ready_timers(uv_loop_t* loop) {
+  struct list *ready_timers = list_create();
+
+  return ready_timers;
+}
 
 void uv__timer_close(uv_timer_t* handle) {
   uv_timer_stop(handle);

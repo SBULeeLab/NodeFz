@@ -888,12 +888,36 @@ See jamie_libuv_src_notes for details.
 29 Feb 2016
 
 1. All threadpool code is now routed through uv_queue_work. This required adding wrappers in fs.c, getaddrinfo.c, and getnameinfo.c.
+2. Begin work on dependencies (nodes other than the registering parent that precede a node). Plot these in Python using dashed lines.
 
-STILL TO DO TODAY:
-  - LCBN: Add notion of physical dependencies. For ALLOC/READ, ALLOC -> READ. For threadpool, WORK [-> UV_FS/GETADDRINFO/GETNAMEINFO_WORK_CB] -> AFTER_WORK [-> UV_FS/GETADDRINFO/GETNAMEINFO_CB]
-  - Plot these in Python using dotted lines
-  - Refactor TimelineCLI to use the CallbackNode class
-  - One-shot CBN file -> timeline and tree
+---------
+
+2 Mar 2016
+
+1. LCBN order info: differentiate between registration order and execution order.
+2. Don't track the dummy CB from uv_try_write. If it gets executed we're doomed anyway.
+
+---------
+
+3 Mar 2016
+
+1. LCBN tracking: WORK -> FS_WORK -> AFTER_WORK -> FS_CB, etc.
+    Note that this is a bit misleading; unlike all(?) other LCBNs, WORK/FS_WORK and AFTER_WORK/FS_CB (etc.)
+    cannot be executed independently. They are a unit. Scheduling logic will need to take this into
+    consideration.
+2. Record registration time for comparison with execution start.
+   If the gap between registration time and execution start grows over time, this
+   implies that the threadpool is overloaded and should be re-sized. Could be used
+   to improve Node performance. libuv devs have been thinking about this since ~2014:
+     https://github.com/libuv/leps/pull/4
+3. callbackVis: optional removal of un-executed nodes
+4. CLI work:
+    - Refactor TimelineCLI to use the CallbackNode class
+    - One-shot CBN file -> timeline and tree
+
+Next up:
+  LCBN extraction: identify the LCBNs associated with run_timers/run_idle/etc. as well as with the fds found in uv__io_poll
+    > APIs like uv__ready_timers. Do depth rather than breadth, agile.
 
 -----------
 
