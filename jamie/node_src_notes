@@ -220,3 +220,7 @@ node/lib/timers:
     This means that at the libuv level we cannot see the logical relationship between repeating timers (setInterval)?
     Well, no, the new timer is created while the TIMER_CB of the parent is active. So really repeating timers do
     look like a line of logical children. I confirmed this using timer_repeat.js.
+
+--------------------------------
+
+If you see a signal handler being registered for SIGWINCH, it may come from the first call to console.log. This lets node monitor changes in window size so that the output can be printed more appropriately.
