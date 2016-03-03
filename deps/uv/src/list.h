@@ -52,8 +52,9 @@ struct list
   unsigned n_elts;
 };
 
-void list_init (struct list *list);
+struct list * list_create (void);
 void list_destroy (struct list *list);
+
 unsigned list_size (struct list *list);
 int list_empty (struct list *list);
 int list_looks_valid (struct list *list);

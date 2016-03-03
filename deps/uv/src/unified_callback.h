@@ -73,8 +73,8 @@ struct callback_node
 
   int executing_thread; /* Which thread ran me? This is an internal tid beginning at 0. -1 means no thread ran me (implies a 'marker' CBN). */
 
-  struct list physical_children;
-  struct list logical_children;
+  struct list *physical_children;
+  struct list *logical_children;
 
   lcbn_t *lcbn; /* The logical CBN associated with this CBN. */
   

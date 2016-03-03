@@ -12,7 +12,7 @@ struct map
   int magic;
   pthread_mutex_t lock; /* For external locking via map_lock and map_unlock. */
   pthread_mutex_t _lock; /* Don't touch this. For internal locking via map__lock and map__unlock. Recursive. */
-  struct list list;
+  struct list *list;
 };
 
 struct map_elem
@@ -34,7 +34,7 @@ struct map * map_create (void)
   new_map = (struct map *) malloc (sizeof *new_map);
   assert (new_map != NULL);
   new_map->magic = MAP_MAGIC;
-  list_init (&new_map->list);
+  new_map->list = list_create();
 
   pthread_mutex_init (&new_map->lock, NULL);
 
@@ -53,9 +53,9 @@ void map_destroy (struct map *map)
 
   assert(map != NULL);
   map__lock(map);
-  while (!list_empty (&map->list))
+  while (!list_empty (map->list))
   {
-    le = list_pop_front (&map->list);
+    le = list_pop_front (map->list);
     assert(le != NULL);
     me = list_entry(le, struct map_elem, elem); 
     assert(me != NULL);
@@ -77,8 +77,8 @@ unsigned map_size (struct map *map)
   assert(map != NULL);
   map__lock(map);
 
-  assert(map_looks_valid (map));
-  size = list_size (&map->list);
+  assert(map_looks_valid(map));
+  size = list_size (map->list);
 
   map__unlock(map);
   return size;
@@ -88,7 +88,7 @@ int map_empty (struct map *map)
 {
   int empty;
   assert(map != NULL);
-  assert(map_looks_valid (map));
+  assert(map_looks_valid(map));
 
   map__lock(map);
 
@@ -111,7 +111,7 @@ int map_looks_valid (struct map *map)
   map__lock(map);
 
   is_valid = 1;
-  if (!list_looks_valid (&map->list))
+  if (!list_looks_valid(map->list))
     is_valid = 0;
 
   map__unlock(map);
@@ -129,7 +129,7 @@ void map_insert (struct map *map, int key, const void *value)
   assert(map != NULL);
   map__lock(map);
   in_map = 0;
-  for (le = list_begin(&map->list); le != list_end(&map->list); le = list_next(le))
+  for (le = list_begin(map->list); le != list_end(map->list); le = list_next(le))
   {
     assert(le != NULL);
     me = list_entry(le, struct map_elem, elem); 
@@ -151,7 +151,7 @@ void map_insert (struct map *map, int key, const void *value)
     assert(new_me != NULL);
     new_me->key = key;
     new_me->value = value;
-    list_push_front(&map->list, &new_me->elem);
+    list_push_front(map->list, &new_me->elem);
     in_map = 1;
   }
 
@@ -173,7 +173,7 @@ void * map_lookup (struct map *map, int key, int *found)
   map__lock(map);
   ret = NULL;
   *found = 0;
-  for (le = list_begin(&map->list); le != list_end(&map->list); le = list_next(le))
+  for (le = list_begin(map->list); le != list_end(map->list); le = list_next(le))
   {
     assert(le != NULL);
     me = list_entry(le, struct map_elem, elem); 
@@ -206,7 +206,7 @@ void * map_remove (struct map *map, int key, int *found)
   map__lock(map);
   ret = NULL;
   *found = 0;
-  for (le = list_begin(&map->list); le != list_end(&map->list); le = list_next(le))
+  for (le = list_begin(map->list); le != list_end(map->list); le = list_next(le))
   {
     assert(le != NULL);
     me = list_entry(le, struct map_elem, elem); 
@@ -216,7 +216,7 @@ void * map_remove (struct map *map, int key, int *found)
     {
       ret = me->value;
       *found = 1;
-      list_remove(&map->list, le);
+      list_remove(map->list, le);
       free(me);
       break;
     }

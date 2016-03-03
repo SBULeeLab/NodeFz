@@ -6,13 +6,26 @@
 
 #define LIST_MAGIC 12345678
 
+static void list_init (struct list *list);
 static struct list_elem * list_tail (struct list *list);
 static void list_insert (struct list_elem *, struct list_elem *);
 static void list__lock (struct list *list);
 static void list__unlock (struct list *list);
 
+/* Allocate and initialize a list. */
+struct list * list_create (void)
+{
+  struct list *ret;
+  ret = (struct list *) malloc(sizeof *ret);
+  assert(ret != NULL);
+  memset(ret, 0, sizeof *ret);
+  list_init(ret);
+
+  return ret;
+}
+
 /* Initialize HEAD and TAIL to be members of an empty list. */
-void list_init (struct list *list)
+static void list_init (struct list *list)
 {
   pthread_mutexattr_t attr;
 
@@ -226,9 +239,7 @@ struct list * list_split (struct list *list, unsigned split_size)
   orig_size = list_size (list);
   assert(split_size <= orig_size);
 
-  front_list = (struct list *) malloc (sizeof (struct list));
-  assert(front_list != NULL);
-  list_init (front_list);
+  front_list = list_create();
 
   list__lock(list);
   assert(list_looks_valid(list));
@@ -381,7 +392,7 @@ static void list__unlock (struct list *list)
 /* Unit test for the list class. */
 void list_UT (void)
 {
-  struct list l;
+  struct list *l;
   unsigned i, n_entries;
   struct list_elem *e;
 
@@ -395,25 +406,25 @@ void list_UT (void)
   n_entries = 100;
 
   /* Create and destroy an empty list. */
-  list_init(&l);
-  assert(list_looks_valid(&l) == 1);
-  assert(list_size(&l) == 0);
-  assert(list_empty(&l) == 1);
+  l = list_create();
+  assert(list_looks_valid(l) == 1);
+  assert(list_size(l) == 0);
+  assert(list_empty(l) == 1);
 
-  list_destroy(&l);
-  assert(list_looks_valid(&l) == 0);
+  list_destroy(l);
+  assert(list_looks_valid(l) == 0);
 
   /* Create and populate a list. Iterate over it. */
-  list_init(&l);
+  l = list_create();
   for (i = 0; i < n_entries; i++)
   {
     entries[i].info = i;
-    list_push_back(&l, &entries[i].elem);
-    assert(list_size(&l) == i+1);
+    list_push_back(l, &entries[i].elem);
+    assert(list_size(l) == i+1);
   }
 
    i = 0;
-   for (e = list_begin (&l); e != list_end (&l); e = list_next (e))
+   for (e = list_begin (l); e != list_end (l); e = list_next (e))
    {
       entry = list_entry(e, struct UT_elem, elem);
       assert(entry->info == i);
@@ -422,11 +433,11 @@ void list_UT (void)
    } 
 
    i = n_entries-1;
-   while (!list_empty(&l))
+   while (!list_empty(l))
    {
-     assert(list_size(&l) == i+1);
+     assert(list_size(l) == i+1);
 
-     e = list_pop_back(&l);
+     e = list_pop_back(l);
      entry = list_entry(e, struct UT_elem, elem);
 
      assert(entry->info == i);
@@ -434,10 +445,10 @@ void list_UT (void)
      i--;
    }
 
-   list_lock(&l);
-   list_unlock(&l);
+   list_lock(l);
+   list_unlock(l);
 
-   list_destroy(&l);
+   list_destroy(l);
 
 }
 

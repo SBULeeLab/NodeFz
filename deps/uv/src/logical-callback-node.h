@@ -29,9 +29,9 @@ struct lcbn_s
   lcbn_t *registrar;   /* Which LCBN registered me? For response CBs. */
 
   lcbn_t *tree_parent; /* Parent in the tree. which tree am I in? For action CBs. */
-  struct list children;
+  struct list *children; /* Callbacks I register. */
 
-  struct list dependencies; /* List of 'struct lcbn_dependency'. This LCBN will only be executed after all of the nodes in this list. */
+  struct list *dependencies; /* List of 'struct lcbn_dependency'. This LCBN will only be executed after all of the nodes in this list. */
 
   struct timespec registration_time;
   struct timespec start_time;
@@ -46,6 +46,7 @@ struct lcbn_s
   struct list_elem global_reg_order_elem; /* For inclusion in the global callback order list. */
   struct list_elem child_elem; /* For inclusion in logical parent's list of children. */
   struct list_elem root_elem; /* For root nodes: inclusion in the list of logical root nodes. */
+  struct list_elem pending_elem; /* For inclusion in a list of pending LCBNs. */
 };
 
 lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type);

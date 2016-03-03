@@ -40,8 +40,8 @@ lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
 
   lcbn->registrar = NULL;
   lcbn->tree_parent = NULL;
-  list_init(&lcbn->children);
-  list_init(&lcbn->dependencies);
+  lcbn->children = list_create();
+  lcbn->dependencies = list_create();
 
   lcbn->active = 0;
   lcbn->finished = 0;
@@ -61,11 +61,11 @@ void lcbn_add_child (lcbn_t *parent, lcbn_t *child)
   child->tree_level = parent->tree_level + 1;
   child->tree_parent = parent;
 
-  list_lock(&parent->children);
-  child->level_entry = list_size(&parent->children);
-  list_push_back(&parent->children, &child->child_elem);
+  list_lock(parent->children);
+  child->level_entry = list_size(parent->children);
+  list_push_back(parent->children, &child->child_elem);
   printf("parent %p child %p child->level_entry %i\n", parent, child, child->level_entry);
-  list_unlock(&parent->children);
+  list_unlock(parent->children);
 }
 
 /* Destroy LCBN returned by lcbn_create or lcbn_init. */
@@ -74,7 +74,7 @@ void lcbn_destroy (lcbn_t *lcbn)
   if (lcbn == NULL)
     return;
 
-  list_destroy(&lcbn->children);
+  list_destroy(lcbn->children);
   free(lcbn);
 }
 
@@ -123,13 +123,13 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
 
   /* Add dependencies. */
   snprintf(buf + strlen(buf), size, " | <dependencies> <");
-  for (e = list_begin(&lcbn->dependencies); e != list_end(&lcbn->dependencies); e = list_next(e))
+  for (e = list_begin(lcbn->dependencies); e != list_end(lcbn->dependencies); e = list_next(e))
   {
     dep = list_entry(e, struct lcbn_dependency, elem);
     assert(dep != NULL);
     snprintf(buf + strlen(buf), size, "%p ", dep->dependency);
   }
-  snprintf(buf + strlen(buf) - (list_empty(&lcbn->dependencies) ? 0 : 1), size, ">"); /* Closing >. Overwrite final space if there were any dependencies. */
+  snprintf(buf + strlen(buf) - (list_empty(lcbn->dependencies) ? 0 : 1), size, ">"); /* Closing >. Overwrite final space if there were any dependencies. */
 
   return buf;
 }
@@ -198,5 +198,5 @@ void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ)
   assert(dep != NULL);
   dep->dependency = pred;
 
-  list_push_back(&succ->dependencies, &dep->elem);
+  list_push_back(succ->dependencies, &dep->elem);
 }

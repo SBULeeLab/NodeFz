@@ -758,12 +758,12 @@ static void dump_callback_tree (int fd, struct callback_node *cbn);
 
 /* Variables for tracking the unified callback queue. */
 pthread_mutex_t metadata_lock;
-struct list root_list;
-struct list global_order_list;
+struct list *root_list;
+struct list *global_order_list;
 
-struct list lcbn_root_list;
-struct list lcbn_global_exec_order_list;
-struct list lcbn_global_reg_order_list;
+struct list *lcbn_root_list;
+struct list *lcbn_global_exec_order_list;
+struct list *lcbn_global_reg_order_list;
 
 /* We identify unique clients based on the associated 'peer info' (struct sockaddr).
    A map 'peer -> client ID' tells us whether a given peer is an already-known client.
@@ -1006,12 +1006,12 @@ static void cbn_determine_parentage (struct callback_node *cbn)
 
   /* Add self to parents' lists of children. */
   if (cbn->physical_parent)
-    list_push_back(&cbn->physical_parent->physical_children, &cbn->physical_child_elem); 
+    list_push_back(cbn->physical_parent->physical_children, &cbn->physical_child_elem); 
   else
-    list_push_back(&root_list, &cbn->root_elem); 
+    list_push_back(root_list, &cbn->root_elem); 
 
   if (cbn->logical_parent)
-    list_push_back(&cbn->logical_parent->logical_children, &cbn->logical_child_elem); 
+    list_push_back(cbn->logical_parent->logical_children, &cbn->logical_child_elem); 
 
   /* Inherit level from parent. */
   if (cbn->physical_parent)
@@ -1312,7 +1312,7 @@ static void cbn_color_tree (struct callback_node *cbn, int client_id)
 
   /* Color descendants. */
   /* TODO What does it mean to color logical vs. physical descendants? */
-  for (e = list_begin(&cbn->physical_children); e != list_end(&cbn->physical_children); e = list_next(e))
+  for (e = list_begin(cbn->physical_children); e != list_end(cbn->physical_children); e = list_next(e))
   {
     child = list_entry (e, struct callback_node, physical_child_elem);
     cbn_color_tree(child, client_id);
@@ -1374,8 +1374,8 @@ static struct callback_node * cbn_create (void)
   cbn->discovered_client_id = 0;
 
   cbn->active = 0;
-  list_init(&cbn->physical_children);
-  list_init(&cbn->logical_children);
+  cbn->physical_children = list_create();
+  cbn->logical_children = list_create();
   cbn->lcbn = NULL;
 
   cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *cbn->peer_info);
@@ -1428,10 +1428,10 @@ struct callback_node * get_init_stack_callback_node (void)
     memset(init_stack_cbn->peer_info, 0, sizeof *init_stack_cbn->peer_info);
 
     /* Add to global order list and to root list. */
-    list_push_back(&global_order_list, &init_stack_cbn->global_order_elem);
-    init_stack_cbn->id = list_size (&global_order_list);
+    list_push_back(global_order_list, &init_stack_cbn->global_order_elem);
+    init_stack_cbn->id = list_size(global_order_list);
 
-    list_push_back(&root_list, &init_stack_cbn->root_elem); 
+    list_push_back(root_list, &init_stack_cbn->root_elem); 
   }
 
   return init_stack_cbn;
@@ -1453,14 +1453,14 @@ lcbn_t * get_init_stack_lcbn (void)
     init_stack_lcbn->cb_type = CALLBACK_TYPE_INITIAL_STACK;
 
     /* Add to metadata structures. */
-    init_stack_lcbn->global_exec_id = list_size(&lcbn_global_exec_order_list);
-    list_push_back(&lcbn_global_exec_order_list, &init_stack_lcbn->global_exec_order_elem);
+    init_stack_lcbn->global_exec_id = list_size(lcbn_global_exec_order_list);
+    list_push_back(lcbn_global_exec_order_list, &init_stack_lcbn->global_exec_order_elem);
 
-    init_stack_lcbn->global_reg_id = list_size(&lcbn_global_reg_order_list);
-    list_push_back(&lcbn_global_reg_order_list, &init_stack_lcbn->global_reg_order_elem);
+    init_stack_lcbn->global_reg_id = list_size(lcbn_global_reg_order_list);
+    list_push_back(lcbn_global_reg_order_list, &init_stack_lcbn->global_reg_order_elem);
 
-    init_stack_lcbn->tree_number = list_size(&lcbn_root_list);
-    list_push_back(&lcbn_root_list, &init_stack_lcbn->root_elem); 
+    init_stack_lcbn->tree_number = list_size(lcbn_root_list);
+    list_push_back(lcbn_root_list, &init_stack_lcbn->root_elem); 
   }
 
   return init_stack_lcbn;
@@ -1633,12 +1633,12 @@ void unified_callback_init (void)
   map_UT();
 
   pthread_mutex_init(&metadata_lock, NULL);
-  list_init(&global_order_list);
-  list_init(&root_list);
+  global_order_list = list_create();
+  root_list = list_create();
 
-  list_init(&lcbn_global_exec_order_list);
-  list_init(&lcbn_global_reg_order_list);
-  list_init(&lcbn_root_list);
+  lcbn_global_exec_order_list = list_create();
+  lcbn_global_reg_order_list = list_create();
+  lcbn_root_list = list_create();
 
   peer_info_to_id = map_create();
   assert(peer_info_to_id != NULL);
@@ -1838,8 +1838,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
      For some CB types this is a no-op. */
   cbn_embed_parentage(cbn);
 
-  list_push_back(&global_order_list, &cbn->global_order_elem);
-  cbn->id = list_size(&global_order_list);
+  list_push_back(global_order_list, &cbn->global_order_elem);
+  cbn->id = list_size(global_order_list);
 
   /* Attempt to discover the client ID associated with this callback. */
   if (cbn->true_client_id == ID_UNKNOWN)
@@ -1874,13 +1874,13 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     lcbn_mark_begin(lcbn_new);
 
     /* Add to metadata structures. */
-    lcbn_new->global_exec_id = list_size(&lcbn_global_exec_order_list);
-    list_push_back(&lcbn_global_exec_order_list, &lcbn_new->global_exec_order_elem);
+    lcbn_new->global_exec_id = list_size(lcbn_global_exec_order_list);
+    list_push_back(lcbn_global_exec_order_list, &lcbn_new->global_exec_order_elem);
 
     if (!lcbn_new->tree_parent)
     {
-      lcbn_new->tree_number = list_size(&lcbn_root_list);
-      list_push_back(&lcbn_root_list, &lcbn_new->root_elem); 
+      lcbn_new->tree_number = list_size(lcbn_root_list);
+      list_push_back(lcbn_root_list, &lcbn_new->root_elem); 
       lcbn_new->tree_level = 0;
       lcbn_new->level_entry = 0;
     }
@@ -1988,7 +1988,7 @@ static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix,
   }
 
   dprintf(fd, "%s%s | <cbn> <%p> | <id> <%i> | <info> <%p> | <type> <%s> | <logical level> <%i> | <physical level> <%i> | <logical parent> <%p> | <logical parent_id> <%i> | <logical parent> <%p> | <logical parent_id> <%i> |<active> <%i> | <n_physical_children> <%i> | <n_logical_children> <%i> | <client_id> <%i> | <relative start> <%is %lins> | <duration> <%is %lins> | <executing_thread> <%i> |\n", 
-    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->logical_level, cbn->physical_level, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, cbn->active, list_size (&cbn->physical_children), list_size (&cbn->logical_children), cbn->true_client_id, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->executing_thread);
+    do_indent ? spaces : "", prefix, (void *) cbn, cbn->id, (void *) cbn->info, cbn->info ? callback_type_to_string (cbn->info->type) : "<unknown>", cbn->logical_level, cbn->physical_level, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, (void *) cbn->logical_parent, cbn->logical_parent ? cbn->logical_parent->id : -1, cbn->active, list_size (cbn->physical_children), list_size (cbn->logical_children), cbn->true_client_id, (int) cbn->relative_start.tv_sec, cbn->relative_start.tv_nsec, (int) cbn->duration.tv_sec, cbn->duration.tv_nsec, cbn->executing_thread);
 }
 
 /* Dumps all callbacks in the order in which they were called. 
@@ -2003,7 +2003,7 @@ void dump_callback_globalorder (void)
   struct callback_node *cbn;
 
   snprintf(out_file, 128, "/tmp/callback_global_order_%i_%i.txt", (int) time(NULL), getpid());
-  printf("Dumping all %i callbacks in their global order to %s\n", list_size (&global_order_list), out_file);
+  printf("Dumping all %i callbacks in their global order to %s\n", list_size(global_order_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   if (fd < 0)
@@ -2014,13 +2014,13 @@ void dump_callback_globalorder (void)
     exit (1);
   }
 
-  list_lock(&global_order_list);
+  list_lock(global_order_list);
 
   cbn_num = 0;
-  for (e = list_begin(&global_order_list); e != list_end(&global_order_list); e = list_next(e))
+  for (e = list_begin(global_order_list); e != list_end(global_order_list); e = list_next(e))
   {
     assert(e != NULL);
-    cbn = list_entry (e, struct callback_node, global_order_elem);
+    cbn = list_entry(e, struct callback_node, global_order_elem);
     /* Don't emit the "fake" initial stack callback node. */
     if (cbn == get_init_stack_callback_node())
       continue;
@@ -2030,39 +2030,47 @@ void dump_callback_globalorder (void)
   }
   fflush(NULL);
 
-  list_unlock(&global_order_list);
+  list_unlock(global_order_list);
   close(fd);
 }
 
 void dump_lcbn_globalorder(void)
 {
   int fd;
-  char out_file[128];
+  char unique_out_file[128];
+  char shared_out_file[128];
 
   /* Registration order (all CBs). */
-  snprintf(out_file, 128, "/tmp/lcbn_global_reg_order_%i_%i.txt", (int) time(NULL), getpid());
-  printf("Dumping all %i registered LCBNs in their global registration order to %s\n", list_size (&lcbn_global_reg_order_list), out_file);
+  snprintf(unique_out_file, 128, "/tmp/lcbn_global_reg_order_%i_%i.txt", (int) time(NULL), getpid());
+  printf("Dumping all %i registered LCBNs in their global registration order to %s\n", list_size(lcbn_global_reg_order_list), unique_out_file);
 
-  fd = open(out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+  fd = open(unique_out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   if (fd < 0)
     assert(!"Error, could not open output file");
-  list_lock(&lcbn_global_reg_order_list);
-  list_apply(&lcbn_global_reg_order_list, lcbn_global_reg_list_print_f, &fd);
-  list_unlock(&lcbn_global_reg_order_list);
+  list_lock(lcbn_global_reg_order_list);
+  list_apply(lcbn_global_reg_order_list, lcbn_global_reg_list_print_f, &fd);
+  list_unlock(lcbn_global_reg_order_list);
   close(fd);
+
+  snprintf(shared_out_file, 128, "/tmp/lcbn_registered_schedule.txt");
+  unlink(shared_out_file);
+  symlink(unique_out_file, shared_out_file);
 
   /* Exec order (does not include never-executed CBs). */
-  snprintf(out_file, 128, "/tmp/lcbn_global_exec_order_%i_%i.txt", (int) time(NULL), getpid());
-  printf("Dumping all %i executed LCBNs in their global exec order to %s\n", list_size (&lcbn_global_exec_order_list), out_file);
+  snprintf(unique_out_file, 128, "/tmp/lcbn_global_exec_order_%i_%i.txt", (int) time(NULL), getpid());
+  printf("Dumping all %i executed LCBNs in their global exec order to %s\n", list_size(lcbn_global_exec_order_list), unique_out_file);
 
-  fd = open(out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+  fd = open(unique_out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   if (fd < 0)
     assert(!"Error, could not open output file");
-  list_lock(&lcbn_global_exec_order_list);
-  list_apply(&lcbn_global_exec_order_list, lcbn_global_exec_list_print_f, &fd);
-  list_unlock(&lcbn_global_exec_order_list);
+  list_lock(lcbn_global_exec_order_list);
+  list_apply(lcbn_global_exec_order_list, lcbn_global_exec_list_print_f, &fd);
+  list_unlock(lcbn_global_exec_order_list);
   close(fd);
 
+  snprintf(shared_out_file, 128, "/tmp/lcbn_exec_schedule.txt");
+  unlink(shared_out_file);
+  symlink(unique_out_file, shared_out_file);
 }
 
 #if 0
@@ -2076,7 +2084,7 @@ static void dump_callback_tree (int fd, struct callback_node *cbn)
 
   dump_callback_node (fd, cbn, "", 1);
   child_num = 0;
-  for (e = list_begin(&cbn->children); e != list_end(&cbn->children); e = list_next(e))
+  for (e = list_begin(cbn->children); e != list_end(cbn->children); e = list_next(e))
   {
     node = list_entry (e, struct callback_node, child_elem);
     /* printf("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
@@ -2098,9 +2106,9 @@ static void dump_callback_tree_gv (int fd, struct callback_node *cbn)
 
   dump_callback_node_gv (fd, cbn);
   child_num = 0;
-  for (e = list_begin(&cbn->physical_children); e != list_end(&cbn->physical_children); e = list_next(e))
+  for (e = list_begin(cbn->physical_children); e != list_end(cbn->physical_children); e = list_next(e))
   {
-    child = list_entry (e, struct callback_node, physical_child_elem);
+    child = list_entry(e, struct callback_node, physical_child_elem);
     /* Print the relationship between parent and child. */
     dprintf(fd, "    %i -> %i;\n", cbn->id, child->id); 
     dump_callback_tree_gv (fd, child);
@@ -2118,9 +2126,9 @@ int callback_tree_size (struct callback_node *root)
   assert(root != NULL);
 
   size = 1;
-  for (e = list_begin(&root->physical_children); e != list_end(&root->physical_children); e = list_next(e))
+  for (e = list_begin(root->physical_children); e != list_end(root->physical_children); e = list_next(e))
   {
-    node = list_entry (e, struct callback_node, physical_child_elem);
+    node = list_entry(e, struct callback_node, physical_child_elem);
     size += callback_tree_size (node);
   }
 
@@ -2137,7 +2145,7 @@ void dump_callback_trees (void)
   int fd = -1;
   char out_file[128];
   snprintf(out_file, 128, "/tmp/individual_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
-  printf("Dumping all %i callback trees to %s\n", list_size (&root_list), out_file);
+  printf("Dumping all %i callback trees to %s\n", list_size(root_list), out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   assert (0 <= fd);
@@ -2146,9 +2154,9 @@ void dump_callback_trees (void)
   /* Print as individual trees. */
   meta_size = 0;
   tree_num = 0;
-  for (e = list_begin(&root_list); e != list_end(&root_list); e = list_next(e))
+  for (e = list_begin(root_list); e != list_end(root_list); e = list_next(e))
   {
-    struct callback_node *root = list_entry (e, struct callback_node, root_elem);
+    struct callback_node *root = list_entry(e, struct callback_node, root_elem);
 #if GRAPHVIZ
     tree_size = callback_tree_size (root);
     meta_size += tree_size;
@@ -2165,7 +2173,7 @@ void dump_callback_trees (void)
 
 #if GRAPHVIZ
   snprintf(out_file, 128, "/tmp/meta_callback_trees_%i_%i.gv", (int) time(NULL), getpid());
-  printf("Dumping the %i callback trees as a meta-tree to %s\n  dot -Tdot %s -o /tmp/graph.dot\n  xdot /tmp/graph.dot\n", list_size (&root_list), out_file, out_file);
+  printf("Dumping the %i callback trees as a meta-tree to %s\n  dot -Tdot %s -o /tmp/graph.dot\n  xdot /tmp/graph.dot\n", list_size(root_list), out_file, out_file);
 
   fd = open (out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   assert (0 <= fd);
@@ -2177,9 +2185,9 @@ void dump_callback_trees (void)
   dprintf(fd, "digraph META_TREE {\n    graph [ordering=\"out\"]\n     /* size %i */\n", meta_size);
   dprintf(fd, "  -1 [label=\"meta-root node\"]\n");
   tree_num = 0;
-  for (e = list_begin(&root_list); e != list_end(&root_list); e = list_next(e))
+  for (e = list_begin(root_list); e != list_end(root_list); e = list_next(e))
   {
-    struct callback_node *root = list_entry (e, struct callback_node, root_elem);
+    struct callback_node *root = list_entry(e, struct callback_node, root_elem);
     assert (0 <= fd);
     tree_size = callback_tree_size (root);
     dprintf(fd, "  subgraph %i {\n    /* size %i */\n", tree_num, tree_size);
@@ -2191,9 +2199,9 @@ void dump_callback_trees (void)
 
   /* Print logical relationships. These may cross subgraphs and so 
       must be done separately. */
-  for (e = list_begin(&root_list); e != list_end(&root_list); e = list_next(e))
+  for (e = list_begin(root_list); e != list_end(root_list); e = list_next(e))
   {
-    struct callback_node *root = list_entry (e, struct callback_node, root_elem);
+    struct callback_node *root = list_entry(e, struct callback_node, root_elem);
     cbn_walk(root, CALLBACK_TREE_PHYSICAL, cbn_print_logical_parentage_gv, (void *) &fd);
   }
 
@@ -2362,8 +2370,8 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
   lcbn_add_child(lcbn_cur, lcbn_new);
 
   /* Add to metadata structures. */
-  lcbn_new->global_reg_id = list_size(&lcbn_global_reg_order_list);
-  list_push_back(&lcbn_global_reg_order_list, &lcbn_new->global_reg_order_elem);
+  lcbn_new->global_reg_id = list_size(lcbn_global_reg_order_list);
+  list_push_back(lcbn_global_reg_order_list, &lcbn_new->global_reg_order_elem);
 
   mylog("uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
     lcbn_new, cb, context, callback_type_to_string(cb_type), lcbn_new->registrar);
@@ -2864,14 +2872,14 @@ static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_ty
 
   (*f)(cbn, aux);
 
-  children = (tree_type == CALLBACK_TREE_PHYSICAL) ? &cbn->physical_children : &cbn->logical_children;
+  children = (tree_type == CALLBACK_TREE_PHYSICAL) ? cbn->physical_children : cbn->logical_children;
   assert(children != NULL);
 
   for (e = list_begin(children); e != list_end(children); e = list_next(e))
   {
     child = (tree_type == CALLBACK_TREE_PHYSICAL ?
-             list_entry (e, struct callback_node, physical_child_elem) :
-             list_entry (e, struct callback_node, logical_child_elem)
+             list_entry(e, struct callback_node, physical_child_elem) :
+             list_entry(e, struct callback_node, logical_child_elem)
             );
     cbn_walk(child, tree_type, f, aux);
   }
