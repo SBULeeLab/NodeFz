@@ -2650,7 +2650,8 @@ void Isolate::RunMicrotasks() {
 
     for (int i = 0; i < num_tasks; i++) {
       printf("Isolate::RunMicrotasks: Running task %i/%i\n", i+1, num_tasks);
-      assert(0 == 1); /* JD: If this ever happens from Node-land, we'll fail to detect these callbacks. */
+      /* JD: Any microtasks are fatal for now -- not included in scheduler. Have not yet considered how to deal with them. */
+      assert(0 == 1);
       HandleScope scope(this);
       Handle<Object> microtask(queue->get(i), this);
       if (microtask->IsJSFunction()) {
