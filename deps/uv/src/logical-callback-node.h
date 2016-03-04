@@ -4,7 +4,6 @@
 #include "unified-callback-enums.h"
 #include "list.h"
 
-enum callback_type;
 struct callback_info;
 struct lcbn_s;
 typedef struct lcbn_s lcbn_t;
@@ -46,7 +45,6 @@ struct lcbn_s
   struct list_elem global_reg_order_elem; /* For inclusion in the global callback order list. */
   struct list_elem child_elem; /* For inclusion in logical parent's list of children. */
   struct list_elem root_elem; /* For root nodes: inclusion in the list of logical root nodes. */
-  struct list_elem pending_elem; /* For inclusion in a list of pending LCBNs. */
 };
 
 lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type);

@@ -102,7 +102,8 @@ void lcbn_mark_end (lcbn_t *lcbn)
   assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->end_time) == 0);
 }
 
-/* Write a string description of LCBN into BUF of SIZE. */
+/* Write a string description of LCBN into BUF of SIZE. 
+   NB It does not end with a newline. */
 char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
 {
   struct lcbn_dependency *dep;
