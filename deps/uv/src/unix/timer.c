@@ -22,9 +22,17 @@
 #include "internal.h"
 #include "heap-inl.h"
 
+#include "list.h"
+#include "scheduler.h"
+
 #include <assert.h>
 #include <limits.h>
 
+static int uv__timer_ready(uv_timer_t *handle)
+{
+  assert(handle);
+  return (handle->timeout > handle->loop->time);
+}
 
 static int timer_less_than(const struct heap_node* ha,
                            const struct heap_node* hb) {
@@ -166,31 +174,69 @@ int uv__next_timeout(const uv_loop_t* loop) {
 
 
 void uv__run_timers(uv_loop_t* loop) {
-  struct heap_node* heap_node;
-  uv_timer_t* handle;
+  struct list *ready_timers;
+  sched_context_t *next_timer_context;
+  sched_lcbn_t *next_timer_lcbn;
+  uv_timer_t* next_timer_handle;
 
   for (;;) {
-    heap_node = heap_min((struct heap*) &loop->timer_heap);
-    if (heap_node == NULL)
+    ready_timers = uv__ready_timers(loop);
+    mylog("uv__run_timers: found %i ready timers\n", list_size(ready_timers));
+    if (list_empty(ready_timers))
       break;
 
-    handle = container_of(heap_node, uv_timer_t, heap_node);
-    if (handle->timeout > loop->time)
+    next_timer_context = scheduler_next_context(ready_timers);
+    if (!next_timer_context)
       break;
+    next_timer_handle = (uv_handle_t *) next_timer_context->handle_or_req;
+    next_timer_lcbn = scheduler_next_lcbn(next_timer_context);
 
-    uv_timer_stop(handle);
-    uv_timer_again(handle);
+    assert(next_timer_lcbn->lcbn == lcbn_get(next_timer_handle->cb_type_to_lcbn, UV_TIMER_CB));
+    assert(uv__timer_ready(next_timer_handle));
+    uv_timer_stop(next_timer_handle);
+    uv_timer_again(next_timer_handle);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_1(UV_TIMER_CB, handle->timer_cb, handle);
+    INVOKE_CALLBACK_1(UV_TIMER_CB, next_timer_handle->timer_cb, next_timer_handle);
 #else
-    handle->timer_cb(handle);
+    handle->timer_cb(next_timer_handle);
 #endif
+  }
+}
+
+struct heap_apply_info
+{
+  struct list *list;
+};
+
+/* Wrapper around uv__timer_ready for use with heap_walk.
+   AUX is a heap_apply_info. 
+   If the timer of HN is ready, create a sched_context for it and add to the list in AUX. */
+static void uv__heap_timer_ready(struct heap_node *hn, void *aux)
+{
+  uv_timer_t* handle;
+  struct heap_apply_info *hai;
+  sched_context_t *sched_context;
+
+  assert(hn);
+  assert(aux);
+
+  hai = (struct heap_apply_info *) aux;
+  assert(hai->list);
+  handle = container_of(hn, uv_timer_t, heap_node);
+  if (uv__timer_ready(handle))
+  {
+    sched_context = sched_context_create(CALLBACK_CONTEXT_HANDLE, handle);
+    list_push_back(hai->list, &sched_context->elem);
   }
 }
 
 struct list * uv__ready_timers(uv_loop_t* loop) {
   struct list *ready_timers = list_create();
+  struct heap_apply_info hai;
 
+  hai.list = ready_timers;
+
+  heap_walk((struct heap*) &loop->timer_heap, uv__heap_timer_ready, &hai);
   return ready_timers;
 }
 
