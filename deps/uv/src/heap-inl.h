@@ -45,6 +45,8 @@ struct heap {
 /* Return non-zero if a < b. */
 typedef int (*heap_compare_fn)(const struct heap_node* a,
                                const struct heap_node* b);
+typedef void (*heap_walk_fn)(struct heap_node* a,
+                             void* b);
 
 /* Public functions. */
 HEAP_EXPORT(void heap_init(struct heap* heap));
@@ -56,6 +58,10 @@ HEAP_EXPORT(void heap_remove(struct heap* heap,
                              struct heap_node* node,
                              heap_compare_fn less_than));
 HEAP_EXPORT(void heap_dequeue(struct heap* heap, heap_compare_fn less_than));
+HEAP_EXPORT(void heap_walk(struct heap* heap, heap_walk_fn apply, void *aux));
+
+/* Private functions. */
+static void heap_walk_helper(struct heap_node *hn, heap_walk_fn apply, void *aux);
 
 /* Implementation follows. */
 
@@ -238,6 +244,18 @@ HEAP_EXPORT(void heap_remove(struct heap* heap,
 
 HEAP_EXPORT(void heap_dequeue(struct heap* heap, heap_compare_fn less_than)) {
   heap_remove(heap, heap->min, less_than);
+}
+
+static void heap_walk_helper(struct heap_node *hn, heap_walk_fn apply, void *aux){
+  if (!hn)
+    return;
+  (*apply)(hn, aux);
+  heap_walk_helper(hn->left, apply, aux);
+  heap_walk_helper(hn->right, apply, aux);
+}
+
+HEAP_EXPORT(void heap_walk(struct heap* heap, heap_walk_fn apply, void *aux)) {
+  heap_walk_helper(heap->min, apply, aux);
 }
 
 #undef HEAP_EXPORT
