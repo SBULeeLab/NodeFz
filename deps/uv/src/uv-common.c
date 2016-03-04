@@ -25,6 +25,7 @@
 #include "map.h"
 #include "logical-callback-node.h"
 #include "unified-callback-enums.h"
+#include "scheduler.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -1670,6 +1671,9 @@ void unified_callback_init (void)
 #endif
   signal(SIGINT, dump_all_trees_and_exit_sighandler);
 
+  scheduler_init(SCHEDULE_MODE_RECORD, "/tmp/schedule.txt");
+  atexit(scheduler_emit);
+
   mark_global_start();
 
   initialized = 1;
@@ -1895,6 +1899,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     }
 
     lcbn_determine_executing_thread(lcbn_new);
+    /* TODO Need a mutex in RECORD mode. */
+    scheduler_record(sched_lcbn_create(lcbn_new));
   }
 
   uv__metadata_unlock();
