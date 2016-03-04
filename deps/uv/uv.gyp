@@ -54,6 +54,7 @@
         'src/mylog.c',
         'src/list.c',
         'src/map.c',
+        'src/scheduler.c',
         'src/logical-callback-node.c',
         'src/unified-callback-enums.c',
         'include/uv-errno.h',
