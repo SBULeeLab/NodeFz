@@ -7,7 +7,7 @@
 #define LIST_MAGIC 12345678
 
 static void list_init (struct list *list);
-static struct list_elem * list_tail (struct list *list);
+static struct list_elem * list_tail (const struct list *list);
 static void list_insert (struct list_elem *, struct list_elem *);
 static void list__lock (struct list *list);
 static void list__unlock (struct list *list);
@@ -139,7 +139,7 @@ void list_push_front (struct list *list, struct list_elem *elem)
 }
 
 /* Return the element after ELEM. */
-struct list_elem * list_next (struct list_elem *elem)
+struct list_elem * list_next (const struct list_elem *elem)
 {
   return elem->next;
 }
@@ -148,7 +148,7 @@ struct list_elem * list_next (struct list_elem *elem)
    Returns NULL if LIST is empty. 
 
    Look but don't touch. */
-struct list_elem * list_front (struct list *list)
+struct list_elem * list_front (const struct list *list)
 {
   struct list_elem *node;
 
@@ -169,7 +169,7 @@ struct list_elem * list_front (struct list *list)
    Returns NULL if LIST is empty. 
 
    Look but don't touch. */
-struct list_elem * list_back (struct list *list)
+struct list_elem * list_back (const struct list *list)
 {
   struct list_elem *node;
 
@@ -260,7 +260,7 @@ struct list * list_split (struct list *list, unsigned split_size)
 
 /* In a non-empty list, returns the first element.
   In an empty list, returns the tail. */
-struct list_elem * list_begin (struct list *list)
+struct list_elem * list_begin (const struct list *list)
 {
   struct list_elem *ret;
   assert(list != NULL);
@@ -276,28 +276,28 @@ struct list_elem * list_begin (struct list *list)
 }
 
 /* Returns the tail (one past the final element). */
-struct list_elem * list_end (struct list *list)
+struct list_elem * list_end (const struct list *list)
 {
   assert(list != NULL);
   return list_tail (list);
 }
 
 /* Returns the head of the list. */
-struct list_elem * list_head (struct list *list)
+struct list_elem * list_head (const struct list *list)
 {
   assert(list != NULL);
   return &list->head;
 }
 
 /* Returns the tail of the list. */
-static struct list_elem * list_tail (struct list *list)
+static struct list_elem * list_tail (const struct list *list)
 {
   assert(list != NULL);
   return &list->tail;
 }
 
 /* Return the size of the list. */
-unsigned list_size (struct list *list)
+unsigned list_size (const struct list *list)
 {
   int size = 0;
   struct list_elem *e;
@@ -318,7 +318,7 @@ unsigned list_size (struct list *list)
 }
 
 /* Return 1 if empty, 0 else. */
-int list_empty (struct list *list)
+int list_empty (const struct list *list)
 {
   assert(list != NULL);
 
@@ -337,7 +337,7 @@ int list_empty (struct list *list)
 }
 
 /* Return 1 if initialized LIST looks valid, 0 else. */
-int list_looks_valid (struct list *list)
+int list_looks_valid (const struct list *list)
 {
   int is_valid; 
 
