@@ -926,12 +926,21 @@ Next up:
 1. Mock up a scheduler API and implementation. Not yet complete. I think 1 more public APIC and 1-2 private APIs are needed; see TODOs in scheduler.[hc].
 2. Rewrite uv__run_timers to use the scheduler APIs.
 
+---------
+
+7 Mar 2016
+
+1. scheduler_init: REPLAY path (read from file; load desired_schedule)
+
+  Address TODOs in scheduler.[hc].
+  Work in schedule output/input.
+  Demonstrate timer scheduling.
+
 -----------
 
 STEPS:
 - Assess flippability calculations I can do "now". Am I missing anything?
 - callback_stats: extract the "root schedule". This is order in which *new* external inputs were received from clients, different from the "complete schedule" interplay between the callback trees descending from multiple concurrent external inputs.
-
 
 - An interesting comparison: "random testing" inspired by the empirical study. At the JS level, insert rand_sleep into any asynchronous method. See how much variation in the schedule arises.
 

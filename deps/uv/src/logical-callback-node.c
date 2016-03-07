@@ -14,6 +14,38 @@ struct lcbn_dependency
 };
 
 static void lcbn_mark_registration_time (lcbn_t *lcbn);
+static lcbn_t * lcbn_create_raw (void);
+static void str_peel_carats (char *str);
+
+/* Dynamically allocate a new lcbn, memset'd to 0. */
+static lcbn_t * lcbn_create_raw (void)
+{
+  lcbn_t *lcbn;
+
+  lcbn = malloc(sizeof *lcbn);
+  assert(lcbn != NULL);
+  memset(lcbn, 0, sizeof *lcbn);
+  return lcbn;
+}
+
+/* If STR is of the form <X>, replace it with X. */
+static void str_peel_carats (char *str)
+{
+  int i, len;
+  assert(str != NULL);
+
+  len = strlen(str);
+  if (!len)
+    return;
+
+  if (str[0] == '<' && str[len-1] == '>')
+  {
+    str[len-1] = '\0'; /* > */
+    /* Left-shift to replace <. */
+    for(i = 1; i < len; i++)
+      str[i-1] = str[i];
+  }
+}
 
 /* Returns a new logical CBN. 
    id=-1, peer_info is allocated, {orig,true}_client_id=ID_UNKNOWN. 
@@ -23,9 +55,7 @@ lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
 {
   lcbn_t *lcbn;
 
-  lcbn = malloc(sizeof *lcbn);
-  assert(lcbn != NULL);
-  memset(lcbn, 0, sizeof *lcbn);
+  lcbn = lcbn_create_raw();
 
   lcbn->context = context;
   lcbn->cb = cb;
@@ -103,16 +133,30 @@ void lcbn_mark_end (lcbn_t *lcbn)
 }
 
 /* Write a string description of LCBN into BUF of SIZE. 
-   NB It does not end with a newline. */
+   NB It does not end with a newline.
+   Keep in sync with lcbn_from_string. */
 char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
 {
   struct lcbn_dependency *dep;
   struct list_elem *e;
+  static char dependency_buf[2048];
 
   assert(lcbn != NULL);
   assert(buf != NULL);
 
-  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i>",
+  /* Enter the dependencies as a space-separated string. */
+  dependency_buf[0] = '\0';
+  for (e = list_begin(lcbn->dependencies); e != list_end(lcbn->dependencies); e = list_next(e))
+  {
+    dep = list_entry(e, struct lcbn_dependency, elem);
+    assert(dep != NULL);
+    snprintf(dependency_buf + strlen(dependency_buf), size, "%p ", dep->dependency);
+  }
+  /* Remove trailing space. */
+  if (!list_empty(lcbn->dependencies))
+    dependency_buf[strlen(dependency_buf)-1] = '\0';
+
+  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
     lcbn, 
     lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
     lcbn->cb, callback_type_to_string(lcbn->cb_type), 
@@ -120,19 +164,38 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
     lcbn->tree_number, lcbn->tree_level, lcbn->level_entry, lcbn->global_exec_id, lcbn->global_reg_id,
     lcbn->info, lcbn->registrar, lcbn->tree_parent, 
     lcbn->registration_time.tv_sec, lcbn->registration_time.tv_nsec, lcbn->start_time.tv_sec, lcbn->start_time.tv_nsec, lcbn->end_time.tv_sec, lcbn->end_time.tv_nsec, 
-    lcbn->executing_thread, lcbn->active, lcbn->finished);
-
-  /* Add dependencies. */
-  snprintf(buf + strlen(buf), size, " | <dependencies> <");
-  for (e = list_begin(lcbn->dependencies); e != list_end(lcbn->dependencies); e = list_next(e))
-  {
-    dep = list_entry(e, struct lcbn_dependency, elem);
-    assert(dep != NULL);
-    snprintf(buf + strlen(buf), size, "%p ", dep->dependency);
-  }
-  snprintf(buf + strlen(buf) - (list_empty(lcbn->dependencies) ? 0 : 1), size, ">"); /* Closing >. Overwrite final space if there were any dependencies. */
+    lcbn->executing_thread, lcbn->active, lcbn->finished,
+    dependency_buf);
 
   return buf;
+}
+
+/* Keep in sync with lcbn_to_string. */
+lcbn_t * lcbn_from_string (char *buf)
+{
+  static char dependency_buf[2048];
+  static char context_str[32];
+  static char cb_type_str[32];
+  static char cb_behavior_str[32];
+  lcbn_t *lcbn;
+  assert(buf != NULL);
+  
+  lcbn = lcbn_create_raw();
+  sscanf(buf, "<name> %*s | <context> %*s | <context_type> %s | <cb> %*s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %*s | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
+    context_str, cb_type_str, cb_behavior_str,
+    &lcbn->tree_number, &lcbn->tree_level, &lcbn->level_entry, &lcbn->global_exec_id, &lcbn->global_reg_id,
+    &lcbn->registration_time.tv_sec, &lcbn->registration_time.tv_nsec, &lcbn->start_time.tv_sec, &lcbn->start_time.tv_nsec, &lcbn->end_time.tv_sec, &lcbn->end_time.tv_nsec, 
+    &lcbn->executing_thread, &lcbn->active, &lcbn->finished, dependency_buf);
+
+  str_peel_carats(context_str);
+  str_peel_carats(cb_type_str);
+  str_peel_carats(cb_behavior_str);
+  
+  lcbn->cb_context = callback_context_from_string(context_str);
+  lcbn->cb_type = callback_type_from_string(cb_type_str);
+  lcbn->cb_behavior = callback_behavior_from_string(cb_behavior_str);
+
+  return lcbn;
 }
 
 /* A print function for use with list_apply on a list of LCBNs using their global_exec_order_elem.

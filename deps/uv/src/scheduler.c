@@ -14,7 +14,7 @@
 struct scheduler_s
 {
   enum schedule_mode mode;
-  char *schedule_file;
+  char schedule_file[256];
 
   struct list *recorded_schedule; /* List of the sched_lcbn_t's we have executed so far. */
   struct list *desired_schedule; /* For REPLAY mode, list of sched_lcbn_t's expressing desired execution order. */
@@ -74,34 +74,51 @@ void scheduler_init(enum schedule_mode mode, char *schedule_file)
 {
   FILE *f;
   char *line;
+  size_t line_len;
+  sched_lcbn_t *sched_lcbn;
 
   assert(schedule_file != NULL);
   assert(!scheduler_initialized());
 
+  /* Allocate a line for SCHEDULE_MODE_REPLAY. */
+  line_len = 2048;
+  line = (char *) malloc(line_len*sizeof(char));
+  assert(line);
+  memset(line, 0, line_len);
+
   scheduler.mode = mode;
-  scheduler.schedule_file = schedule_file;
+  strncpy(scheduler.schedule_file, schedule_file, sizeof scheduler.schedule_file);
   scheduler.magic = SCHEDULER_MAGIC;
   scheduler.recorded_schedule = list_create();
   scheduler.desired_schedule = list_create();
 
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
   {
-    /* Verify that we can open and close the file. */ 
-    f = fopen(schedule_file, "w");
+    /* Verify that we can open and close the file. */
+    f = fopen(scheduler.schedule_file, "w");
     assert(f);
     assert(fclose(f) == 0);
   }
   else if (scheduler.mode == SCHEDULE_MODE_REPLAY)
   {
-    f = fopen(schedule_file, "r");
+    f = fopen(scheduler.schedule_file, "r");
     assert(f);
-    while(getline(&line, NULL, f))
+    memset(line, 0, line_len);
+    while(getline(&line, &line_len, f))
     {
-      /* TODO On REPLAY, parse each line as an LCBN and store in scheduler.desired_schedule. */
-      free(line);
+      /* Remove trailing newline. */
+      if(line[strlen(line)-1] == '\n')
+        line[strlen(line)-1] = '\0';
+      /* Parse line as an lcbn_t and add it to the desired_schedule. */
+      sched_lcbn = sched_lcbn_create(lcbn_from_string(line));
+      list_push_back(scheduler.desired_schedule, &sched_lcbn->elem);
+
+      memset(line, 0, line_len);
     }
     assert(fclose(f) == 0);
   }
+
+  free(line);
 }
 
 void scheduler_record(sched_lcbn_t *sched_lcbn)

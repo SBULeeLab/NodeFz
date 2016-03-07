@@ -40,6 +40,7 @@ enum callback_origin_type
 };
 
 #define MAX_CALLBACK_NARGS 5
+/* Keep aligned with unified-callback-enums.c: callback_type_strings[]. */
 enum callback_type
 {
   /* include/uv.h; see also the libuv documentation. */
@@ -90,9 +91,11 @@ enum callback_type
 
 enum callback_context
 {
-  CALLBACK_CONTEXT_HANDLE,
+  CALLBACK_CONTEXT_MIN = 0,
+  CALLBACK_CONTEXT_HANDLE = CALLBACK_CONTEXT_MIN,
   CALLBACK_CONTEXT_REQ,
-  CALLBACK_CONTEXT_UNKNOWN
+  CALLBACK_CONTEXT_UNKNOWN,
+  CALLBACK_CONTEXT_MAX
 };
 
 /* Whether a callback is part of an action or part of a response. 
@@ -107,16 +110,23 @@ enum callback_context
     be called. */
 enum callback_behavior
 {
-  CALLBACK_BEHAVIOR_ACTION,
+  CALLBACK_BEHAVIOR_MIN = 0,
+  CALLBACK_BEHAVIOR_ACTION = CALLBACK_BEHAVIOR_MIN,
   CALLBACK_BEHAVIOR_RESPONSE,
-  CALLBACK_BEHAVIOR_UNKNOWN
+  CALLBACK_BEHAVIOR_UNKNOWN,
+  CALLBACK_BEHAVIOR_MAX
 };
 
 enum callback_context callback_type_to_context (enum callback_type cb_type);
 enum callback_behavior callback_type_to_behavior (enum callback_type cb_type);
 
 char * callback_type_to_string (enum callback_type);
-char *callback_context_to_string (enum callback_context type);
-char *callback_behavior_to_string (enum callback_behavior type);
+enum callback_type callback_type_from_string (char *str);
+
+char * callback_context_to_string (enum callback_context type);
+enum callback_context callback_context_from_string (char *str);
+
+char * callback_behavior_to_string (enum callback_behavior type);
+enum callback_behavior callback_behavior_from_string (char *str);
 
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */

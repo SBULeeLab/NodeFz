@@ -14,7 +14,9 @@ struct lcbn_s
   /* Set at registration time. */
   void *context; /* Request or handle with which this LCBN is associated. */
   void *cb;
+  enum callback_context cb_context;
   enum callback_type cb_type; 
+  enum callback_behavior cb_behavior;
 
   int tree_number; /* Index in the sequence of trees. First is 0. */
   int tree_level;  /* Level in the tree. Root is 0. */
@@ -55,6 +57,7 @@ void lcbn_mark_begin (lcbn_t *lcbn);
 void lcbn_mark_end (lcbn_t *lcbn);
 
 char * lcbn_to_string (lcbn_t *cbn, char *buf, int size);
+lcbn_t * lcbn_from_string (char *buf);
 
 void lcbn_global_exec_list_print_f (struct list_elem *e, int *fd);
 void lcbn_global_reg_list_print_f (struct list_elem *e, int *fd);

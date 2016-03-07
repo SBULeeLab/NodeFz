@@ -1,6 +1,9 @@
 #include "unified-callback-enums.h"
-#include <assert.h>
 
+#include <assert.h>
+#include <string.h>
+
+/* Keep aligned with the declaration of enum callback_type. */
 static char *callback_type_strings[] = {
   "UV_ALLOC_CB", "UV_READ_CB", "UV_WRITE_CB", "UV_CONNECT_CB", "UV_SHUTDOWN_CB", 
   "UV_CONNECTION_CB", "UV_CLOSE_CB", "UV_POLL_CB", "UV_TIMER_CB", "UV_ASYNC_CB", 
@@ -18,22 +21,15 @@ static char *callback_type_strings[] = {
   /* include/uv-threadpool.h */
   "UV__WORK_WORK", "UV__WORK_DONE", 
 
-  "INITIAL STACK",
+  "INITIAL_STACK",
   "ANY_CALLBACK"
 };
 
-char *callback_type_to_string (enum callback_type type)
-{
-  assert (CALLBACK_TYPE_MIN <= type && type < CALLBACK_TYPE_MAX);
-  return callback_type_strings[type];
-}
-
+/* Keep aligned with the declaration of enum callback_context. */
 static char *callback_context_strings[] = { "HANDLE", "REQ", "UNKNOWN" };
 
-char *callback_context_to_string (enum callback_context type)
-{
-  return callback_context_strings[type];
-}
+/* Keep aligned with the declaration of enum callback_behavior. */
+static char *callback_behavior_strings[] = { "ACTION", "RESPONSE", "UNKNOWN" };
 
 enum callback_context callback_type_to_context (enum callback_type cb_type)
 {
@@ -73,13 +69,6 @@ enum callback_context callback_type_to_context (enum callback_type cb_type)
       return CALLBACK_CONTEXT_UNKNOWN;
   }
   NOT_REACHED;
-}
-
-static char *callback_behavior_strings[] = { "ACTION", "RESPONSE", "UNKNOWN" };
-
-char *callback_behavior_to_string (enum callback_behavior type)
-{
-  return callback_behavior_strings[type];
 }
 
 enum callback_behavior callback_type_to_behavior (enum callback_type cb_type)
@@ -124,4 +113,67 @@ enum callback_behavior callback_type_to_behavior (enum callback_type cb_type)
       return CALLBACK_BEHAVIOR_UNKNOWN;
   }
   NOT_REACHED;
+}
+
+char * callback_type_to_string (enum callback_type type)
+{
+  assert (CALLBACK_TYPE_MIN <= type && type < CALLBACK_TYPE_MAX);
+  return callback_type_strings[type];
+}
+
+enum callback_type callback_type_from_string (char *str)
+{
+  enum callback_type i;
+  assert(str != NULL);
+
+  for (i = CALLBACK_TYPE_MIN; i < CALLBACK_TYPE_MAX; i++)
+  {
+    if (strcmp(str, callback_type_strings[i]) == 0)
+      return i;
+  }
+
+  assert(!"callback_type_from_string: Error, invalid string");
+  return 0;
+}
+
+char * callback_context_to_string (enum callback_context type)
+{
+  assert (CALLBACK_CONTEXT_MIN <= type && type < CALLBACK_CONTEXT_MAX);
+  return callback_context_strings[type];
+}
+
+enum callback_context callback_context_from_string (char *str)
+{
+  enum callback_context i;
+  assert(str != NULL);
+
+  for (i = CALLBACK_CONTEXT_MIN; i < CALLBACK_CONTEXT_MAX; i++)
+  {
+    if (strcmp(str, callback_context_strings[i]) == 0)
+      return i;
+  }
+
+  assert(!"callback_context_from_string: Error, invalid string");
+  return 0;
+}
+
+char *callback_behavior_to_string (enum callback_behavior type)
+{
+  assert (CALLBACK_BEHAVIOR_MIN <= type && type < CALLBACK_BEHAVIOR_MAX);
+  return callback_behavior_strings[type];
+}
+
+enum callback_behavior callback_behavior_from_string (char *str)
+{
+  enum callback_behavior i;
+  assert(str != NULL);
+
+  for (i = CALLBACK_BEHAVIOR_MIN; i < CALLBACK_BEHAVIOR_MAX; i++)
+  {
+    if (strcmp(str, callback_behavior_strings[i]) == 0)
+      return i;
+  }
+
+  assert(!"callback_behavior_from_string: Error, invalid string");
+  return 0;
 }
