@@ -69,6 +69,23 @@ void list_destroy (struct list *list)
   pthread_mutex_destroy(&list->_lock);
 }
 
+void list_destroy_full (struct list *list, list_destroy_func f, void *aux)
+{
+  struct list_elem *e;
+
+  assert(list);
+  if (f)
+  {
+    while (!list_empty(list))
+    {
+      e = list_pop_front(list);
+      (*f)(e, aux);
+    }
+  }
+
+  list_destroy(list);
+}
+
 /* Insert NEW just before NEXT. */
 static void list_insert (struct list_elem *new_elem, struct list_elem *next)
 {
@@ -453,9 +470,12 @@ void list_UT (void)
 }
 
 /* Apply F to each element in LIST. */
-void list_apply (struct list *list, void (*f)(struct list_elem *, void *aux), void *aux)
+void list_apply (struct list *list, list_apply_func f, void *aux)
 {
   struct list_elem *e;
-  for (e = list_begin (list); e != list_end (list); e = list_next (e))
-    (*f)(e, aux);
+  if (f)
+  {
+    for (e = list_begin (list); e != list_end (list); e = list_next (e))
+      (*f)(e, aux);
+  }
 }

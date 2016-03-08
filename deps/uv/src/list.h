@@ -52,8 +52,12 @@ struct list
   unsigned n_elts;
 };
 
+typedef void (*list_apply_func)(struct list_elem *e, void *aux);
+typedef void (*list_destroy_func)(struct list_elem *e, void *aux);
+
 struct list * list_create (void);
 void list_destroy (struct list *list);
+void list_destroy_full (struct list *list, list_destroy_func f, void *aux);
 
 unsigned list_size (const struct list *list);
 int list_empty (const struct list *list);
@@ -92,7 +96,7 @@ struct list_elem * list_begin (const struct list *list);
 struct list_elem * list_end (const struct list *list);
 struct list_elem * list_head (const struct list *list);
 
-void list_apply (struct list *list, void (*f)(struct list_elem *, void *aux), void *aux);
+void list_apply (struct list *list, list_apply_func f, void *aux);
 
 /* For higher-level locking discipline. */
 void list_lock (struct list *list);
