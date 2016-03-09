@@ -1906,7 +1906,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     }
 
     lcbn_determine_executing_thread(lcbn_new);
-    /* TODO Need a mutex in RECORD mode. */
+    /* TODO Need a mutex when using the scheduler. */
     scheduler_record(sched_lcbn_create(lcbn_new));
   }
 
@@ -1915,6 +1915,17 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   cbn_start(cbn);
   current_callback_node_set(cbn); /* Thread-safe. */
   cbn_execute_callback(cbn); 
+
+  if (is_logical_cb)
+  {
+    /* TODO This is a list of types "hooked into" the scheduler. */
+    if (lcbn_new->cb_type == UV_TIMER_CB)
+    {
+      mylog("invoke_callback: advancing the scheduler");
+      scheduler_advance();
+    }
+  }
+
   cbn_stop(cbn);
 
   mylog("invoke_callback: Done with callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));

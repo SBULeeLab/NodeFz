@@ -138,8 +138,6 @@ void scheduler_init(enum schedule_mode mode, char *schedule_file)
   }
   else if (scheduler.mode == SCHEDULE_MODE_REPLAY)
   {
-    scheduler.next_lcbn = 1; /* Skip INITIAL_STACK node. */
-
     f = fopen(scheduler.schedule_file, "r");
     assert(f);
     memset(line, 0, line_len);
