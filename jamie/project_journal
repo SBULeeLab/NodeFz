@@ -932,9 +932,33 @@ Next up:
 
 1. scheduler_init: REPLAY path (read from file; load desired_schedule)
 
-  Address TODOs in scheduler.[hc].
-  Work in schedule output/input.
-  Demonstrate timer scheduling.
+---------
+
+8 Mar 2016
+
+1. scheduler: implement record path
+
+---------
+
+9 Mar 2016
+
+1. scheduler: work through some bugs
+2. schedule specification (record/replay and file) via env variables:
+  UV_SCHEDULE_MODE
+  UV_SCHEDULE_FILE
+
+During testing I discovered that identifying nodes by <tree, level, entry relative to parent> won't work.
+
+      O
+     / \
+    O   O
+    |   |
+    O   O  <-- these are both <0,2,0>, how to distinguish? 
+
+The issue is that from <0,2,0> we don't know who the parent is.
+Instead I think I must use <parent, relative child number> as the unique ID. This is more obviously correct.
+
+- Demonstrate timer scheduling.
 
 -----------
 
