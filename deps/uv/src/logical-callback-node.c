@@ -107,6 +107,7 @@ void lcbn_destroy (lcbn_t *lcbn)
     return;
 
   list_destroy(lcbn->children);
+  list_destroy(lcbn->dependencies);
   free(lcbn);
 }
 
