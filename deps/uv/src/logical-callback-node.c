@@ -17,7 +17,7 @@ static void lcbn_mark_registration_time (lcbn_t *lcbn);
 static lcbn_t * lcbn_create_raw (void);
 static void str_peel_carats (char *str);
 
-/* Dynamically allocate a new lcbn, memset'd to 0. */
+/* Dynamically allocate a new lcbn, memset'd to 0. Lists are initialized. */
 static lcbn_t * lcbn_create_raw (void)
 {
   lcbn_t *lcbn;
@@ -25,6 +25,10 @@ static lcbn_t * lcbn_create_raw (void)
   lcbn = malloc(sizeof *lcbn);
   assert(lcbn != NULL);
   memset(lcbn, 0, sizeof *lcbn);
+
+  lcbn->children = list_create();
+  lcbn->dependencies = list_create();
+
   return lcbn;
 }
 
@@ -70,8 +74,6 @@ lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
 
   lcbn->registrar = NULL;
   lcbn->tree_parent = NULL;
-  lcbn->children = list_create();
-  lcbn->dependencies = list_create();
 
   lcbn->active = 0;
   lcbn->finished = 0;
