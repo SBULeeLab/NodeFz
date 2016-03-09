@@ -1624,6 +1624,8 @@ static int get_client_id (struct sockaddr_storage *addr)
 /* Initialize the data structures for the unified callback code. */
 void unified_callback_init (void)
 {
+  char *schedule_modeP, *schedule_fileP;
+  enum schedule_mode schedule_mode;
   static int initialized = 0;
   if (initialized)
     return;
@@ -1671,7 +1673,12 @@ void unified_callback_init (void)
 #endif
   signal(SIGINT, dump_all_trees_and_exit_sighandler);
 
-  scheduler_init(SCHEDULE_MODE_RECORD, "/tmp/schedule.txt");
+  schedule_modeP = getenv("UV_SCHEDULE_MODE");
+  schedule_fileP = getenv("UV_SCHEDULE_FILE");
+  assert(schedule_modeP && schedule_fileP);
+  mylog("schedule_mode %s schedule_file %s\n", schedule_modeP, schedule_fileP);
+  schedule_mode = (strcmp(schedule_modeP, "RECORD" ) == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
+  scheduler_init(schedule_mode, schedule_fileP);
   atexit(scheduler_emit);
 
   mark_global_start();
