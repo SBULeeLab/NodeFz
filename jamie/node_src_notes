@@ -224,3 +224,8 @@ node/lib/timers:
 --------------------------------
 
 If you see a signal handler being registered for SIGWINCH, it may come from the first call to console.log. This lets node monitor changes in window size so that the output can be printed more appropriately.
+
+---------------------------------
+
+node::TimerWrap::Now calls uv_update_time.
+This causes the value of loop->time to change during a call to uv__run_timers, potentially resulting in the execution of multiple linearly-descended timers (parents, children, grandchildren.) within the same call (provided the timeout for each is small).
