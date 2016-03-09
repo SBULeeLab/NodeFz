@@ -69,4 +69,8 @@ enum callback_type lcbn_get_cb_type (lcbn_t *lcbn);
 /* Add PRED to SUCC's list of dependencies. */
 void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ);
 
+/* Returns non-zero if equal, else zero.
+   Equality is measured by matching: <type, tree_number, tree_level, tree_entry>. */
+int lcbn_equals (lcbn_t *a, lcbn_t *b);
+
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */

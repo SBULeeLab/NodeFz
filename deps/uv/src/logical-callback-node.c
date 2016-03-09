@@ -267,3 +267,15 @@ void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ)
 
   list_push_back(succ->dependencies, &dep->elem);
 }
+
+int lcbn_equals (lcbn_t *a, lcbn_t *b)
+{
+  assert(a);
+  assert(b);
+
+  return (a->cb_type == b->cb_type
+       && a->tree_number == b->tree_number
+       && a->tree_level == b->tree_level
+       && a->level_entry == b->level_entry
+         );
+}
