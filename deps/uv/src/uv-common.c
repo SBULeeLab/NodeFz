@@ -753,6 +753,10 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn);
 static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix, int do_indent);
 static void dump_callback_tree_gv (int fd, struct callback_node *cbn);
 
+/* NB these are not thread safe. Use a mutex to ensure that exec_id actually matches exec order, and so on. */
+static unsigned lcbn_next_exec_id (void);
+static unsigned lcbn_next_reg_id (void);
+
 #if 0
 static void dump_callback_tree (int fd, struct callback_node *cbn);
 #endif
@@ -762,8 +766,9 @@ pthread_mutex_t metadata_lock;
 struct list *root_list;
 struct list *global_order_list;
 
-struct list *lcbn_root_list;
-struct list *lcbn_global_exec_order_list;
+unsigned lcbn_global_exec_counter = 0;
+unsigned lcbn_global_reg_counter = 0;
+
 struct list *lcbn_global_reg_order_list;
 
 /* We identify unique clients based on the associated 'peer info' (struct sockaddr).
@@ -1448,20 +1453,10 @@ lcbn_t * get_init_stack_lcbn (void)
     init_stack_lcbn = lcbn_create(NULL, NULL, 0);
     assert(init_stack_lcbn != NULL);
 
-    init_stack_lcbn->tree_level = 0;
-    init_stack_lcbn->level_entry = 0;
-
     init_stack_lcbn->cb_type = CALLBACK_TYPE_INITIAL_STACK;
 
-    /* Add to metadata structures. */
-    init_stack_lcbn->global_exec_id = list_size(lcbn_global_exec_order_list);
-    list_push_back(lcbn_global_exec_order_list, &init_stack_lcbn->global_exec_order_elem);
-
-    init_stack_lcbn->global_reg_id = list_size(lcbn_global_reg_order_list);
-    list_push_back(lcbn_global_reg_order_list, &init_stack_lcbn->global_reg_order_elem);
-
-    init_stack_lcbn->tree_number = list_size(lcbn_root_list);
-    list_push_back(lcbn_root_list, &init_stack_lcbn->root_elem); 
+    init_stack_lcbn->global_exec_id = lcbn_next_exec_id();
+    init_stack_lcbn->global_reg_id = lcbn_next_reg_id();
   }
 
   return init_stack_lcbn;
@@ -1640,10 +1635,6 @@ void unified_callback_init (void)
   pthread_mutex_init(&metadata_lock, NULL);
   global_order_list = list_create();
   root_list = list_create();
-
-  lcbn_global_exec_order_list = list_create();
-  lcbn_global_reg_order_list = list_create();
-  lcbn_root_list = list_create();
 
   peer_info_to_id = map_create();
   assert(peer_info_to_id != NULL);
@@ -1875,28 +1866,20 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   if (is_logical_cb)
   {
     lcbn_new = lcbn_get(cb_type_to_lcbn, cbi->type);
-    assert(lcbn_new != NULL);
+    assert(lcbn_new);
     assert(lcbn_new->cb_type == cbi->type);
+    assert(tree_get_parent(&lcbn_new->tree_node));
+
     lcbn_new->info = cbi;
 
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
 
     mylog("invoke_callback: invoking lcbn %p context %p tree_parent %p registrar %p cb %p type %s lcbn_orig %p\n",
-      lcbn_new, context, lcbn_new->tree_parent, lcbn_new->registrar, cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
+      lcbn_new, context, 0, 0, cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
     lcbn_mark_begin(lcbn_new);
 
-    /* Add to metadata structures. */
-    lcbn_new->global_exec_id = list_size(lcbn_global_exec_order_list);
-    list_push_back(lcbn_global_exec_order_list, &lcbn_new->global_exec_order_elem);
-
-    if (!lcbn_new->tree_parent)
-    {
-      lcbn_new->tree_number = list_size(lcbn_root_list);
-      list_push_back(lcbn_root_list, &lcbn_new->root_elem); 
-      lcbn_new->tree_level = 0;
-      lcbn_new->level_entry = 0;
-    }
+    lcbn_new->global_exec_id = lcbn_next_exec_id();
 
     if (callback_type_to_behavior(lcbn_new->cb_type) == CALLBACK_BEHAVIOR_RESPONSE)
     {
@@ -1940,7 +1923,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   {
     lcbn_current_set(lcbn_orig);
     mylog("invoke_callback: Done with lcbn %p parent %p cb %p\n",
-      lcbn_new, lcbn_new->tree_parent, cbi->cb);
+      lcbn_new, 0, cbi->cb);
     lcbn_mark_end(lcbn_new);
   }
 
@@ -2060,22 +2043,76 @@ void dump_callback_globalorder (void)
   close(fd);
 }
 
+/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
+static int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *aux)
+{
+  lcbn_t *lcbn_a, *lcbn_b;
+
+  assert(a);
+  assert(b);
+
+  lcbn_a = tree_entry(list_entry(a, tree_node_t, tree_as_list_elem),
+                      lcbn_t, tree_node); 
+  lcbn_b = tree_entry(list_entry(b, tree_node_t, tree_as_list_elem),
+                      lcbn_t, tree_node); 
+  if (lcbn_a->global_reg_id < lcbn_b->global_reg_id)
+    return -1;
+  else if (lcbn_a->global_reg_id == lcbn_b->global_reg_id)
+    return 0;
+  else
+    return 1;
+  NOT_REACHED;
+}
+
+/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
+static int lcbn_sort_by_exec_id (struct list_elem *a, struct list_elem *b, void *aux)
+{
+  lcbn_t *lcbn_a, *lcbn_b;
+
+  assert(a);
+  assert(b);
+
+  lcbn_a = tree_entry(list_entry(a, tree_node_t, tree_as_list_elem),
+                      lcbn_t, tree_node); 
+  lcbn_b = tree_entry(list_entry(b, tree_node_t, tree_as_list_elem),
+                      lcbn_t, tree_node); 
+  if (lcbn_a->global_exec_id < lcbn_b->global_exec_id)
+    return -1;
+  else if (lcbn_a->global_exec_id == lcbn_b->global_exec_id)
+    return 0;
+  else
+    return 1;
+  NOT_REACHED;
+}
+
+/* Filter func, for use with a tree_as_list list of lcbn_t's. */
+static int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
+{
+  lcbn_t *lcbn;
+  assert(e);
+  lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem),
+                    lcbn_t, tree_node); 
+  return (0 <= lcbn->global_exec_id);
+}
+
 void dump_lcbn_globalorder(void)
 {
   int fd;
   char unique_out_file[128];
   char shared_out_file[128];
+  struct list *lcbn_list, *filtered_nodes;
+
+  lcbn_list = tree_as_list(&get_init_stack_lcbn()->tree_node);
 
   /* Registration order (all CBs). */
   snprintf(unique_out_file, 128, "/tmp/lcbn_global_reg_order_%i_%i.txt", (int) time(NULL), getpid());
-  printf("Dumping all %i registered LCBNs in their global registration order to %s\n", list_size(lcbn_global_reg_order_list), unique_out_file);
+  printf("Dumping all %i registered LCBNs in their global registration order to %s\n", list_size(lcbn_list), unique_out_file);
 
   fd = open(unique_out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   if (fd < 0)
     assert(!"Error, could not open output file");
-  list_lock(lcbn_global_reg_order_list);
-  list_apply(lcbn_global_reg_order_list, lcbn_global_reg_list_print_f, &fd);
-  list_unlock(lcbn_global_reg_order_list);
+  list_sort(lcbn_list, lcbn_sort_by_reg_id, NULL);
+  list_apply(lcbn_list, lcbn_tree_list_print_f, &fd);
   close(fd);
 
   snprintf(shared_out_file, 128, "/tmp/lcbn_registered_schedule.txt");
@@ -2084,19 +2121,24 @@ void dump_lcbn_globalorder(void)
 
   /* Exec order (does not include never-executed CBs). */
   snprintf(unique_out_file, 128, "/tmp/lcbn_global_exec_order_%i_%i.txt", (int) time(NULL), getpid());
-  printf("Dumping all %i executed LCBNs in their global exec order to %s\n", list_size(lcbn_global_exec_order_list), unique_out_file);
 
   fd = open(unique_out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
   if (fd < 0)
     assert(!"Error, could not open output file");
-  list_lock(lcbn_global_exec_order_list);
-  list_apply(lcbn_global_exec_order_list, lcbn_global_exec_list_print_f, &fd);
-  list_unlock(lcbn_global_exec_order_list);
+  list_sort(lcbn_list, lcbn_sort_by_exec_id, NULL);
+  filtered_nodes = list_filter(lcbn_list, lcbn_remove_unexecuted, NULL); 
+  printf("Dumping all %i executed LCBNs in their global exec order to %s\n", list_size(lcbn_list), unique_out_file);
+  list_apply(lcbn_list, lcbn_tree_list_print_f, &fd);
   close(fd);
+  /* We applied list_filter, so lcbn_list no longer includes all nodes from the tree. 
+     Repair by combining the two lists, destroying filtered_nodes in the process. */
+  list_concat(lcbn_list, filtered_nodes);
 
   snprintf(shared_out_file, 128, "/tmp/lcbn_exec_schedule.txt");
   unlink(shared_out_file);
   symlink(unique_out_file, shared_out_file);
+
+  list_destroy(lcbn_list);
 }
 
 #if 0
@@ -2390,17 +2432,15 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
 
   /* Create a new LCBN. */
   lcbn_new = lcbn_create(context, cb, cb_type);
-  lcbn_new->registrar = lcbn_cur;
   /* Register it in its context. */
   lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
   lcbn_add_child(lcbn_cur, lcbn_new);
 
   /* Add to metadata structures. */
-  lcbn_new->global_reg_id = list_size(lcbn_global_reg_order_list);
-  list_push_back(lcbn_global_reg_order_list, &lcbn_new->global_reg_order_elem);
+  lcbn_new->global_reg_id = lcbn_next_reg_id();
 
   mylog("uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
-    lcbn_new, cb, context, callback_type_to_string(cb_type), lcbn_new->registrar);
+    lcbn_new, cb, context, callback_type_to_string(cb_type), 0);
 
   /* OLD CODE FOLLOWS. */
 
@@ -3010,4 +3050,16 @@ int pthread_self_internal (void)
   map_unlock(pthread_to_tid);
 
   return internal_id;
+}
+
+static unsigned lcbn_next_exec_id (void)
+{
+  lcbn_global_exec_counter++;
+  return lcbn_global_exec_counter - 1;
+}
+
+static unsigned lcbn_next_reg_id (void)
+{
+  lcbn_global_reg_counter++;
+  return lcbn_global_reg_counter - 1;
 }
