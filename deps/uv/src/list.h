@@ -105,8 +105,9 @@ struct list_elem * list_head (const struct list *list);
 void list_apply (struct list *list, list_apply_func f, void *aux);
 /* In-place sort. */
 void list_sort (struct list *list, list_sort_func sort_func, void *aux);
-/* In-place filter: remove all elems for which F is 0. */
-void list_filter (struct list *list, list_filter_func filter_func, void *aux);
+/* In-place filter: remove all elems for which F is 0. 
+   Nodes that are filtered out are returned in their own list for cleanup. */
+struct list * list_filter (struct list *list, list_filter_func filter_func, void *aux);
 
 /* For higher-level locking discipline. */
 void list_lock (struct list *list);

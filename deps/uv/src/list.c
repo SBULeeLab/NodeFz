@@ -549,19 +549,28 @@ void list_sort (struct list *list, list_sort_func sort_func, void *aux)
   assert(list__sorted(list, sort_func, aux));
 }
 
-void list_filter (struct list *list, list_filter_func filter_func, void *aux)
+struct list * list_filter (struct list *list, list_filter_func filter_func, void *aux)
 {
+  struct list *filtered_nodes;
   struct list_elem *e, *next;
+
   assert(list);
   assert(list_looks_valid(list));
+
+  filtered_nodes = list_create();
 
   for(e = list_begin(list), next = list_next(e);
       e != list_end(list);
       e = next, next = list_next(next))
   {
     if (! (*filter_func)(e, aux))
+    {
       list_remove(list, e);
+      list_push_back(filtered_nodes, e);
+    }
   }
+
+  return filtered_nodes;
 }
 
 static int list__sorted (struct list *list, list_sort_func f, void *aux)
