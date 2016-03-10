@@ -2044,10 +2044,12 @@ void dump_callback_globalorder (void)
 }
 
 /* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
-static int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *aux)
+static int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux)
 {
+  unsigned offset;
   lcbn_t *lcbn_a, *lcbn_b;
-
+  void *void_lcbn_a, *void_lcbn_b;
+  int a_val, b_val;
   assert(a);
   assert(b);
 
@@ -2055,37 +2057,39 @@ static int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *
                       lcbn_t, tree_node); 
   lcbn_b = tree_entry(list_entry(b, tree_node_t, tree_as_list_elem),
                       lcbn_t, tree_node); 
-  if (lcbn_a->global_reg_id < lcbn_b->global_reg_id)
+
+  void_lcbn_a = (void *) lcbn_a;
+  void_lcbn_b = (void *) lcbn_b;
+  offset = *(unsigned *) aux;
+
+  a_val = *(int *) (void_lcbn_a + offset);
+  b_val = *(int *) (void_lcbn_b + offset);
+
+  if (a_val < b_val)
     return -1;
-  else if (lcbn_a->global_reg_id == lcbn_b->global_reg_id)
+  else if (a_val == b_val)
     return 0;
   else
     return 1;
-  NOT_REACHED;
+}
+
+/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
+static int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *aux)
+{
+  unsigned offset;
+  offset = offsetof(lcbn_t, global_reg_id);
+  return lcbn_sort_on_int(a, b, &offset);
 }
 
 /* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
 static int lcbn_sort_by_exec_id (struct list_elem *a, struct list_elem *b, void *aux)
 {
-  lcbn_t *lcbn_a, *lcbn_b;
-
-  assert(a);
-  assert(b);
-
-  lcbn_a = tree_entry(list_entry(a, tree_node_t, tree_as_list_elem),
-                      lcbn_t, tree_node); 
-  lcbn_b = tree_entry(list_entry(b, tree_node_t, tree_as_list_elem),
-                      lcbn_t, tree_node); 
-  if (lcbn_a->global_exec_id < lcbn_b->global_exec_id)
-    return -1;
-  else if (lcbn_a->global_exec_id == lcbn_b->global_exec_id)
-    return 0;
-  else
-    return 1;
-  NOT_REACHED;
+  unsigned offset;
+  offset = offsetof(lcbn_t, global_exec_id);
+  return lcbn_sort_on_int(a, b, &offset);
 }
 
-/* Filter func, for use with a tree_as_list list of lcbn_t's. */
+/* list_filter_func, for use with a tree_as_list list of lcbn_t's. */
 static int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
 {
   lcbn_t *lcbn;
