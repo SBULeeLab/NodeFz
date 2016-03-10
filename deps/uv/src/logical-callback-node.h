@@ -19,7 +19,9 @@ typedef struct lcbn_dependency_s lcbn_dependency_t;
 /* Nodes that comprise a logical callback tree. */
 struct lcbn_s
 {
-  /* Set at registration time. */
+  char name[32];
+  char parent_name[32];
+
   void *context; /* Request or handle with which this LCBN is associated. */
   void *cb;
   enum callback_context cb_context;
@@ -69,5 +71,11 @@ void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ);
    In other words, A and B are equal if they and pairwise on all of their ancestors have
    matching type, tree_level, and child_num.  */
 int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b);
+
+/* TODO Define at the caller layer. See notes in logical-callback-node.c for details. */
+int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux);
+int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *aux);
+int lcbn_sort_by_exec_id (struct list_elem *a, struct list_elem *b, void *aux);
+int lcbn_remove_unexecuted (struct list_elem *e, void *aux);
 
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */

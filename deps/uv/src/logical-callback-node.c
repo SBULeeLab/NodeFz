@@ -7,7 +7,6 @@
 #include <string.h>
 #include <assert.h>
 
-
 /* Private declarations. */
 static void lcbn_mark_registration_time (lcbn_t *lcbn);
 static lcbn_t * lcbn_create_raw (void);
@@ -15,7 +14,8 @@ static lcbn_t * lcbn_create_raw (void);
 /* Helper for parsing input. */
 static void str_peel_carats (char *str);
 
-/* Dynamically allocate a new lcbn, memset'd to 0. Tree, lists are initialized. */
+/* Dynamically allocate a new lcbn, memset'd to 0. Tree, lists are initialized. 
+   name defaults to its own pointer. */
 static lcbn_t * lcbn_create_raw (void)
 {
   lcbn_t *lcbn;
@@ -24,6 +24,8 @@ static lcbn_t * lcbn_create_raw (void)
   assert(lcbn != NULL);
   memset(lcbn, 0, sizeof *lcbn);
 
+  sprintf(lcbn->name, "%p", lcbn);
+  sprintf(lcbn->parent_name, "NULL");
   tree_init(&lcbn->tree_node);
   lcbn->dependencies = list_create();
 
@@ -82,6 +84,7 @@ void lcbn_add_child (lcbn_t *parent, lcbn_t *child)
 
   tree_add_child(&parent->tree_node, &child->tree_node);
   printf("parent %p child %p child level %i child childnum %i\n", parent, child, tree_depth(&child->tree_node), tree_get_child_num(&child->tree_node));
+  sprintf(child->parent_name, "%p", parent);
 }
 
 /* Destroy LCBN returned by lcbn_create or lcbn_init. */
@@ -142,13 +145,13 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   if (!list_empty(lcbn->dependencies))
     dependency_buf[strlen(dependency_buf)-1] = '\0';
 
-  snprintf(buf, size, "<name> <%p> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%p> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
-    lcbn, 
+  snprintf(buf, size, "<name> <%s> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%s> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
+    lcbn->name, 
     lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
     lcbn->cb, callback_type_to_string(lcbn->cb_type), 
     callback_behavior_to_string(callback_type_to_behavior(lcbn->cb_type)), 
     0, tree_depth(&lcbn->tree_node), tree_get_child_num(&lcbn->tree_node), lcbn->global_exec_id, lcbn->global_reg_id,
-    lcbn->info, tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node), tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node),
+    lcbn->info, tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node), lcbn->parent_name,
     lcbn->registration_time.tv_sec, lcbn->registration_time.tv_nsec, lcbn->start_time.tv_sec, lcbn->start_time.tv_nsec, lcbn->end_time.tv_sec, lcbn->end_time.tv_nsec, 
     lcbn->executing_thread, lcbn->active, lcbn->finished,
     dependency_buf);
@@ -167,12 +170,15 @@ lcbn_t * lcbn_from_string (char *buf)
   assert(buf != NULL);
   
   lcbn = lcbn_create_raw();
-  sscanf(buf, "<name> %*s | <context> %*s | <context_type> %s | <cb> %*s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%*i> | <tree_level> <%*i> | <level_entry> <%*i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %*s | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
-    context_str, cb_type_str, cb_behavior_str,
+  sscanf(buf, "<name> %s | <context> %*s | <context_type> %s | <cb> %*s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%*i> | <tree_level> <%*i> | <level_entry> <%*i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %s | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
+    lcbn->name, context_str, cb_type_str, cb_behavior_str,
     &lcbn->global_exec_id, &lcbn->global_reg_id,
+    lcbn->parent_name,
     &lcbn->registration_time.tv_sec, &lcbn->registration_time.tv_nsec, &lcbn->start_time.tv_sec, &lcbn->start_time.tv_nsec, &lcbn->end_time.tv_sec, &lcbn->end_time.tv_nsec, 
     &lcbn->executing_thread, &lcbn->active, &lcbn->finished, dependency_buf);
 
+  str_peel_carats(lcbn->name);
+  str_peel_carats(lcbn->parent_name);
   str_peel_carats(context_str);
   str_peel_carats(cb_type_str);
   str_peel_carats(cb_behavior_str);
@@ -235,15 +241,87 @@ void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ)
 
 int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
 {
-  /* Base case: if trees are of equal height, they reach root->parent (== NULL) at the same time. */
-  if (!a && !b)
+  tree_node_t *a_par, *b_par;
+  /* Base case: if trees are of equal height, they reach the initial_stack dummy LCBN (tree root (parent == NULL)) at the same time. No need to compare the root nodes, since it's the initial stack node. */
+  a_par = tree_get_parent(&a->tree_node);
+  b_par = tree_get_parent(&b->tree_node);
+  if (!a_par && !b_par)
+  {
+    assert(a->cb_type == CALLBACK_TYPE_INITIAL_STACK);
+    assert(b->cb_type == CALLBACK_TYPE_INITIAL_STACK);
+    printf("lcbn_semantic_equals: MATCH\n");
     return 1;
-  if (!a || !b)
+  }
+  if (!a_par || !b_par)
+  {
+    printf("lcbn_semantic_equals: MISMATCH\n");
     return 0;
+  }
+
+  printf("a type %i == b type %i? %i\n", a->cb_type, b->cb_type, a->cb_type == b->cb_type);
+  printf("a child num %i == b child num %i? %i\n", tree_get_child_num(&a->tree_node), tree_get_child_num(&b->tree_node), tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node));
 
   return (a->cb_type == b->cb_type
        && tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node)
-       && lcbn_semantic_equals(tree_entry(tree_get_parent(&a->tree_node), lcbn_t, tree_node),
-                               tree_entry(tree_get_parent(&b->tree_node), lcbn_t, tree_node))
+       && lcbn_semantic_equals(tree_entry(a_par, lcbn_t, tree_node),
+                               tree_entry(b_par, lcbn_t, tree_node))
          );
+}
+
+/* TODO These should really be defined where they are used -- in scheduler.c.
+   However, at the moment we also use them in uv-common.c. */
+/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
+int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux)
+{
+  unsigned offset;
+  lcbn_t *lcbn_a, *lcbn_b;
+  void *void_lcbn_a, *void_lcbn_b;
+  int a_val, b_val;
+  assert(a);
+  assert(b);
+
+  lcbn_a = tree_entry(list_entry(a, tree_node_t, tree_as_list_elem),
+                      lcbn_t, tree_node); 
+  lcbn_b = tree_entry(list_entry(b, tree_node_t, tree_as_list_elem),
+                      lcbn_t, tree_node); 
+
+  void_lcbn_a = (void *) lcbn_a;
+  void_lcbn_b = (void *) lcbn_b;
+  offset = *(unsigned *) aux;
+
+  a_val = *(int *) (void_lcbn_a + offset);
+  b_val = *(int *) (void_lcbn_b + offset);
+
+  if (a_val < b_val)
+    return -1;
+  else if (a_val == b_val)
+    return 0;
+  else
+    return 1;
+}
+
+/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
+int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *aux)
+{
+  unsigned offset;
+  offset = offsetof(lcbn_t, global_reg_id);
+  return lcbn_sort_on_int(a, b, &offset);
+}
+
+/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
+int lcbn_sort_by_exec_id (struct list_elem *a, struct list_elem *b, void *aux)
+{
+  unsigned offset;
+  offset = offsetof(lcbn_t, global_exec_id);
+  return lcbn_sort_on_int(a, b, &offset);
+}
+
+/* list_filter_func, for use with a tree_as_list list of lcbn_t's. */
+int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
+{
+  lcbn_t *lcbn;
+  assert(e);
+  lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem),
+                    lcbn_t, tree_node); 
+  return (0 <= lcbn->global_exec_id);
 }

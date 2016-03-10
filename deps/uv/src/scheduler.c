@@ -18,8 +18,12 @@ struct scheduler_s
   enum schedule_mode mode;
   char schedule_file[256];
 
-  struct list *recorded_schedule; /* List of the sched_lcbn_t's we have executed so far. */
-  struct list *desired_schedule; /* For REPLAY mode, list of sched_lcbn_t's expressing desired execution order, first to last. We left-shift as we execute nodes. */
+  struct list *recorded_schedule; /* List of the sched_lcbn_t's we have executed so far. TODO Needs to be registration instead. */
+
+  /* REPLAY mode. */
+  lcbn_t *shadow_root; /* Root of the "shadow tree" -- the registration tree described in the input file. */
+  struct map *name_to_lcbn; /* Used to map hash(name) to lcbn. Allows us to re-build the tree. */
+  struct list *desired_schedule; /* A tree_as_list list (rooted at shadow_root) of sched_lcbn_t's, expressing desired execution order, first to last. We discard internal nodes (e.g. initial stack node). We left-shift as we execute nodes. */
 
   int magic;
 };
@@ -33,11 +37,13 @@ static int scheduler_initialized (void);
 static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
 /* Return non-zero if SCHED_LCBN is next, else zero. */
-static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn)
+static int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
 {
-  sched_lcbn_t *next;
+  lcbn_t *next_lcbn;
+  int equal;
 
-  assert(sched_lcbn);
+  assert(scheduler_initialized());
+  assert(ready_lcbn);
 
   /* RECORD mode: Every queried sched_lcbn is "next". */
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
@@ -46,10 +52,13 @@ static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn)
   assert(scheduler.mode == SCHEDULE_MODE_REPLAY);
   assert(!list_empty(scheduler.desired_schedule));
 
-  next = list_entry(list_begin(scheduler.desired_schedule), sched_lcbn_t, elem);
-  assert(next);
+  next_lcbn = tree_entry(list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem),
+                         lcbn_t, tree_node);
+  assert(next_lcbn);
 
-  return lcbn_semantic_equals(next->lcbn, sched_lcbn->lcbn);
+  equal = lcbn_semantic_equals(next_lcbn, ready_lcbn->lcbn);
+  printf("sched_lcbn_is_next: ready_lcbn %p next_lcbn %p equal? %i\n", ready_lcbn->lcbn, next_lcbn, equal);
+  return equal;
 }
 
 /* Public APIs. */
@@ -107,15 +116,37 @@ static int scheduler_initialized (void)
   return scheduler.magic == SCHEDULER_MAGIC;
 }
 
+/* TODO DEBUGGING. */
+static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
+{
+  lcbn_t *lcbn;
+  int fd;
+  assert(e);
+  char buf[2048];
+
+  lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem), 
+                    lcbn_t, tree_node);
+  assert(lcbn);
+
+  lcbn_to_string(lcbn, buf, sizeof buf);
+  printf("%s\n", buf);
+}
+
 void scheduler_init (enum schedule_mode mode, char *schedule_file)
 {
   FILE *f;
   char *line;
   size_t line_len;
   sched_lcbn_t *sched_lcbn;
+  lcbn_t *parent;
+  int found;
+  struct list *filtered_nodes;
 
   assert(schedule_file != NULL);
   assert(!scheduler_initialized());
+
+  scheduler.shadow_root = NULL;
+  scheduler.name_to_lcbn = map_create();
 
   /* Allocate a line for SCHEDULE_MODE_REPLAY. */
   line_len = 2048;
@@ -127,7 +158,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   strncpy(scheduler.schedule_file, schedule_file, sizeof scheduler.schedule_file);
   scheduler.magic = SCHEDULER_MAGIC;
   scheduler.recorded_schedule = list_create();
-  scheduler.desired_schedule = list_create();
+  scheduler.desired_schedule = NULL;
 
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
   {
@@ -143,16 +174,56 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     memset(line, 0, line_len);
     while(0 < getline(&line, &line_len, f))
     {
+      /* TODO Here we assume that we're working with an input file sorted by global registration order.
+         This is not the schedule file we emit! Need to update what recorded_schedule is. */
       /* Remove trailing newline. */
       if(line[strlen(line)-1] == '\n')
         line[strlen(line)-1] = '\0';
-      /* Parse line as an lcbn_t and add it to the desired_schedule. */
+      /* Parse line as an lcbn_t and wrap with a sched_lcbn. */
       sched_lcbn = sched_lcbn_create(lcbn_from_string(line));
-      list_push_back(scheduler.desired_schedule, &sched_lcbn->elem);
+      if (!scheduler.shadow_root)
+      {
+        assert(sched_lcbn->lcbn->cb_type == CALLBACK_TYPE_INITIAL_STACK);
+        scheduler.shadow_root = sched_lcbn->lcbn;
+      }
+
+      /* Add the new lcbn to the name map. */
+      map_insert(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->name, sizeof sched_lcbn->lcbn->name), sched_lcbn->lcbn);
+
+      if (sched_lcbn->lcbn->cb_type != CALLBACK_TYPE_INITIAL_STACK)
+      {
+        /* Locate the parent by name; update the tree. */
+        parent = map_lookup(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->parent_name, sizeof sched_lcbn->lcbn->parent_name), &found);
+        assert(found && parent);
+        tree_add_child(&parent->tree_node, &sched_lcbn->lcbn->tree_node);
+      }
 
       memset(line, 0, line_len);
     }
     assert(fclose(f) == 0);
+
+    /* Calculate desired_schedule based on the execution order of the tree we've parsed. */ 
+    scheduler.desired_schedule = tree_as_list(&scheduler.shadow_root->tree_node);
+
+    /* TODO DEBUG: First sort by registration order and print out what we've parsed. */
+    list_sort(scheduler.desired_schedule, lcbn_sort_by_reg_id, NULL);
+    printf("scheduler_init: Printing parsed nodes in registration order.\n");
+    list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
+
+    /* Sort by exec order so that we can efficiently handle scheduler queries. 
+       Remove unexecuted nodes. */
+    list_sort(scheduler.desired_schedule, lcbn_sort_by_exec_id, NULL);
+    filtered_nodes = list_filter(scheduler.desired_schedule, lcbn_remove_unexecuted, NULL); 
+    list_destroy(filtered_nodes);
+
+    /* Remove more "unexecuted" nodes: internal nodes like the initial stack node are just placeholders, 
+         and will never be executed through invoke_callback.
+       TODO If we have more than one 'internal node', use another filter instead of this more direct approach. */
+    assert(&scheduler.shadow_root->tree_node == list_entry(list_front(scheduler.desired_schedule), tree_node_t, tree_as_list_elem));
+    list_pop_front(scheduler.desired_schedule);
+
+    printf("scheduler_init: Printing parsed nodes in exec order.\n");
+    list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
   }
 
   free(line);
@@ -290,7 +361,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
     req_type = req->type;
 
     handle_or_req = req;
-    ready_lcbns_func = req_lcbn_funcs[handle_type];
+    ready_lcbns_func = req_lcbn_funcs[req_type];
   }
   else
     NOT_REACHED;
@@ -327,15 +398,20 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 
 void scheduler_advance (void)
 {
-  sched_lcbn_t *sched_lcbn;
-
+  lcbn_t *lcbn;
+  assert(scheduler_initialized());
   if (scheduler.mode != SCHEDULE_MODE_REPLAY)
     return;
 
   assert(!list_empty(scheduler.desired_schedule));
-  sched_lcbn = list_entry(list_pop_front(scheduler.desired_schedule), sched_lcbn_t, elem);
 
-  sched_lcbn_destroy(sched_lcbn);
+  lcbn = tree_entry(list_entry(list_pop_front(scheduler.desired_schedule),
+                               tree_node_t, tree_as_list_elem),
+                    lcbn_t, tree_node);
+  printf("schedule_advance: discarding lcbn %p (type %s)\n",
+    lcbn, callback_type_to_string(lcbn->cb_type));
+  fflush(NULL);
+  lcbn = NULL;
 }
 
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)

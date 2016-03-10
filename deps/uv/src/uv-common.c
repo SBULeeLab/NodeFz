@@ -1451,7 +1451,6 @@ lcbn_t * get_init_stack_lcbn (void)
   if (!init_stack_lcbn)
   {
     init_stack_lcbn = lcbn_create(NULL, NULL, 0);
-    assert(init_stack_lcbn != NULL);
 
     init_stack_lcbn->cb_type = CALLBACK_TYPE_INITIAL_STACK;
 
@@ -2043,61 +2042,6 @@ void dump_callback_globalorder (void)
   close(fd);
 }
 
-/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
-static int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux)
-{
-  unsigned offset;
-  lcbn_t *lcbn_a, *lcbn_b;
-  void *void_lcbn_a, *void_lcbn_b;
-  int a_val, b_val;
-  assert(a);
-  assert(b);
-
-  lcbn_a = tree_entry(list_entry(a, tree_node_t, tree_as_list_elem),
-                      lcbn_t, tree_node); 
-  lcbn_b = tree_entry(list_entry(b, tree_node_t, tree_as_list_elem),
-                      lcbn_t, tree_node); 
-
-  void_lcbn_a = (void *) lcbn_a;
-  void_lcbn_b = (void *) lcbn_b;
-  offset = *(unsigned *) aux;
-
-  a_val = *(int *) (void_lcbn_a + offset);
-  b_val = *(int *) (void_lcbn_b + offset);
-
-  if (a_val < b_val)
-    return -1;
-  else if (a_val == b_val)
-    return 0;
-  else
-    return 1;
-}
-
-/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
-static int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *aux)
-{
-  unsigned offset;
-  offset = offsetof(lcbn_t, global_reg_id);
-  return lcbn_sort_on_int(a, b, &offset);
-}
-
-/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
-static int lcbn_sort_by_exec_id (struct list_elem *a, struct list_elem *b, void *aux)
-{
-  unsigned offset;
-  offset = offsetof(lcbn_t, global_exec_id);
-  return lcbn_sort_on_int(a, b, &offset);
-}
-
-/* list_filter_func, for use with a tree_as_list list of lcbn_t's. */
-static int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
-{
-  lcbn_t *lcbn;
-  assert(e);
-  lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem),
-                    lcbn_t, tree_node); 
-  return (0 <= lcbn->global_exec_id);
-}
 
 void dump_lcbn_globalorder(void)
 {
