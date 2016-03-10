@@ -56,6 +56,8 @@ typedef void (*list_apply_func)(struct list_elem *e, void *aux);
 typedef void (*list_destroy_func)(struct list_elem *e, void *aux);
 /* Returns -1 if a < b, 0 if a == b, 1 if a > b. */
 typedef int (*list_sort_func)(struct list_elem *a, struct list_elem *b, void *aux);
+/* Returns non-zero if a meets the filter condition (keep), else 0 (remove). */
+typedef int (*list_filter_func)(struct list_elem *a, void *aux);
 
 struct list * list_create (void);
 void list_destroy (struct list *list);
@@ -100,7 +102,9 @@ struct list_elem * list_head (const struct list *list);
 
 void list_apply (struct list *list, list_apply_func f, void *aux);
 /* In-place sort. */
-void list_sort (struct list *list, list_sort_func f, void *aux);
+void list_sort (struct list *list, list_sort_func sort_func, void *aux);
+/* In-place filter: remove all elems for which F is 0. */
+void list_filter (struct list *list, list_filter_func filter_func, void *aux);
 
 /* For higher-level locking discipline. */
 void list_lock (struct list *list);
