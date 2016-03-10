@@ -283,6 +283,26 @@ struct list * list_split (struct list *list, unsigned split_size)
   return front_list;
 }
 
+void list_concat (struct list *front, struct list *back)
+{
+  struct list_elem *e;
+  assert(front);
+  assert(back);
+  assert(list_looks_valid(front));
+  assert(list_looks_valid(back));
+
+  /* This isn't the most efficient implementation ever. 
+     We could take advantage of the list structure to do this with a few pointer swaps.
+     However, this is safer because it uses APIs instead of relying on the internal list design. */
+  while (!list_empty(back))
+  {
+    e = list_pop_front(back);
+    list_push_back(front, e);
+  }
+
+  list_destroy(back);
+}
+
 /* In a non-empty list, returns the first element.
   In an empty list, returns the tail. */
 struct list_elem * list_begin (const struct list *list)

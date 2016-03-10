@@ -68,9 +68,11 @@ int list_empty (const struct list *list);
 int list_looks_valid (const struct list *list);
 
 struct list * list_split (struct list *list, unsigned split_size);
+/* Add the elements of BACK to the end of FRONT. list_destroy's BACK. */
+void list_concat (struct list *front, struct list *back);
 
 void list_push_front (struct list *list, struct list_elem *elem);
-void list_push_back (struct list *list, struct list_elem *);
+void list_push_back (struct list *list, struct list_elem *elem);
 struct list_elem * list_pop_front (struct list *list);
 struct list_elem * list_pop_back (struct list *list);
 struct list_elem * list_remove (struct list *list, struct list_elem *elem);
