@@ -53,6 +53,7 @@
         'include/tree.h',
         'src/mylog.c',
         'src/list.c',
+        'src/mytree.c',
         'src/map.c',
         'src/scheduler.c',
         'src/logical-callback-node.c',

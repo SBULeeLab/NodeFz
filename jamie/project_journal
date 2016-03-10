@@ -958,7 +958,10 @@ During testing I discovered that identifying nodes by <tree, level, entry relati
 The issue is that from <0,2,0> we don't know who the parent is.
 Instead I think I must use <parent, relative child number> as the unique ID. This is more obviously correct.
 
-- Demonstrate timer scheduling.
+3. Develop a tree class with which I can more cleanly structure the LCBN trees.
+   See mytree.[ch].
+   TODO Tomorrow (preferably by 2PM :-D) rework LCBN tree implementation, schedule input/output, and LCBN comparison. 
+   See notes just above for details.
 
 -----------
 

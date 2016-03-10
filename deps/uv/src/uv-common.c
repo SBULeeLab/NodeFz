@@ -1634,6 +1634,8 @@ void unified_callback_init (void)
   list_UT();
   mylog("DEBUG: Testing map\n");
   map_UT();
+  mylog("DEBUG: Testing tree\n");
+  tree_UT();
 
   pthread_mutex_init(&metadata_lock, NULL);
   global_order_list = list_create();
