@@ -54,6 +54,8 @@ struct list
 
 typedef void (*list_apply_func)(struct list_elem *e, void *aux);
 typedef void (*list_destroy_func)(struct list_elem *e, void *aux);
+/* Returns -1 if a < b, 0 if a == b, 1 if a > b. */
+typedef int (*list_sort_func)(struct list_elem *a, struct list_elem *b, void *aux);
 
 struct list * list_create (void);
 void list_destroy (struct list *list);
@@ -97,6 +99,8 @@ struct list_elem * list_end (const struct list *list);
 struct list_elem * list_head (const struct list *list);
 
 void list_apply (struct list *list, list_apply_func f, void *aux);
+/* In-place sort. */
+void list_sort (struct list *list, list_sort_func f, void *aux);
 
 /* For higher-level locking discipline. */
 void list_lock (struct list *list);

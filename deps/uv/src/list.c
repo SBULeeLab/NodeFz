@@ -3,14 +3,22 @@
 #include <assert.h>
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
+#include <string.h> /* memset */
 
 #define LIST_MAGIC 12345678
 
+/* Private functions. */
 static void list_init (struct list *list);
 static struct list_elem * list_tail (const struct list *list);
 static void list_insert (struct list_elem *, struct list_elem *);
 static void list__lock (struct list *list);
 static void list__unlock (struct list *list);
+
+/* Swap the locations of A and B in the list. */
+static void list__swap (struct list_elem *a, struct list_elem *b);
+
+/* Returns non-zero if sorted in least-to-greatest order (a <= b <= c <= ...), else 0. */
+static int list__sorted (struct list *list, list_sort_func f, void *aux);
 
 /* Allocate and initialize a list. */
 struct list * list_create (void)
@@ -472,10 +480,130 @@ void list_UT (void)
 /* Apply F to each element in LIST. */
 void list_apply (struct list *list, list_apply_func f, void *aux)
 {
+  assert(list);
+  assert(list_looks_valid(list));
+
   struct list_elem *e;
   if (f)
   {
     for (e = list_begin (list); e != list_end (list); e = list_next (e))
       (*f)(e, aux);
+  }
+}
+
+void list_sort (struct list *list, list_sort_func sort_func, void *aux)
+{
+  struct list_elem *a, *b;
+  int sorted;
+  assert(list);
+  assert(list_looks_valid(list));
+  assert(sort_func);
+
+  /* Bubble sort.
+    Until the list is sorted, find an out-of-order pair and swap them.
+    O(n^s), but this is expected to be a run-once operation so NBD. */
+
+  sorted = 0;
+  while (!sorted)
+  {
+    assert(list_looks_valid(list));
+
+    sorted = 1; /* Assume we're done until proved otherwise. */
+    /* Each pass swaps all pairs of out-of-order neighbors. */
+    for (a = list_begin(list); a != list_end(list); a = list_next(a))
+    {
+      b = list_next(a);
+      if (b == list_end(list))
+        continue;
+      /* a -> b, but b < a. */
+      if ((*sort_func)(a, b, aux) == 1)
+      {
+        list__swap(a, b);
+        sorted = 0;
+      }
+    }
+  }
+
+  /* If we reach this point, we've done a pairwise comparison of every elem in the list.
+     Each element is appropriately ordered relative to its neighbor; transitively, the list is sorted. */
+  assert(list__sorted(list, sort_func, aux));
+}
+
+static int list__sorted (struct list *list, list_sort_func f, void *aux)
+{
+  struct list_elem *a, *b;
+  assert(list);
+  assert(list_looks_valid(list));
+
+  if (list_size(list) <= 1)
+    return 1;
+
+  a = list_begin(list);
+  b = list_next(a);
+  while (b != list_end(list))
+  {
+    if ((*f)(a, b, aux) == 1)
+      /* a > b: the list is not sorted. */
+      return 0;
+    a = b;
+    b = list_next(b);
+  }
+  return 1;
+}
+
+static void list__swap (struct list_elem *a, struct list_elem *b)
+{
+  struct list_elem *orig_a_next, *orig_a_prev, *orig_b_next, *orig_b_prev, *e;
+  int neighbors;
+  assert(a);
+  assert(b);
+
+  neighbors =  (a->next == b || b->next == a);
+  if (neighbors)
+  {
+    /* The full treatment below gets us all tangled because the same node fills multiple roles
+        (e.g. orig_a_next == b). */
+    if (b->next == a)
+    {
+      /* Arrange it so that a -> b for clarity. */
+      e = a;
+      a = b;
+      b = e;
+    }
+    assert(a->next == b);
+    assert(b->prev == a);
+
+    /* Update outer neighbors. */
+    a->prev->next = b; 
+    b->next->prev = a;
+
+    /* Update inner pointers. */
+    a->next = b->next;
+    b->prev = a->prev;
+
+    b->next = a;
+    a->prev = b;
+  }
+  else
+  {
+    /* Remember original neighbors. */
+    orig_a_next = a->next;
+    orig_a_prev = a->prev;
+    orig_b_next = b->next;
+    orig_b_prev = b->prev;
+
+    /* Update next/prev of neighbors. */
+    orig_a_prev->next = b;
+    orig_a_next->prev = b;
+    
+    orig_b_prev->next = a;
+    orig_b_next->prev = a;
+
+    /* Swap neighbor pointers. */
+    a->prev = orig_b_prev;
+    a->next = orig_b_next;
+
+    b->prev = orig_a_prev;
+    b->next = orig_a_next;
   }
 }
