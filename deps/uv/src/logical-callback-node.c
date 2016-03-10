@@ -233,7 +233,7 @@ void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ)
   list_push_back(succ->dependencies, &dep->elem);
 }
 
-int lcbn_equals (lcbn_t *a, lcbn_t *b)
+int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
 {
   /* Base case: if trees are of equal height, they reach root->parent (== NULL) at the same time. */
   if (!a && !b)
@@ -243,7 +243,7 @@ int lcbn_equals (lcbn_t *a, lcbn_t *b)
 
   return (a->cb_type == b->cb_type
        && tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node)
-       && lcbn_equals(tree_entry(tree_get_parent(&a->tree_node), lcbn_t, tree_node),
-                      tree_entry(tree_get_parent(&b->tree_node), lcbn_t, tree_node))
+       && lcbn_semantic_equals(tree_entry(tree_get_parent(&a->tree_node), lcbn_t, tree_node),
+                               tree_entry(tree_get_parent(&b->tree_node), lcbn_t, tree_node))
          );
 }

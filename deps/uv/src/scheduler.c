@@ -49,7 +49,7 @@ static int sched_lcbn_is_next(sched_lcbn_t *sched_lcbn)
   next = list_entry(list_begin(scheduler.desired_schedule), sched_lcbn_t, elem);
   assert(next);
 
-  return lcbn_equals(next->lcbn, sched_lcbn->lcbn);
+  return lcbn_semantic_equals(next->lcbn, sched_lcbn->lcbn);
 }
 
 /* Public APIs. */

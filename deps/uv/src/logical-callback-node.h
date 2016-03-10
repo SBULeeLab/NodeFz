@@ -65,7 +65,9 @@ enum callback_type lcbn_get_cb_type (lcbn_t *lcbn);
 void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ);
 
 /* Returns non-zero if equal, else zero.
-   Equality is measured by matching: <type, tree_number, tree_level, tree_entry>. */
-int lcbn_equals (lcbn_t *a, lcbn_t *b);
+   Equality is measured by recursively matching: <type, tree_level, child_num>
+   In other words, A and B are equal if they and pairwise on all of their ancestors have
+   matching type, tree_level, and child_num.  */
+int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b);
 
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */

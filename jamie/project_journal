@@ -960,7 +960,17 @@ Instead I think I must use <parent, relative child number> as the unique ID. Thi
 
 3. Develop a tree class with which I can more cleanly structure the LCBN trees.
    See mytree.[ch].
-   TODO Tomorrow (preferably by 2PM :-D) rework LCBN tree implementation, schedule input/output, and LCBN comparison. 
+
+---------
+
+10 Mar 2016
+
+1. Add more tree APIs and refactor LCBNs to use trees
+2. Remove global_lcbn lists and replace them with counters
+3. Refactor lcbn generating to use lists and a sort routine (on exec_id or reg_id)
+
+TODO
+   TODO Tomorrow (preferably by 2PM in time for the weekly demo) schedule input/output, and LCBN comparison. 
    See notes just above for details.
 
 -----------
