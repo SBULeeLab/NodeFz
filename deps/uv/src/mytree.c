@@ -11,11 +11,13 @@ static int tree__looks_valid (const tree_node_t *node);
 
 /* These are helper tree_apply[_ancestors] functions. */
 static void tree__add_node_to_list (tree_node_t *node, void *aux);
-void tree__count (tree_node_t *node, void *aux);
+static void tree__count (tree_node_t *node, void *aux);
+static void tree__find_helper (tree_node_t *node, void *aux);
 
 /* For tree_UT, for use with tree_as_list. 
    If *(int *) AUX == 0, sorts on 'a value' < 'b value', else the other way. */
 static int tree__UT_value_sort (struct list_elem *a, struct list_elem *b, void *aux);
+static int tree__UT_find_func (tree_node_t *e, void *aux);
 
 static int tree__looks_valid (const tree_node_t *node)
 {
@@ -112,7 +114,7 @@ tree_node_t * tree_get_root (tree_node_t *node)
   tree_node_t *ret;
 
   assert(node);
-  assert(tree__looks_valid(node);
+  assert(tree__looks_valid(node));
 
   if (!node->parent)
     ret = node;
@@ -124,11 +126,11 @@ tree_node_t * tree_get_root (tree_node_t *node)
 tree_node_t * tree_get_parent (tree_node_t *node)
 {
   assert(node);
-  assert(tree__looks_valid(node);
+  assert(tree__looks_valid(node));
   return (node->parent);
 }
 
-void tree__count (tree_node_t *node, void *aux)
+static void tree__count (tree_node_t *node, void *aux)
 {
   unsigned *counter;
   counter = (unsigned *) aux;
@@ -160,6 +162,28 @@ struct list * tree_as_list (tree_node_t *root)
   return list;
 }
 
+tree_node_t * tree_find (tree_node_t *root, tree_find_func f, void *aux)
+{
+  /* Matches the declaration in tree__find_helper. */
+  struct tree__find_info_s
+  {
+    void *aux;
+    tree_find_func f;
+    tree_node_t *match;
+  } tree__find_info;
+
+  assert(root);
+  assert(tree__looks_valid(root));
+  assert(f);
+
+  tree__find_info.aux = aux;
+  tree__find_info.f = f;
+  tree__find_info.match = NULL;
+
+  tree_apply(root, tree__find_helper, &tree__find_info);
+  return tree__find_info.match;
+}
+
 /* Tests tree APIs. */
 typedef struct tree_UT_s
 {
@@ -167,15 +191,15 @@ typedef struct tree_UT_s
   tree_node_t elem;
 } tree_UT_t;
 
+#define TREE_UT_FANOUT 5
 void tree_UT (void)
 {
   struct list *list;
   struct list_elem *list_e;
-  #define FANOUT 5
-  int i, sort_order, counter;
+  int i, sort_order, counter, key;
   unsigned total_tree_size;
   tree_UT_t *node;
-  tree_UT_t root, children[FANOUT], grandchildren[FANOUT*FANOUT];
+  tree_UT_t root, children[TREE_UT_FANOUT], grandchildren[TREE_UT_FANOUT*TREE_UT_FANOUT];
 
   total_tree_size = 0;
   tree_init(&root.elem);
@@ -184,20 +208,20 @@ void tree_UT (void)
 
   /* tree_add_child */
 
-  /* Root gets FANOUT children. */
-  for (i = 0; i < FANOUT; i++)
+  /* Root gets TREE_UT_FANOUT children. */
+  for (i = 0; i < TREE_UT_FANOUT; i++)
   {
     tree_init(&children[i].elem);
     children[i].value = total_tree_size;
     tree_add_child(&root.elem, &children[i].elem);
     total_tree_size++;
   }
-  /* Each child gets FANOUT children. */
-  for (i = 0; i < FANOUT*FANOUT; i++)
+  /* Each child gets TREE_UT_FANOUT children. */
+  for (i = 0; i < TREE_UT_FANOUT*TREE_UT_FANOUT; i++)
   {
     tree_init(&grandchildren[i].elem);
     grandchildren[i].value = total_tree_size;
-    tree_add_child(&children[i/FANOUT].elem, &grandchildren[i].elem);
+    tree_add_child(&children[i/TREE_UT_FANOUT].elem, &grandchildren[i].elem);
     total_tree_size++;
   }
 
@@ -238,7 +262,7 @@ void tree_UT (void)
   list_sort(list, tree__UT_value_sort, &sort_order);
   node = tree_entry(list_entry(list_begin(list), tree_node_t, tree_as_list_elem), 
                     tree_UT_t, elem);
-  assert(node == &grandchildren[FANOUT*FANOUT-1]);
+  assert(node == &grandchildren[TREE_UT_FANOUT*TREE_UT_FANOUT-1]);
   counter = total_tree_size - 1;
   for (list_e = list_begin(list); list_e != list_end(list); list_e = list_next(list_e))
   {
@@ -252,8 +276,24 @@ void tree_UT (void)
 
   /* tree_depth */
   assert(tree_depth(&root.elem) == 0);
-  assert(tree_depth(&children[FANOUT-1].elem) == 1);
-  assert(tree_depth(&grandchildren[FANOUT*FANOUT-1].elem) == 2);
+  assert(tree_depth(&children[TREE_UT_FANOUT-1].elem) == 1);
+  assert(tree_depth(&grandchildren[TREE_UT_FANOUT*TREE_UT_FANOUT-1].elem) == 2);
+
+  /* tree_find: find each elem, then ensure that "no such elem" returns NULL. */
+  counter = 0; /* This takes on the range of tree_UT_t.value's present in the tree. */
+  assert(tree_find(&root.elem, tree__UT_find_func, &counter) == &root.elem); 
+  for (i = 0; i < TREE_UT_FANOUT; i++)
+  {
+    counter++;
+    assert(tree_find(&root.elem, tree__UT_find_func, &counter) == &children[i].elem); 
+  }
+  for (i = 0; i < TREE_UT_FANOUT*TREE_UT_FANOUT; i++)
+  {
+    counter++;
+    assert(tree_find(&root.elem, tree__UT_find_func, &counter) == &grandchildren[i].elem); 
+  }
+  counter++;
+  assert(tree_find(&root.elem, tree__UT_find_func, &counter) == NULL);
 
   /* tree_apply is implicitly exercised by tree_size and tree_as_list.
      tree_apply_up is implicitly exercised by tree_depth. */
@@ -298,4 +338,44 @@ static int tree__UT_value_sort (struct list_elem *a, struct list_elem *b, void *
     return ret;
   else
     return -1*ret;
+}
+
+static void tree__find_helper (tree_node_t *node, void *aux)
+{
+  int is_match;
+  /* Matches the declaration in tree_find. */
+  struct tree__find_info_s
+  {
+    void *aux;
+    tree_find_func f;
+    tree_node_t *match;
+  } *tree__find_infoP;
+
+  assert(node);
+  assert(tree__looks_valid(node));
+
+  tree__find_infoP = (struct tree__find_info_s *) aux;
+
+  /* Already a match -- nothing to do. */
+  if (tree__find_infoP->match)
+    return;
+
+  is_match = (*tree__find_infoP->f)(node, tree__find_infoP->aux);
+  if (is_match)
+    tree__find_infoP->match = node;
+  return;
+}
+
+static int tree__UT_find_func (tree_node_t *node, void *aux)
+{
+  tree_UT_t *wrapper;
+  int key;
+  assert(node);
+  assert(tree__looks_valid(node));
+
+  key = *(int *) aux; 
+  wrapper = tree_entry(node, tree_UT_t, elem);
+  if (wrapper->value == key)
+    return 1;
+  return 0;
 }

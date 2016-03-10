@@ -35,6 +35,7 @@ struct tree_node_s
 
 /* Function typedefs. */
 typedef void (*tree_apply_func)(tree_node_t *e, void *aux);
+typedef int (*tree_find_func)(tree_node_t *e, void *aux);
 
 /* Trees are not allocated (i.e. created with malloc), just initialized from an existing tree_node_t. */
 void tree_init (tree_node_t *node);
@@ -61,6 +62,9 @@ unsigned tree_get_child_num (tree_node_t *node);
 void tree_apply (tree_node_t *root, tree_apply_func f, void *aux);
 /* Apply F to LEAF and its direct ancestors. */
 void tree_apply_up (tree_node_t *leaf, tree_apply_func f, void *aux);
+
+/* Return the first node for which F returns non-zero, or NULL if no match found. */
+tree_node_t * tree_find (tree_node_t *root, tree_find_func f, void *aux);
 
 /* Only a single instance of the returned list can exist at a time. 
    Finish using the returned list and list_destroy it prior to 
