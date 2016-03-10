@@ -9,7 +9,7 @@
 /* Private functions. */
 static int tree__looks_valid (const tree_node_t *node);
 
-/* These are helper tree_apply functions. */
+/* These are helper tree_apply[_ancestors] functions. */
 static void tree__add_node_to_list (tree_node_t *node, void *aux);
 void tree__count (tree_node_t *node, void *aux);
 
@@ -51,6 +51,19 @@ void tree_add_child (tree_node_t *parent, tree_node_t *child)
   child->child_num = list_size(parent->children);
 }
 
+int tree_depth (tree_node_t *node)
+{
+  int depth;
+
+  assert(node);
+  assert(tree__looks_valid(node));
+
+  depth = -1;
+  tree_apply_up(node, tree__count, &depth);
+  assert(0 <= depth);
+  return depth;
+}
+
 /* Utility. */
 int tree_is_root (tree_node_t *node)
 {
@@ -61,11 +74,26 @@ int tree_is_root (tree_node_t *node)
 void tree_apply (tree_node_t *root, tree_apply_func f, void *aux)
 {
   struct list_elem *e;
+
   if (!root)
     return;
+  assert(tree__looks_valid(root));
+
   (*f)(root, aux);
   for (e = list_begin(root->children); e != list_end(root->children); e = list_next(e))
     tree_apply(list_entry(e, tree_node_t, parent_child_list_elem), f, aux);
+}
+
+void tree_apply_up (tree_node_t *leaf, tree_apply_func f, void *aux)
+{
+  struct list_elem *e;
+
+  if (!leaf)
+    return;
+  assert(tree__looks_valid(leaf));
+
+  (*f)(leaf, aux);
+  tree_apply_up(leaf->parent, f, aux);
 }
 
 tree_node_t * tree_get_root (tree_node_t *node)
@@ -201,7 +229,13 @@ void tree_UT (void)
 
   list_destroy(list);
 
-  /* tree_apply is implicitly exercised by tree_size and tree_as_list */
+  /* tree_depth */
+  assert(tree_depth(&root.elem) == 0);
+  assert(tree_depth(&children[FANOUT-1].elem) == 1);
+  assert(tree_depth(&grandchildren[FANOUT*FANOUT-1].elem) == 2);
+
+  /* tree_apply is implicitly exercised by tree_size and tree_as_list.
+     tree_apply_up is implicitly exercised by tree_depth. */
 }
 
 static void tree__add_node_to_list (tree_node_t *node, void *aux)

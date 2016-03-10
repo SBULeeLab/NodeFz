@@ -46,11 +46,18 @@ void tree_init (tree_node_t *node);
    You must have called tree_init on CHILD already. */
 void tree_add_child (tree_node_t *parent, tree_node_t *child);
 
-/* Utility. */
-int tree_is_root (tree_node_t *node);
-void tree_apply (tree_node_t *root, tree_apply_func f, void *aux);
+/* How far from NODE to root? root is 0, its children are 1, etc. */
+int tree_depth (tree_node_t *node);
+
 tree_node_t * tree_get_root (tree_node_t *node);
 unsigned tree_size (const tree_node_t *root);
+int tree_is_root (tree_node_t *node);
+
+/* Utility. */
+/* Apply F to ROOT and its sub-tree. */
+void tree_apply (tree_node_t *root, tree_apply_func f, void *aux);
+/* Apply F to LEAF and its direct ancestors. */
+void tree_apply_up (tree_node_t *leaf, tree_apply_func f, void *aux);
 
 /* Only a single instance of the returned list can exist at a time. 
    Finish using the returned list and list_destroy it prior to 
