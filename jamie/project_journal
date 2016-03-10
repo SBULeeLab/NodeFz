@@ -968,10 +968,9 @@ Instead I think I must use <parent, relative child number> as the unique ID. Thi
 1. Add more tree APIs and refactor LCBNs to use trees
 2. Remove global_lcbn lists and replace them with counters
 3. Refactor lcbn generating to use lists and a sort routine (on exec_id or reg_id)
-
-TODO
-   TODO Tomorrow (preferably by 2PM in time for the weekly demo) schedule input/output, and LCBN comparison. 
-   See notes just above for details.
+4. Updated LCBN comparison (change API to lcbn_semantic_equals and comments)
+5. Schedule input: rebuild tree so that lcbn_semantic_equals will work. This addresses the notes from 9 Mar.
+6. Tweak scheduler's recorded_schedule to be the registration schedule, not the execution schedule. Now the schedule emitted by the scheduler matches the schedule parsed by the scheduler.
 
 -----------
 

@@ -1456,6 +1456,7 @@ lcbn_t * get_init_stack_lcbn (void)
 
     init_stack_lcbn->global_exec_id = lcbn_next_exec_id();
     init_stack_lcbn->global_reg_id = lcbn_next_reg_id();
+    scheduler_record(sched_lcbn_create(init_stack_lcbn));
   }
 
   return init_stack_lcbn;
@@ -1631,6 +1632,14 @@ void unified_callback_init (void)
   mylog("DEBUG: Testing tree\n");
   tree_UT();
 
+  schedule_modeP = getenv("UV_SCHEDULE_MODE");
+  schedule_fileP = getenv("UV_SCHEDULE_FILE");
+  assert(schedule_modeP && schedule_fileP);
+  mylog("schedule_mode %s schedule_file %s\n", schedule_modeP, schedule_fileP);
+  schedule_mode = (strcmp(schedule_modeP, "RECORD" ) == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
+  scheduler_init(schedule_mode, schedule_fileP);
+  atexit(scheduler_emit);
+
   pthread_mutex_init(&metadata_lock, NULL);
   global_order_list = list_create();
   root_list = list_create();
@@ -1664,14 +1673,6 @@ void unified_callback_init (void)
   signal(SIGUSR2, dump_callback_trees_sighandler);
 #endif
   signal(SIGINT, dump_all_trees_and_exit_sighandler);
-
-  schedule_modeP = getenv("UV_SCHEDULE_MODE");
-  schedule_fileP = getenv("UV_SCHEDULE_FILE");
-  assert(schedule_modeP && schedule_fileP);
-  mylog("schedule_mode %s schedule_file %s\n", schedule_modeP, schedule_fileP);
-  schedule_mode = (strcmp(schedule_modeP, "RECORD" ) == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
-  scheduler_init(schedule_mode, schedule_fileP);
-  atexit(scheduler_emit);
 
   mark_global_start();
 
@@ -1890,8 +1891,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     }
 
     lcbn_determine_executing_thread(lcbn_new);
-    /* TODO Need a mutex when using the scheduler. */
-    scheduler_record(sched_lcbn_create(lcbn_new));
   }
 
   uv__metadata_unlock();
@@ -2386,6 +2385,7 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
 
   /* Add to metadata structures. */
   lcbn_new->global_reg_id = lcbn_next_reg_id();
+  scheduler_record(sched_lcbn_create(lcbn_new));
 
   mylog("uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
     lcbn_new, cb, context, callback_type_to_string(cb_type), 0);

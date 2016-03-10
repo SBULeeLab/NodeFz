@@ -18,7 +18,7 @@ struct scheduler_s
   enum schedule_mode mode;
   char schedule_file[256];
 
-  struct list *recorded_schedule; /* List of the sched_lcbn_t's we have executed so far. TODO Needs to be registration instead. */
+  struct list *recorded_schedule; /* List of the registered sched_lcbn_t's; in registration order. */
 
   /* REPLAY mode. */
   lcbn_t *shadow_root; /* Root of the "shadow tree" -- the registration tree described in the input file. */
@@ -172,10 +172,8 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     f = fopen(scheduler.schedule_file, "r");
     assert(f);
     memset(line, 0, line_len);
-    while(0 < getline(&line, &line_len, f))
+    while (0 < getline(&line, &line_len, f))
     {
-      /* TODO Here we assume that we're working with an input file sorted by global registration order.
-         This is not the schedule file we emit! Need to update what recorded_schedule is. */
       /* Remove trailing newline. */
       if(line[strlen(line)-1] == '\n')
         line[strlen(line)-1] = '\0';
