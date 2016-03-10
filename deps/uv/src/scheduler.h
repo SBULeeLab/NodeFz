@@ -48,9 +48,9 @@ struct sched_lcbn_s
 };
 typedef struct sched_lcbn_s sched_lcbn_t;
 
-sched_lcbn_t *sched_lcbn_create(lcbn_t *lcbn);
-void sched_lcbn_destroy(sched_lcbn_t *sched_lcbn);
-void sched_lcbn_list_destroy_func(struct list_elem *e, void *aux);
+sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn);
+void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn);
+void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux);
 
 /* Replay: Construct lists of "ready contexts" for the scheduler (those which have a user callback ready to invoke). */
 struct sched_context_s
@@ -62,9 +62,9 @@ struct sched_context_s
 };
 typedef struct sched_context_s sched_context_t;
 
-sched_context_t *sched_context_create(enum callback_context context, void *handle_or_req);
-void sched_context_destroy(sched_context_t *sched_context);
-void sched_context_list_destroy_func(struct list_elem *e, void *aux);
+sched_context_t *sched_context_create (enum callback_context context, void *handle_or_req);
+void sched_context_destroy (sched_context_t *sched_context);
+void sched_context_list_destroy_func (struct list_elem *e, void *aux);
 
 /* Scheduler APIs. */
 enum schedule_mode
@@ -75,30 +75,30 @@ enum schedule_mode
 
 /* Record mode: SCHEDULE_FILE is where to send output.
    Replay mode: SCHEDULE_FILE is where to find schedule. */
-void scheduler_init(enum schedule_mode mode, char *schedule_file);
+void scheduler_init (enum schedule_mode mode, char *schedule_file);
 
 /* Record. */
 
 /* This is the LCBN whose CB we execute next. 
    Caller should ensure mutex. Or TODO in invoke_callback, invoke LCBNs through a scheduler API and do the mutex'ing there? */
-void scheduler_record(sched_lcbn_t *sched_lcbn);
+void scheduler_record (sched_lcbn_t *sched_lcbn);
 /* Dump the schedule to the file specified in schedule_init. */
-void scheduler_emit(void);
+void scheduler_emit (void);
 
 /* Replay. */
 
 /* Determine the next context to invoke. 
    Input is a list of sched_context_t's. 
    REPLAY: Returns NULL if none of the specified contexts has the next LCBN in the schedule. */
-sched_context_t * scheduler_next_context(const struct list *sched_context_list);
+sched_context_t * scheduler_next_context (const struct list *sched_context_list);
 
 /* Determine the next LCBN to invoke from those available in SCHED_CONTEXT. 
    If none of those available in SCHED_CONTEXT is up next, returns NULL. 
    This should not happen if you provide the sched_context most recently returned by scheduler_next_context. */
-sched_lcbn_t * scheduler_next_lcbn(sched_context_t *sched_context);
+sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
 
 /* Tell the scheduler that the most-recent LCBN has been executed. */
-void scheduler_advance();
+void scheduler_advance (void);
 
 /* Each type of handle and req should declare a function of this type in internal.h
    for use in scheduler_next_context and scheduler_next_lcbn. 

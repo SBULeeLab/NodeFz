@@ -29,11 +29,11 @@ typedef struct scheduler_s scheduler_t;
 scheduler_t scheduler;
 
 /* Private API declarations. */
-static int scheduler_initialized(void);
-static int sched_lcbn_is_next(sched_lcbn_t *sched_lcbn);
+static int scheduler_initialized (void);
+static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
 /* Return non-zero if SCHED_LCBN is next, else zero. */
-static int sched_lcbn_is_next(sched_lcbn_t *sched_lcbn)
+static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn)
 {
   sched_lcbn_t *next;
 
@@ -53,7 +53,7 @@ static int sched_lcbn_is_next(sched_lcbn_t *sched_lcbn)
 }
 
 /* Public APIs. */
-sched_lcbn_t *sched_lcbn_create(lcbn_t *lcbn)
+sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn)
 {
   sched_lcbn_t *sched_lcbn;
   assert(lcbn);
@@ -67,14 +67,14 @@ sched_lcbn_t *sched_lcbn_create(lcbn_t *lcbn)
   return sched_lcbn;
 } 
 
-void sched_lcbn_destroy(sched_lcbn_t *sched_lcbn)
+void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn)
 {
   assert(sched_lcbn);
   memset(sched_lcbn, 0, sizeof *sched_lcbn);
   free(sched_lcbn);
 }
 
-sched_context_t *sched_context_create(enum callback_context context, void *handle_or_req)
+sched_context_t *sched_context_create (enum callback_context context, void *handle_or_req)
 {
   sched_context_t *sched_context;
   assert(handle_or_req);
@@ -89,25 +89,25 @@ sched_context_t *sched_context_create(enum callback_context context, void *handl
   return sched_context;
 }
 
-void sched_context_destroy(sched_context_t *sched_context)
+void sched_context_destroy (sched_context_t *sched_context)
 {
   assert(sched_context);
   free(sched_context);
 }
 
-void sched_context_list_destroy_func(struct list_elem *e, void *aux){
+void sched_context_list_destroy_func (struct list_elem *e, void *aux){
   sched_context_t *sched_context;
   assert(e);
   sched_context = list_entry(e, sched_context_t, elem);
   sched_context_destroy(sched_context);
 }
 
-static int scheduler_initialized(void)
+static int scheduler_initialized (void)
 {
   return scheduler.magic == SCHEDULER_MAGIC;
 }
 
-void scheduler_init(enum schedule_mode mode, char *schedule_file)
+void scheduler_init (enum schedule_mode mode, char *schedule_file)
 {
   FILE *f;
   char *line;
@@ -158,7 +158,7 @@ void scheduler_init(enum schedule_mode mode, char *schedule_file)
   free(line);
 }
 
-void scheduler_record(sched_lcbn_t *sched_lcbn)
+void scheduler_record (sched_lcbn_t *sched_lcbn)
 {
   assert(scheduler_initialized());
   assert(sched_lcbn != NULL);
@@ -166,7 +166,7 @@ void scheduler_record(sched_lcbn_t *sched_lcbn)
   list_push_back(scheduler.recorded_schedule, &sched_lcbn->elem);
 }
 
-void scheduler_emit(void)
+void scheduler_emit (void)
 {
   FILE *f;
   sched_lcbn_t *sched_lcbn;
@@ -189,7 +189,7 @@ void scheduler_emit(void)
   assert(fclose(f) == 0);
 }
 
-sched_context_t * scheduler_next_context(const struct list *sched_context_list)
+sched_context_t * scheduler_next_context (const struct list *sched_context_list)
 {
   struct list_elem *e;
   sched_context_t *next_sched_context, *sched_context;
@@ -258,7 +258,7 @@ ready_lcbns_func req_lcbn_funcs[UV_REQ_TYPE_MAX] = {
   /* UV_REQ_TYPE_PRIVATE -- empty in uv-unix.h. */
 };
 
-sched_lcbn_t * scheduler_next_lcbn(sched_context_t *sched_context)
+sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 {
   uv_handle_t *handle;
   uv_handle_type handle_type;
@@ -325,7 +325,8 @@ sched_lcbn_t * scheduler_next_lcbn(sched_context_t *sched_context)
   return next_lcbn;
 }
 
-void scheduler_advance(void){
+void scheduler_advance (void)
+{
   sched_lcbn_t *sched_lcbn;
 
   if (scheduler.mode != SCHEDULE_MODE_REPLAY)
@@ -337,7 +338,8 @@ void scheduler_advance(void){
   sched_lcbn_destroy(sched_lcbn);
 }
 
-void sched_lcbn_list_destroy_func(struct list_elem *e, void *aux){
+void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
+{
   sched_lcbn_t *sched_lcbn;
   assert(e);
   sched_lcbn = list_entry(e, sched_lcbn_t, elem);
