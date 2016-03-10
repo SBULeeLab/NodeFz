@@ -35,6 +35,7 @@ void tree_init (tree_node_t *node)
 
   node->magic = TREE_NODE_MAGIC;
   node->parent = NULL;
+  node->child_num = 0;
   node->children = list_create();
 }
 
@@ -46,9 +47,11 @@ void tree_add_child (tree_node_t *parent, tree_node_t *child)
   assert(tree__looks_valid(parent));
   assert(tree__looks_valid(child));
 
+  list_lock(parent->children);
+  child->child_num = list_size(parent->children);
   list_push_back(parent->children, &child->parent_child_list_elem);
   child->parent = parent;
-  child->child_num = list_size(parent->children);
+  list_unlock(parent->children);
 }
 
 int tree_depth (tree_node_t *node)
@@ -67,8 +70,16 @@ int tree_depth (tree_node_t *node)
 /* Utility. */
 int tree_is_root (tree_node_t *node)
 {
+  assert(node);
   assert(tree__looks_valid(node));
   return (node->parent == NULL);
+}
+
+unsigned tree_get_child_num (tree_node_t *node)
+{
+  assert(node);
+  assert(tree__looks_valid(node));
+  return node->child_num;
 }
 
 void tree_apply (tree_node_t *root, tree_apply_func f, void *aux)
@@ -99,12 +110,22 @@ void tree_apply_up (tree_node_t *leaf, tree_apply_func f, void *aux)
 tree_node_t * tree_get_root (tree_node_t *node)
 {
   tree_node_t *ret;
+
   assert(node);
+  assert(tree__looks_valid(node);
+
   if (!node->parent)
     ret = node;
   else
     ret = tree_get_root(node->parent);
   return ret;
+}
+
+tree_node_t * tree_get_parent (tree_node_t *node)
+{
+  assert(node);
+  assert(tree__looks_valid(node);
+  return (node->parent);
 }
 
 void tree__count (tree_node_t *node, void *aux)

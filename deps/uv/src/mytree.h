@@ -18,7 +18,7 @@ struct tree_node_s
   tree_node_t *parent;
   struct list *children;
 
-  unsigned child_num; /* Which entry am I in my parent's list of children? Begins with 1. */
+  unsigned child_num; /* Which entry am I in my parent's list of children? Begins with 0. */
   struct list_elem parent_child_list_elem;
 
   /* For tree_as_list. */
@@ -35,9 +35,8 @@ struct tree_node_s
 
 /* Function typedefs. */
 typedef void (*tree_apply_func)(tree_node_t *e, void *aux);
-typedef void (*tree_destroy_func)(tree_node_t *e, void *aux);
 
-/* Create/destroy APIs. */
+/* Trees are not allocated (i.e. created with malloc), just initialized from an existing tree_node_t. */
 void tree_init (tree_node_t *node);
 
 /* Interactions. */
@@ -49,9 +48,13 @@ void tree_add_child (tree_node_t *parent, tree_node_t *child);
 /* How far from NODE to root? root is 0, its children are 1, etc. */
 int tree_depth (tree_node_t *node);
 
+tree_node_t * tree_get_parent (tree_node_t *node);
 tree_node_t * tree_get_root (tree_node_t *node);
 unsigned tree_size (const tree_node_t *root);
 int tree_is_root (tree_node_t *node);
+
+/* Returns the relative child num NODE is of its parent. */
+unsigned tree_get_child_num (tree_node_t *node);
 
 /* Utility. */
 /* Apply F to ROOT and its sub-tree. */
