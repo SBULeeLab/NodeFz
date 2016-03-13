@@ -28,10 +28,37 @@
 #include <assert.h>
 #include <limits.h>
 
+struct heap_apply_info
+{
+  struct list *list;
+};
+
 static int uv__timer_ready(uv_timer_t *handle)
 {
   assert(handle);
   return (handle->timeout < handle->loop->time);
+}
+
+/* Wrapper around uv__timer_ready for use with heap_walk.
+   AUX is a heap_apply_info. 
+   If the timer of HN is ready, create a sched_context for it and add to the list in AUX. */
+static void uv__heap_timer_ready(struct heap_node *hn, void *aux)
+{
+  uv_timer_t* handle;
+  struct heap_apply_info *hai;
+  sched_context_t *sched_context;
+
+  assert(hn);
+  assert(aux);
+
+  hai = (struct heap_apply_info *) aux;
+  assert(hai->list);
+  handle = container_of(hn, uv_timer_t, heap_node);
+  if (uv__timer_ready(handle))
+  {
+    sched_context = sched_context_create(CALLBACK_CONTEXT_HANDLE, handle);
+    list_push_back(hai->list, &sched_context->elem);
+  }
 }
 
 static int timer_less_than(const struct heap_node* ha,
@@ -56,6 +83,20 @@ static int timer_less_than(const struct heap_node* ha,
     return 0;
 
   return 0;
+}
+
+/* Returns a list of sched_context_t's describing the ready timers.
+   Callers are responsible for cleaning up the list, perhaps like this: 
+     list_destroy_full(ready_timers, sched_context_destroy_func, NULL) */
+static struct list * uv__ready_timers(uv_loop_t* loop) {
+  struct list *ready_timers;
+  struct heap_apply_info hai;
+
+  ready_timers = list_create();
+  hai.list = ready_timers;
+
+  heap_walk((struct heap*) &loop->timer_heap, uv__heap_timer_ready, &hai);
+  return ready_timers;
 }
 
 
@@ -210,46 +251,6 @@ void uv__run_timers(uv_loop_t* loop) {
 
   if (ready_timers)
     list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
-}
-
-struct heap_apply_info
-{
-  struct list *list;
-};
-
-/* Wrapper around uv__timer_ready for use with heap_walk.
-   AUX is a heap_apply_info. 
-   If the timer of HN is ready, create a sched_context for it and add to the list in AUX. */
-static void uv__heap_timer_ready(struct heap_node *hn, void *aux)
-{
-  uv_timer_t* handle;
-  struct heap_apply_info *hai;
-  sched_context_t *sched_context;
-
-  assert(hn);
-  assert(aux);
-
-  hai = (struct heap_apply_info *) aux;
-  assert(hai->list);
-  handle = container_of(hn, uv_timer_t, heap_node);
-  if (uv__timer_ready(handle))
-  {
-    sched_context = sched_context_create(CALLBACK_CONTEXT_HANDLE, handle);
-    list_push_back(hai->list, &sched_context->elem);
-  }
-}
-
-/* Returns a list of sched_context_t's describing the ready timers.
-   Callers are responsible for cleaning up the list, perhaps like this: 
-     list_destroy_full(ready_timers, sched_context_destroy_func, NULL) */
-struct list * uv__ready_timers(uv_loop_t* loop) {
-  struct list *ready_timers = list_create();
-  struct heap_apply_info hai;
-
-  hai.list = ready_timers;
-
-  heap_walk((struct heap*) &loop->timer_heap, uv__heap_timer_ready, &hai);
-  return ready_timers;
 }
 
 /* Returns a list of sched_lcbn_t's describing the ready LCBNs associated with HANDLE.
