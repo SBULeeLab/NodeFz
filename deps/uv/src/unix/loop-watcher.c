@@ -85,6 +85,7 @@
     lcbn_t *lcbn;                                                             \
     struct list *ready_lcbns;                                                 \
                                                                               \
+    /* TODO This won't work when we introduce closing */                      \
     assert(exec_context == EXEC_CONTEXT_UV__RUN_TIMERS);                      \
                                                                               \
     handle = (uv_handle_t *) h;                                               \
