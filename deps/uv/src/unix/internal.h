@@ -216,8 +216,6 @@ int uv_pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb);
 
 /* timer */
 void uv__run_timers(uv_loop_t* loop);
-struct list * uv__ready_timers(uv_loop_t* loop);
-struct list * uv__ready_timer_lcbns(void *handle);
 int uv__next_timeout(const uv_loop_t* loop);
 
 /* signal */
@@ -247,6 +245,12 @@ void uv__timer_close(uv_timer_t* handle);
 void uv__udp_close(uv_udp_t* handle);
 void uv__udp_finish_close(uv_udp_t* handle);
 uv_handle_type uv__handle_type(int fd);
+
+/* scheduler: lcbn extraction */
+struct list * uv__ready_check_lcbns(void *handle);
+struct list * uv__ready_idle_lcbns(void *handle);
+struct list * uv__ready_prepare_lcbns(void *handle);
+struct list * uv__ready_timer_lcbns(void *handle);
 
 #if defined(__APPLE__)
 int uv___stream_fd(const uv_stream_t* handle);
