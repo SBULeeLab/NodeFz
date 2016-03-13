@@ -1834,20 +1834,24 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       - invoking a CB is the expensive part */
   uv__metadata_lock();
 
+#if 0
   cbn_determine_parentage(cbn);
+#endif
 
   cbn->was_pending_cb = cbn_is_active_pending_cb(cbn);
-
-  /* Tell asynchronous children their parentage. 
-     For some CB types this is a no-op. */
-  cbn_embed_parentage(cbn);
 
   list_push_back(global_order_list, &cbn->global_order_elem);
   cbn->id = list_size(global_order_list);
 
+  /* Tell asynchronous children their parentage. 
+     For some CB types this is a no-op. */
+#if 0
+  cbn_embed_parentage(cbn);
+
   /* Attempt to discover the client ID associated with this callback. */
   if (cbn->true_client_id == ID_UNKNOWN)
     cbn_discover_id(cbn);
+#endif
 
   cbn_determine_executing_thread(cbn);
 
