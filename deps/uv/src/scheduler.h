@@ -53,16 +53,31 @@ void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn);
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux);
 
 /* Replay: Construct lists of "ready contexts" for the scheduler (those which have a user callback ready to invoke). */
+
+/* Where is the sched_context coming from? The list of possibly-invoked CBs varies based on the location. */
+enum execution_context
+{
+  EXEC_CONTEXT_UV__RUN_TIMERS,
+  EXEC_CONTEXT_UV__RUN_PENDING,
+  EXEC_CONTEXT_UV__RUN_IDLE,
+  EXEC_CONTEXT_UV__RUN_PREPARE,
+  EXEC_CONTEXT_UV__IO_POLL,
+  EXEC_CONTEXT_UV__RUN_CHECK,
+  EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES
+};
+
 struct sched_context_s
 {
-  enum callback_context context;
+  enum execution_context exec_context;
+
+  enum callback_context cb_context;
   void *handle_or_req;
 
   struct list_elem elem;
 };
 typedef struct sched_context_s sched_context_t;
 
-sched_context_t *sched_context_create (enum callback_context context, void *handle_or_req);
+sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *handle_or_req);
 void sched_context_destroy (sched_context_t *sched_context);
 void sched_context_list_destroy_func (struct list_elem *e, void *aux);
 
@@ -105,6 +120,6 @@ void scheduler_advance (void);
      Name it like: uv__ready_*_lcbns {for * in async, check, fs_event, etc.} 
    It should return the list of LCBNs that are available on the provided handle_or_req_P. */
 typedef void * handle_or_req_P;
-typedef struct list * (*ready_lcbns_func)(handle_or_req_P);
+typedef struct list * (*ready_lcbns_func)(handle_or_req_P, enum execution_context context);
 
 #endif  /* UV_SRC_SCHEDULER_H_ */

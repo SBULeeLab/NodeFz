@@ -31,6 +31,7 @@
 struct heap_apply_info
 {
   struct list *list;
+  enum execution_context exec_context;
 };
 
 static int uv__timer_ready(uv_timer_t *handle)
@@ -56,7 +57,7 @@ static void uv__heap_timer_ready(struct heap_node *hn, void *aux)
   handle = container_of(hn, uv_timer_t, heap_node);
   if (uv__timer_ready(handle))
   {
-    sched_context = sched_context_create(CALLBACK_CONTEXT_HANDLE, handle);
+    sched_context = sched_context_create(hai->exec_context, CALLBACK_CONTEXT_HANDLE, handle);
     list_push_back(hai->list, &sched_context->elem);
   }
 }
@@ -88,17 +89,17 @@ static int timer_less_than(const struct heap_node* ha,
 /* Returns a list of sched_context_t's describing the ready timers.
    Callers are responsible for cleaning up the list, perhaps like this: 
      list_destroy_full(ready_timers, sched_context_destroy_func, NULL) */
-static struct list * uv__ready_timers(uv_loop_t* loop) {
+static struct list * uv__ready_timers(uv_loop_t* loop, enum execution_context exec_context) {
   struct list *ready_timers;
   struct heap_apply_info hai;
 
   ready_timers = list_create();
   hai.list = ready_timers;
+  hai.exec_context = exec_context;
 
   heap_walk((struct heap*) &loop->timer_heap, uv__heap_timer_ready, &hai);
   return ready_timers;
 }
-
 
 int uv_timer_init(uv_loop_t* loop, uv_timer_t* handle) {
   uv__handle_init(loop, (uv_handle_t*)handle, UV_TIMER);
@@ -226,7 +227,7 @@ void uv__run_timers(uv_loop_t* loop) {
       list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
 
     /* Find the ready timers. */
-    ready_timers = uv__ready_timers(loop);
+    ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
 
     /* Extract the next timer to run. */
     next_timer_context = scheduler_next_context(ready_timers);
@@ -256,11 +257,13 @@ void uv__run_timers(uv_loop_t* loop) {
 /* Returns a list of sched_lcbn_t's describing the ready LCBNs associated with HANDLE.
    Callers are responsible for cleaning up the list, perhaps like this: 
      list_destroy_full(ready_lcbns, sched_lcbn_destroy_func, NULL) */
-struct list * uv__ready_timer_lcbns(void *h) {
+struct list * uv__ready_timer_lcbns(void *h, enum execution_context exec_context) {
   uv_handle_t *handle;
   lcbn_t *lcbn;
   struct list *ready_timer_lcbns;
   
+  assert(exec_context == EXEC_CONTEXT_UV__RUN_TIMERS);
+
   handle = (uv_handle_t *) h;
   assert(handle);
   lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_TIMER_CB);

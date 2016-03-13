@@ -83,7 +83,7 @@ void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn)
   free(sched_lcbn);
 }
 
-sched_context_t *sched_context_create (enum callback_context context, void *handle_or_req)
+sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *handle_or_req)
 {
   sched_context_t *sched_context;
   assert(handle_or_req);
@@ -92,7 +92,8 @@ sched_context_t *sched_context_create (enum callback_context context, void *hand
   assert(sched_context != NULL);
   memset(sched_context, 0, sizeof *sched_context);
 
-  sched_context->context = context;
+  sched_context->exec_context = exec_context;
+  sched_context->cb_context = cb_context;
   sched_context->handle_or_req = handle_or_req;
 
   return sched_context;
@@ -335,7 +336,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
   uv_req_type req_type;
 
   struct list *ready_lcbns;
-  struct list * (*ready_lcbns_func)(void *);
+  ready_lcbns_func lcbns_func;
   void *handle_or_req;
 
   struct list_elem *e;
@@ -345,30 +346,30 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
   assert(sched_context);
   assert(sched_context->handle_or_req);
 
-  if (sched_context->context == CALLBACK_CONTEXT_HANDLE)
+  if (sched_context->cb_context == CALLBACK_CONTEXT_HANDLE)
   {
     handle = (uv_handle_t *) sched_context->handle_or_req;
     handle_type = handle->type;
 
     handle_or_req = handle;
-    ready_lcbns_func = handle_lcbn_funcs[handle_type];
+    lcbns_func = handle_lcbn_funcs[handle_type];
  }
-  else if (sched_context->context == CALLBACK_CONTEXT_REQ)
+  else if (sched_context->cb_context == CALLBACK_CONTEXT_REQ)
   {
     req = (uv_req_t *) sched_context->handle_or_req;
     req_type = req->type;
 
     handle_or_req = req;
-    ready_lcbns_func = req_lcbn_funcs[req_type];
+    lcbns_func = req_lcbn_funcs[req_type];
   }
   else
     NOT_REACHED;
 
   assert(handle_or_req);
-  assert(ready_lcbns_func);
+  assert(lcbns_func);
 
   /* NB This must return lcbns in the order in which they will be invoked by the handle. */
-  ready_lcbns = (*ready_lcbns_func)(handle_or_req);
+  ready_lcbns = (*lcbns_func)(handle_or_req, sched_context->exec_context);
   assert(!list_empty(ready_lcbns));
 
   next_lcbn = NULL;

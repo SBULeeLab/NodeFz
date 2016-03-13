@@ -23,6 +23,7 @@
 #define UV_UNIX_INTERNAL_H_
 
 #include "uv-common.h"
+#include "scheduler.h"
 
 #include <assert.h>
 #include <stdlib.h> /* abort */
@@ -247,10 +248,10 @@ void uv__udp_finish_close(uv_udp_t* handle);
 uv_handle_type uv__handle_type(int fd);
 
 /* scheduler: lcbn extraction */
-struct list * uv__ready_check_lcbns(void *handle);
-struct list * uv__ready_idle_lcbns(void *handle);
-struct list * uv__ready_prepare_lcbns(void *handle);
-struct list * uv__ready_timer_lcbns(void *handle);
+struct list * uv__ready_check_lcbns(void *handle, enum execution_context exec_context);
+struct list * uv__ready_idle_lcbns(void *handle, enum execution_context exec_context);
+struct list * uv__ready_prepare_lcbns(void *handle, enum execution_context exec_context);
+struct list * uv__ready_timer_lcbns(void *handle, enum execution_context exec_context);
 
 #if defined(__APPLE__)
 int uv___stream_fd(const uv_stream_t* handle);

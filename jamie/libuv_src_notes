@@ -739,3 +739,81 @@ Options:
     > Looks mildly tricky because the structs are different. Cleanest option. Add CB types for the 'work' components.
     > Initial implementation for GETADDRINFO works. Huzzah! Note that *every* async request will now produce UV_WORK_CB and UV_DONE_CB requests. This seems OK. Can patch up later with 'other dependencies'. Need to do this anyway. 
     > I completed changes for GETNAMEINFO and FS too.
+
+------------------
+
+uv__run_closing_handles:
+  - src/unix/core.c
+
+  uv_handle_t* p;
+  uv_handle_t* q;
+
+  p = loop->closing_handles;
+  loop->closing_handles = NULL;
+
+  while (p) {
+    q = p->next_closing;
+    uv__finish_close(p);
+    p = q;
+  }
+
+void uv__make_close_pending(uv_handle_t* handle) {
+  assert(handle->flags & UV_CLOSING);
+  assert(!(handle->flags & UV_CLOSED));
+  handle->next_closing = handle->loop->closing_handles;
+  handle->loop->closing_handles = handle;
+}
+
+UV_LOOP_PRIVATE_FIELDS:
+  uv_handle_t* closing_handles;
+
+#define UV_HANDLE_PRIVATE_FIELDS
+  uv_handle_t* next_closing;
+
+So what we've got here is a singly-linked list. We can run uv__finish_close on a subset of the handles if desired.
+uv__finish_close:
+    switch (handle->type) {
+    case UV_PREPARE:
+    case UV_CHECK:
+    case UV_IDLE:
+    case UV_ASYNC:
+    case UV_TIMER:
+    case UV_PROCESS:
+    case UV_FS_EVENT:
+    case UV_FS_POLL:
+    case UV_POLL:
+    case UV_SIGNAL:
+      break;
+
+    case UV_NAMED_PIPE:
+    case UV_TCP:
+    case UV_TTY:
+      uv__stream_destroy((uv_stream_t*)handle);
+      break;
+
+    case UV_UDP:
+      uv__udp_finish_close((uv_udp_t*)handle);
+      break;
+    }
+    if (handle->close_cb)
+      INVOKE_CALLBACK_1 (UV_CLOSE_CB, handle->close_cb, handle);
+
+  So, for UV_PREPARE...UV_SIGNAL it's easy to see what CBs might be invoked.
+  For the rest it's a bit more complex.
+
+  UV_NAMED_PIPE, UV_TCP, UV_TTY:
+    uv__stream_destroy:
+
+      if(stream->connect_req)
+        INVOKE_CALLBACK on the UV_CONNECT_CB with -ECANCELED
+      uv__stream_flush_write_queue -> this moves all pending write requests to the done queue with -ECANCELED
+      uv__write_callbacks(stream); -> this invokes the UV_WRITE_CB of all of the pending write requests that had one
+      if (stream->shutdown_req)
+        INVOKE_CALLBACK on the UV_SHUTDOWN_CB with -ECANCELED
+
+  UV_UDP:
+    uv__udp_finish_close:
+      empty the write_queue with status -ECANCELED, then call
+      uv__udp_run_completed -> this invokes all of the handle->write_completed_queue requests on UV_UDP_SEND_CB with the recorded status (-ECANCELED for the ones we just emptied out of the write queue)
+
+----------

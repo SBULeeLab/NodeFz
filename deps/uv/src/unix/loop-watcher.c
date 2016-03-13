@@ -62,7 +62,7 @@
 /* Returns a list of sched_context_t's describing the ready timers.           \
    Callers are responsible for cleaning up the list, perhaps like this:       \
      list_destroy_full(ready_handles, sched_context_destroy_func, NULL) */    \
-  static struct list * uv__ready_##name##s(uv_loop_t *loop) {                 \
+  static struct list * uv__ready_##name##s(uv_loop_t *loop, enum execution_context exec_context) { \
     uv_##name##_t* handle;                                                    \
     struct list *ready_handles;                                               \
     sched_context_t *sched_context;                                           \
@@ -73,17 +73,19 @@
     /* All registered handles are always ready. */                            \
     QUEUE_FOREACH(q, &loop->name##_handles) {                                 \
       handle = QUEUE_DATA(q, uv_##name##_t, queue);                           \
-      sched_context = sched_context_create(CALLBACK_CONTEXT_HANDLE, handle);  \
+      sched_context = sched_context_create(exec_context, CALLBACK_CONTEXT_HANDLE, handle);  \
       list_push_back(ready_handles, &sched_context->elem);                    \
     }                                                                         \
                                                                               \
     return ready_handles;                                                     \
   }                                                                           \
                                                                               \
-  struct list * uv__ready_##name##_lcbns(void *h) {                           \
+  struct list * uv__ready_##name##_lcbns(void *h, enum execution_context exec_context) { \
     uv_handle_t *handle;                                                      \
     lcbn_t *lcbn;                                                             \
     struct list *ready_lcbns;                                                 \
+                                                                              \
+    assert(exec_context == EXEC_CONTEXT_UV__RUN_TIMERS);                      \
                                                                               \
     handle = (uv_handle_t *) h;                                               \
     assert(handle);                                                           \
@@ -105,7 +107,7 @@
     lcbn_t *orig, *tmp;                                                       \
                                                                               \
     orig = lcbn_current_get();                                                \
-    ready_handles = uv__ready_##name##s(loop);                                \
+    ready_handles = uv__ready_##name##s(loop, EXEC_CONTEXT_UV__RUN_##type); \
     while (ready_handles)                                                     \
     {                                                                         \
       next_sched_context = scheduler_next_context(ready_handles);             \
