@@ -3890,9 +3890,15 @@ Environment* CreateEnvironment(Isolate* isolate,
 }
 
 #if 0
-static void foo_prepare (uv_prepare_t *prepare)
+/* Used for testing the uv_{prepare,check,idle}_* APIs. */
+static void foo_prepare_1 (uv_prepare_t *prepare)
 {
-  printf("foo_prepare: This is my prepare_cb. Hello world\n");
+  printf("foo_prepare_1: This is my prepare_cb. Hello world\n");
+}
+
+static void foo_prepare_2 (uv_prepare_t *prepare)
+{
+  printf("foo_prepare_2: This is prepare_cb 2. Hello world\n");
 }
 
 static void foo_check (uv_check_t *check)
@@ -3952,9 +3958,13 @@ static void StartNodeInstance(void* arg) {
       bool more;
 
 #if 0
-      uv_prepare_t prepare;
-      uv_prepare_init(env->event_loop(), &prepare);
-      uv_prepare_start(&prepare, foo_prepare);
+      uv_prepare_t prepare_1;
+      uv_prepare_init(env->event_loop(), &prepare_1);
+      uv_prepare_start(&prepare_1, foo_prepare_1);
+
+      uv_prepare_t prepare_2;
+      uv_prepare_init(env->event_loop(), &prepare_2);
+      uv_prepare_start(&prepare_2, foo_prepare_2);
 
       uv_check_t check;
       uv_check_init(env->event_loop(), &check);
