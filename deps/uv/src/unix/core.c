@@ -276,17 +276,43 @@ static void uv__finish_close(uv_handle_t* handle) {
 
 
 static void uv__run_closing_handles(uv_loop_t* loop) {
-  uv_handle_t* p;
-  uv_handle_t* q;
+  uv_handle_t *p, *q;
+  struct list *closing_handles;
+  struct list_elem *e;
+  sched_context_t *sched_context;
 
-  p = loop->closing_handles;
-  loop->closing_handles = NULL;
-
-  while (p) {
-    q = p->next_closing;
-    uv__finish_close(p);
-    p = q;
+  closing_handles = list_create();
+  for (p = loop->closing_handles; p != NULL; q = p, p = p->next_closing)
+  {
+    sched_context = sched_context_create(EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES, CALLBACK_CONTEXT_HANDLE, p);
+    list_push_back(closing_handles, &sched_context->elem);
   }
+
+  while(!list_empty(closing_handles))
+  {
+    /* Find, remove, and execute the handle next in the schedule. */
+    sched_context = scheduler_next_context(closing_handles);
+    if (sched_context)
+    {
+      list_remove(closing_handles, &sched_context->elem);
+      p = (uv_handle_t *) sched_context->handle_or_req;
+      uv__finish_close(p);
+      sched_context_destroy(sched_context);
+    }
+    else
+      break;
+  }
+  
+  /* Repair: add any handles we didn't close back onto the list. */
+  loop->closing_handles = NULL;
+  while (!list_empty(closing_handles))
+  {
+    e = list_pop_front(closing_handles);
+    sched_context = list_entry(e, sched_context_t, elem);
+    p = (uv_handle_t *) sched_context->handle_or_req;
+    uv__make_close_pending(p);
+  }
+  list_destroy(closing_handles);
 }
 
 
@@ -758,6 +784,7 @@ static int uv__run_pending(uv_loop_t* loop) {
   did_anything = 1;
   QUEUE_INIT(&pq);
   q = QUEUE_HEAD(&loop->pending_queue);
+  /* JD: QUEUE_SPLIT'ing fixes the size of the work we'll do. Otherwise we might loop forever. */
   QUEUE_SPLIT(&loop->pending_queue, q, &pq);
 
   while (!QUEUE_EMPTY(&pq)) {
