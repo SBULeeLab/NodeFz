@@ -85,17 +85,26 @@
     lcbn_t *lcbn;                                                             \
     struct list *ready_lcbns;                                                 \
                                                                               \
-    /* TODO This won't work when we introduce closing */                      \
-    assert(exec_context == EXEC_CONTEXT_UV__RUN_TIMERS);                      \
-                                                                              \
     handle = (uv_handle_t *) h;                                               \
     assert(handle);                                                           \
-    lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_##type##_CB);                 \
-    assert(lcbn);                                                             \
                                                                               \
-    /* These handles have only one pending CB. */                             \
     ready_lcbns = list_create();                                              \
-    list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);              \
+    switch (exec_context)                                                     \
+    {                                                                         \
+      case EXEC_CONTEXT_UV__RUN_##type:                                       \
+        lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_##type##_CB);             \
+        assert(lcbn);                                                         \
+        list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);          \
+        break;                                                                \
+      case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:                              \
+        lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);                \
+        assert(lcbn && lcbn->cb == handle->close_cb);                         \
+        list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);          \
+        break;                                                                \
+      default:                                                                \
+        assert(!"uv__ready_##name##_lcbns: Error, unexpected context");       \
+    }                                                                         \
+                                                                              \
     return ready_lcbns;                                                       \
   }                                                                           \
                                                                               \
