@@ -118,7 +118,7 @@ void scheduler_advance (void);
 /* Each type of handle and req should declare a function of this type in internal.h
    for use in scheduler_next_context and scheduler_next_lcbn. 
      Name it like: uv__ready_*_lcbns {for * in async, check, fs_event, etc.} 
-   It should return the list of LCBNs that are available on the provided handle_or_req_P. */
+   It should return the list of sched_lcbn_t's that are available on the provided handle_or_req_P. */
 typedef void * handle_or_req_P;
 typedef struct list * (*ready_lcbns_func)(handle_or_req_P, enum execution_context context);
 

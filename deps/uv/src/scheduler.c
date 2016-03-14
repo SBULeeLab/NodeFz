@@ -36,6 +36,11 @@ scheduler_t scheduler;
 static int scheduler_initialized (void);
 static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
+/* This extracts the type of handle H_OR_R and routes it to the appropriate handler,
+   padding with an 'always execute' option if there is no user CB pending
+   (e.g. in EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES). */
+struct list * uv__ready_handle_lcbns_wrap (handle_or_req_P *h_or_r, enum execution_context context);
+
 /* Return non-zero if SCHED_LCBN is next, else zero. */
 static int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
 {
@@ -122,8 +127,9 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 {
   lcbn_t *lcbn;
   int fd;
-  assert(e);
   char buf[2048];
+
+  assert(e);
 
   lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem), 
                     lcbn_t, tree_node);
@@ -293,6 +299,7 @@ sched_context_t * scheduler_next_context (const struct list *sched_context_list)
   return next_sched_context;
 }
 
+/* Indexed by enum uv_handle_type */
 ready_lcbns_func handle_lcbn_funcs[UV_HANDLE_TYPE_MAX] = {
   NULL, /* UV_UNKNOWN_HANDLE */
   NULL, /* uv__ready_async_lcbns */
@@ -314,6 +321,7 @@ ready_lcbns_func handle_lcbn_funcs[UV_HANDLE_TYPE_MAX] = {
   NULL  /* UV_FILE ? */
 };
 
+/* Indexed by enum uv_req_type */
 ready_lcbns_func req_lcbn_funcs[UV_REQ_TYPE_MAX] = {
   NULL, /* UV_UNKNOWN_REQ */
   NULL, /* UV_REQ */
@@ -352,7 +360,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
     handle_type = handle->type;
 
     handle_or_req = handle;
-    lcbns_func = handle_lcbn_funcs[handle_type];
+    lcbns_func = uv__ready_handle_lcbns_wrap;
  }
   else if (sched_context->cb_context == CALLBACK_CONTEXT_REQ)
   {
@@ -419,4 +427,29 @@ void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
   assert(e);
   sched_lcbn = list_entry(e, sched_lcbn_t, elem);
   sched_lcbn_destroy(sched_lcbn);
+}
+
+struct list * uv__ready_handle_lcbns_wrap (handle_or_req_P *h_or_r, enum execution_context context)
+{
+  struct list *ret;
+  uv_handle_t *handle;
+  ready_lcbns_func func;
+
+  assert(h_or_r);
+  handle = (uv_handle_t *) h_or_r;
+  assert(handle->magic == UV_HANDLE_MAGIC);
+
+  func = handle_lcbn_funcs[handle->type];
+  assert(func);
+
+  ret = (*func)(handle, context);
+
+  if (list_empty(ret))
+  {
+    /* TODO We need to always run such handles, else we'll never schedule them. 
+       For example, handles processed in uv__run_closing_handles may not have a UV_CLOSE_CB CB, but should
+       still be closed to free up internal resources. */
+  }
+
+  return ret;
 }
