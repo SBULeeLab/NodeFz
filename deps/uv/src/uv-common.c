@@ -1860,8 +1860,10 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
       || (0 < cbn->physical_level && cbn->physical_parent != NULL));
   assert((cbn->logical_level == 0 && cbn->logical_parent == NULL)
       || (0 < cbn->logical_level && cbn->logical_parent != NULL));
+#if 0
   if (cbi->type == UV__WORK_WORK && !cbn->logical_parent)
     NOT_REACHED;
+#endif
 
   /* Run the callback. */
   mylog("invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
