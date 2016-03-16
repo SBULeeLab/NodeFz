@@ -449,6 +449,7 @@ struct list * uv__ready_handle_lcbns_wrap (handle_or_req_P *h_or_r, enum executi
     /* TODO We need to always run such handles, else we'll never schedule them. 
        For example, handles processed in uv__run_closing_handles may not have a UV_CLOSE_CB CB, but should
        still be closed to free up internal resources. */
+     assert(!"uv__ready_handle_lcbns_wrap: No ready LCBNs means we should invoke this one!");
   }
 
   return ret;

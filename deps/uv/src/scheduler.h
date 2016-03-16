@@ -104,7 +104,10 @@ void scheduler_emit (void);
 
 /* Determine the next context to invoke. 
    Input is a list of sched_context_t's. 
-   REPLAY: Returns NULL if none of the specified contexts has the next LCBN in the schedule. */
+   REPLAY: Returns NULL if none of the specified contexts has the next LCBN in the schedule.
+
+   TODO If there are none available in SCHED_CONTEXT (because running the context executes no CBs),
+    we need to somehow indicate that you should run it to ensure forward progress. */
 sched_context_t * scheduler_next_context (const struct list *sched_context_list);
 
 /* Determine the next LCBN to invoke from those available in SCHED_CONTEXT. 
