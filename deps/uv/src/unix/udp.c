@@ -909,5 +909,15 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
 
   ready_udp_lcbns = list_create();
   /* TODO */
+  switch (exec_context)
+  {
+    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
+      /* TODO uv__finish_close -> uv__udp_finish_close: Iterate over handle->write_completed_queue, then over handle->write_queue: this is the order in which the UV_UDP_SEND_CBs of the uv_udp_send_t reqs contained within will be invoked. */
+      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
+      assert(lcbn && lcbn->cb == handle->close_cb);
+      list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+    default:
+      assert(!"uv__ready_udp_lcbns: Error, unexpected context");
+  }
   return ready_udp_lcbns;
 }

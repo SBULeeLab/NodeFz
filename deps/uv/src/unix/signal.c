@@ -488,5 +488,14 @@ struct list * uv__ready_signal_lcbns(void *h, enum execution_context exec_contex
 
   ready_signal_lcbns = list_create();
   /* TODO */
+  switch (exec_context)
+  {
+    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
+      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
+      assert(lcbn && lcbn->cb == handle->close_cb);
+      list_push_back(ready_signal_lcbns, &sched_lcbn_create(lcbn)->elem);
+    default:
+      assert(!"uv__ready_signal_lcbns: Error, unexpected context");
+  }
   return ready_signal_lcbns;
 }

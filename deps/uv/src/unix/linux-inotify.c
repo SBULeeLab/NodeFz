@@ -273,5 +273,14 @@ struct list * uv__ready_fs_event_lcbns(void *h, enum execution_context exec_cont
 
   ready_fs_event_lcbns = list_create();
   /* TODO */
+  switch (exec_context)
+  {
+    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
+      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
+      assert(lcbn && lcbn->cb == handle->close_cb);
+      list_push_back(ready_fs_event_lcbns, &sched_lcbn_create(lcbn)->elem);
+    default:
+      assert(!"uv__ready_fs_event_lcbns: Error, unexpected context");
+  }
   return ready_fs_event_lcbns;
 }
