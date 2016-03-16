@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -290,4 +291,19 @@ uv_handle_type uv_pipe_pending_type(uv_pipe_t* handle) {
     return UV_UNKNOWN_HANDLE;
   else
     return uv__handle_type(handle->accepted_fd);
+}
+
+struct list * uv__ready_pipe_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_pipe_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_pipe_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_NAMED_PIPE);
+
+  ready_pipe_lcbns = list_create();
+  /* TODO */
+  return ready_pipe_lcbns;
 }

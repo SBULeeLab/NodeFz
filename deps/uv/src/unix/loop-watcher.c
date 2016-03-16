@@ -26,20 +26,20 @@
 #include "list.h"
 #include "scheduler.h"
 
-#define UV_LOOP_WATCHER_DEFINE(name, type)                                    \
-  int uv_##name##_init(uv_loop_t* loop, uv_##name##_t* handle) {              \
-    uv__handle_init(loop, (uv_handle_t*)handle, UV_##type);                   \
-    handle->name##_cb = NULL;                                                 \
+#define UV_LOOP_WATCHER_DEFINE(_name, _type)                                    \
+  int uv_##_name##_init(uv_loop_t* loop, uv_##_name##_t* handle) {              \
+    uv__handle_init(loop, (uv_handle_t*)handle, UV_##_type);                   \
+    handle->_name##_cb = NULL;                                                 \
     return 0;                                                                 \
   }                                                                           \
                                                                               \
-  int uv_##name##_start(uv_##name##_t* handle, uv_##name##_cb cb) {           \
+  int uv_##_name##_start(uv_##_name##_t* handle, uv_##_name##_cb cb) {           \
     if (uv__is_active(handle)) return 0;                                      \
     if (cb == NULL) return -EINVAL;                                           \
-    uv__register_callback(handle, cb, UV_##type##_CB);                        \
+    uv__register_callback(handle, cb, UV_##_type##_CB);                        \
     /* JD: anti-FIFO order, not sure why */                                   \
-    QUEUE_INSERT_HEAD(&handle->loop->name##_handles, &handle->queue);         \
-    handle->name##_cb = cb;                                                   \
+    QUEUE_INSERT_HEAD(&handle->loop->_name##_handles, &handle->queue);         \
+    handle->_name##_cb = cb;                                                   \
     uv__handle_start(handle);                                                 \
     /*                                                                        \ 
     if (handle->logical_parent == NULL)                                       \ 
@@ -50,7 +50,7 @@
     return 0;                                                                 \
   }                                                                           \
                                                                               \
-  int uv_##name##_stop(uv_##name##_t* handle) {                               \
+  int uv_##_name##_stop(uv_##_name##_t* handle) {                               \
     if (!uv__is_active(handle)) return 0;                                     \
     QUEUE_REMOVE(&handle->queue);                                             \
     handle->logical_parent = NULL;                                            \
@@ -62,8 +62,8 @@
 /* Returns a list of sched_context_t's describing the ready timers.           \
    Callers are responsible for cleaning up the list, perhaps like this:       \
      list_destroy_full(ready_handles, sched_context_destroy_func, NULL) */    \
-  static struct list * uv__ready_##name##s(uv_loop_t *loop, enum execution_context exec_context) { \
-    uv_##name##_t* handle;                                                    \
+  static struct list * uv__ready_##_name##s(uv_loop_t *loop, enum execution_context exec_context) { \
+    uv_##_name##_t* handle;                                                    \
     struct list *ready_handles;                                               \
     sched_context_t *sched_context;                                           \
     QUEUE* q;                                                                 \
@@ -71,8 +71,8 @@
     ready_handles = list_create();                                            \
                                                                               \
     /* All registered handles are always ready. */                            \
-    QUEUE_FOREACH(q, &loop->name##_handles) {                                 \
-      handle = QUEUE_DATA(q, uv_##name##_t, queue);                           \
+    QUEUE_FOREACH(q, &loop->_name##_handles) {                                 \
+      handle = QUEUE_DATA(q, uv_##_name##_t, queue);                           \
       sched_context = sched_context_create(exec_context, CALLBACK_CONTEXT_HANDLE, handle);  \
       list_push_back(ready_handles, &sched_context->elem);                    \
     }                                                                         \
@@ -80,19 +80,20 @@
     return ready_handles;                                                     \
   }                                                                           \
                                                                               \
-  struct list * uv__ready_##name##_lcbns(void *h, enum execution_context exec_context) { \
+  struct list * uv__ready_##_name##_lcbns(void *h, enum execution_context exec_context) { \
     uv_handle_t *handle;                                                      \
     lcbn_t *lcbn;                                                             \
     struct list *ready_lcbns;                                                 \
                                                                               \
     handle = (uv_handle_t *) h;                                               \
     assert(handle);                                                           \
+    assert(handle->type == UV_##_type);                                        \
                                                                               \
     ready_lcbns = list_create();                                              \
     switch (exec_context)                                                     \
     {                                                                         \
-      case EXEC_CONTEXT_UV__RUN_##type:                                       \
-        lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_##type##_CB);             \
+      case EXEC_CONTEXT_UV__RUN_##_type:                                       \
+        lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_##_type##_CB);             \
         assert(lcbn);                                                         \
         list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);          \
         break;                                                                \
@@ -102,22 +103,22 @@
         list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);          \
         break;                                                                \
       default:                                                                \
-        assert(!"uv__ready_##name##_lcbns: Error, unexpected context");       \
+        assert(!"uv__ready_##_name##_lcbns: Error, unexpected context");       \
     }                                                                         \
                                                                               \
     return ready_lcbns;                                                       \
   }                                                                           \
                                                                               \
-  void uv__run_##name(uv_loop_t* loop) {                                      \
+  void uv__run_##_name(uv_loop_t* loop) {                                      \
     struct list *ready_handles;                                               \
     sched_context_t *next_sched_context;                                      \
     sched_lcbn_t *next_sched_lcbn;                                            \
-    uv_##name##_t *next_handle;                                               \
+    uv_##_name##_t *next_handle;                                               \
                                                                               \
     lcbn_t *orig, *tmp;                                                       \
                                                                               \
     orig = lcbn_current_get();                                                \
-    ready_handles = uv__ready_##name##s(loop, EXEC_CONTEXT_UV__RUN_##type); \
+    ready_handles = uv__ready_##_name##s(loop, EXEC_CONTEXT_UV__RUN_##_type); \
     while (ready_handles)                                                     \
     {                                                                         \
       next_sched_context = scheduler_next_context(ready_handles);             \
@@ -126,17 +127,17 @@
                                                                               \
       /* Run the next handle. */                                              \
       next_sched_lcbn = scheduler_next_lcbn(next_sched_context);              \
-      next_handle = (uv_##name##_t *) next_sched_context->handle_or_req;      \
+      next_handle = (uv_##_name##_t *) next_sched_context->handle_or_req;      \
                                                                               \
-      assert(next_sched_lcbn->lcbn == lcbn_get(next_handle->cb_type_to_lcbn, UV_##type##_CB)); \
+      assert(next_sched_lcbn->lcbn == lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB)); \
                                                                               \
-      INVOKE_CALLBACK_1(UV_##type##_CB, next_handle->name##_cb, next_handle); \
+      INVOKE_CALLBACK_1(UV_##_type##_CB, next_handle->_name##_cb, next_handle); \
                                                                               \ 
       /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. */     \
-      tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##type##_CB);           \
+      tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB);           \
       assert(tmp != NULL);                                                    \
       lcbn_current_set(tmp);                                                  \
-      uv__register_callback(next_handle, next_handle->name##_cb, UV_##type##_CB); \
+      uv__register_callback(next_handle, next_handle->_name##_cb, UV_##_type##_CB); \
                                                                               \
       /* Each handle is a candidate once per loop iter. */                    \
       list_remove (ready_handles, &next_sched_context->elem);                 \
@@ -149,8 +150,8 @@
     lcbn_current_set(orig);                                                   \
   }                                                                           \
                                                                               \
-  void uv__##name##_close(uv_##name##_t* handle) {                            \
-    uv_##name##_stop(handle);                                                 \
+  void uv__##_name##_close(uv_##_name##_t* handle) {                            \
+    uv_##_name##_stop(handle);                                                 \
   }
 
 UV_LOOP_WATCHER_DEFINE(prepare, PREPARE)

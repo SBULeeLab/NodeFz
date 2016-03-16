@@ -302,22 +302,22 @@ sched_context_t * scheduler_next_context (const struct list *sched_context_list)
 /* Indexed by enum uv_handle_type */
 ready_lcbns_func handle_lcbn_funcs[UV_HANDLE_TYPE_MAX] = {
   NULL, /* UV_UNKNOWN_HANDLE */
-  NULL, /* uv__ready_async_lcbns */
+  uv__ready_async_lcbns,
   uv__ready_check_lcbns,
-  NULL, /* uv__ready_fs_event_lcbns */
-  NULL, /* uv__ready_fs_poll_lcbns */
-  NULL, /* uv__ready_handle_lcbns */
+  uv__ready_fs_event_lcbns,
+  uv__ready_fs_poll_lcbns,
+  NULL, /* UV_HANDLE */
   uv__ready_idle_lcbns,
-  NULL, /* uv__ready_named_pipe_lcbns */
-  NULL, /* uv__ready_poll_lcbns */
+  uv__ready_pipe_lcbns,
+  uv__ready_poll_lcbns,
   uv__ready_prepare_lcbns,
-  NULL, /* uv__ready_process_lcbns */
-  NULL, /* uv__ready_stream_lcbns */
-  NULL, /* uv__ready_tcp_lcbns */
+  uv__ready_process_lcbns,
+  uv__ready_stream_lcbns,
+  uv__ready_tcp_lcbns,
   uv__ready_timer_lcbns,
-  NULL, /* uv__ready_tty_lcbns */
-  NULL, /* uv__ready_udp_lcbns */
-  NULL, /* uv__ready_signal_lcbns */
+  uv__ready_tty_lcbns,
+  uv__ready_udp_lcbns,
+  uv__ready_signal_lcbns,
   NULL  /* UV_FILE ? */
 };
 

@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <assert.h>
 #include <string.h>
@@ -894,4 +895,19 @@ int uv__udp_recv_stop(uv_udp_t* handle) {
   handle->recv_cb = NULL;
 
   return 0;
+}
+
+struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_udp_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_udp_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_UDP);
+
+  ready_udp_lcbns = list_create();
+  /* TODO */
+  return ready_udp_lcbns;
 }

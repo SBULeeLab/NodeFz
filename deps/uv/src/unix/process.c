@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -557,4 +558,19 @@ void uv__process_close(uv_process_t* handle) {
   uv__handle_stop(handle);
   if (QUEUE_EMPTY(&handle->loop->process_handles))
     uv_signal_stop(&handle->loop->child_watcher);
+}
+
+struct list * uv__ready_process_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_process_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_process_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_PROCESS);
+
+  ready_process_lcbns = list_create();
+  /* TODO */
+  return ready_process_lcbns;
 }

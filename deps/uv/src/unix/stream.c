@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1725,4 +1726,19 @@ int uv_stream_set_blocking(uv_stream_t* handle, int blocking) {
    * will fail with EBADF if it's not valid.
    */
   return uv__nonblock(uv__stream_fd(handle), !blocking);
+}
+
+struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_stream_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_stream_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_STREAM);
+
+  ready_stream_lcbns = list_create();
+  /* TODO */
+  return ready_stream_lcbns;
 }

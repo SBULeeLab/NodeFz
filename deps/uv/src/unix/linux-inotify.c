@@ -21,6 +21,7 @@
 #include "uv.h"
 #include "tree.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -258,4 +259,19 @@ int uv_fs_event_stop(uv_fs_event_t* handle) {
 
 void uv__fs_event_close(uv_fs_event_t* handle) {
   uv_fs_event_stop(handle);
+}
+
+struct list * uv__ready_fs_event_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_fs_event_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_fs_event_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_FS_EVENT);
+
+  ready_fs_event_lcbns = list_create();
+  /* TODO */
+  return ready_fs_event_lcbns;
 }

@@ -1907,15 +1907,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   if (is_logical_cb)
   {
-    /* TODO This is a list of types "hooked into" the scheduler. Update it as we go. */
-    if (lcbn_new->cb_type == UV_TIMER_CB
-     || lcbn_new->cb_type == UV_PREPARE_CB
-     || lcbn_new->cb_type == UV_CHECK_CB
-     || lcbn_new->cb_type == UV_IDLE_CB)
-    {
-      mylog("invoke_callback: cb_type %s; advancing the scheduler", callback_type_to_string(lcbn_new->cb_type));
-      scheduler_advance();
-    }
+    mylog("invoke_callback: cb_type %s; advancing the scheduler", callback_type_to_string(lcbn_new->cb_type));
+    scheduler_advance();
   }
 
   cbn_stop(cbn);

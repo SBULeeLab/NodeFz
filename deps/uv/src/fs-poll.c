@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "uv-common.h"
+#include "scheduler.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -126,6 +127,21 @@ int uv_fs_poll_stop(uv_fs_poll_t* handle) {
   uv__handle_stop(handle);
 
   return 0;
+}
+
+struct list * uv__ready_fs_poll_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_fs_poll_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_fs_poll_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_FS_POLL);
+
+  ready_fs_poll_lcbns = list_create();
+  /* TODO */
+  return ready_fs_poll_lcbns;
 }
 
 

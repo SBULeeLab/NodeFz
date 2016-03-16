@@ -20,6 +20,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -473,4 +474,19 @@ static void uv__signal_stop(uv_signal_t* handle) {
 
   handle->signum = 0;
   uv__handle_stop(handle);
+}
+
+struct list * uv__ready_signal_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_signal_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_signal_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_SIGNAL);
+
+  ready_signal_lcbns = list_create();
+  /* TODO */
+  return ready_signal_lcbns;
 }

@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -398,4 +399,19 @@ int uv_tcp_simultaneous_accepts(uv_tcp_t* handle, int enable) {
 
 void uv__tcp_close(uv_tcp_t* handle) {
   uv__stream_close((uv_stream_t*)handle);
+}
+
+struct list * uv__ready_tcp_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_tcp_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_tcp_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_TCP);
+
+  ready_tcp_lcbns = list_create();
+  /* TODO */
+  return ready_tcp_lcbns;
 }

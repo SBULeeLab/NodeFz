@@ -258,12 +258,13 @@ void uv__run_timers(uv_loop_t* loop) {
    Callers are responsible for cleaning up the list, perhaps like this: 
      list_destroy_full(ready_lcbns, sched_lcbn_destroy_func, NULL) */
 struct list * uv__ready_timer_lcbns(void *h, enum execution_context exec_context) {
-  uv_handle_t *handle;
+  uv_timer_t *handle;
   lcbn_t *lcbn;
   struct list *ready_timer_lcbns;
   
-  handle = (uv_handle_t *) h;
+  handle = (uv_timer_t *) h;
   assert(handle);
+  assert(handle->type == UV_TIMER);
 
   ready_timer_lcbns = list_create();
   switch (exec_context)

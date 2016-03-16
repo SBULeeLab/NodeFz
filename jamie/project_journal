@@ -1006,14 +1006,26 @@ Mon 14 Mar 2016
 
 Tue 15 Mar 2016
 
+Nothing, worked on cloud computing project automation all day
+
+---------
+
+Wed 16 Mar 2016
+
+1. Add scheduler ready_lcbns stubs for all handle types
+
 uv__run_closing_handles:
-  Add stubs for the rest of the handle types, and address EXEC_CONTEXT_CLOSING for the easy ones.
-  Assert in the hard ones.
+  - Address EXEC_CONTEXT_CLOSING for the easy ones.
+  - Do UV_TCP completely.
+  - Assert in the other hard ones.
 
 uv__run_pending
  - Thought a bit about this one. It's of the same type as uv__io_poll: it deal in uv__io_t's rather than handles or requests directly.
    Will need an extra layer of abstraction to identify the target CB (which tells us the type of the wrapping handle or request) and extract LCBNs appropriately.
    More complex, so do it after uv__run_closing_handles. The same code should work for uv__io_poll as well.
+
+---------
+
 
 --------------------------------
 
@@ -1021,6 +1033,9 @@ Next steps:
   By Mar 17: implement the easier portions of the scheduler, and have a sense of how to do the harder ones
     x scheduler support for: uv__run_{idle,prepare,check}
     o scheduler support for: uv__run_pending, uv__run_closing_handles
+
+    Note, there are two prongs here. The first is feeding the handles into the scheduler, and the second
+    is unpacking the handles to see what lies beneath.
 
     o mutex'd invoke_callback
     o peek at uv__io_poll

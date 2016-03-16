@@ -24,6 +24,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 #include "atomic-ops.h"
 
 #include <errno.h>
@@ -314,4 +315,19 @@ skip_eventfd:
 #endif
 
   return -ENOSYS;
+}
+
+struct list * uv__ready_async_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_async_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_async_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_ASYNC);
+
+  ready_async_lcbns = list_create();
+  /* TODO */
+  return ready_async_lcbns;
 }

@@ -21,6 +21,7 @@
 
 #include "uv.h"
 #include "internal.h"
+#include "scheduler.h"
 
 #include <unistd.h>
 #include <assert.h>
@@ -122,4 +123,19 @@ int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
 
 void uv__poll_close(uv_poll_t* handle) {
   uv__poll_stop(handle);
+}
+
+struct list * uv__ready_poll_lcbns(void *h, enum execution_context exec_context)
+{
+  uv_poll_t *handle;
+  lcbn_t *lcbn;
+  struct list *ready_poll_lcbns;
+
+  handle = (uv_handle_t *) h;
+  assert(handle);
+  assert(handle->type == UV_POLL);
+
+  ready_poll_lcbns = list_create();
+  /* TODO */
+  return ready_poll_lcbns;
 }
