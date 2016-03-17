@@ -794,6 +794,7 @@ static int uv__run_pending(uv_loop_t* loop) {
   pending_handles = list_create();
   QUEUE_FOREACH(q, &pq) {
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
+    w->iocb_events = UV__POLLOUT;
     if (w->cb == uv_uv__stream_io_ptr())
       handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
     else if (w->cb == uv_uv__udp_io_ptr())
@@ -828,6 +829,7 @@ static int uv__run_pending(uv_loop_t* loop) {
       /* Run the handle. */
       mylog("<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
       uv__uv__run_pending_set_active_cb(w->cb);
+      w->iocb_events = UV__POLLOUT;
       INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
       uv__uv__run_pending_set_active_cb(NULL);
     }

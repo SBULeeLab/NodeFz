@@ -932,6 +932,8 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
             - for each req in handle->write_completed_queue, call req->send_cb (UV_UDP_SEND_CB) if any
          NB In Node.js usage, every req has a send_cb.
        */
+      assert(handle->io_watcher.iocb_events == UV__POLLOUT);
+
       /* TODO ready_lcbn func for the duplicate queue traversal. */
       QUEUE_FOREACH(q, &handle->write_completed_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);

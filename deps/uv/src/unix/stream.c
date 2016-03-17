@@ -1747,11 +1747,10 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
   switch (exec_context)
   {
     /* TODO static ready_func for queue traversal. */
-    case EXEC_CONTEXT_UV__IO_POLL:
-      /* TODO */
-      assert(!"uv__ready_stream_lcbns: not yet ready");
     case EXEC_CONTEXT_UV__RUN_PENDING:
       /* uv__run_pending: uv__stream_io(loop, w, UV__POLLOUT) for non-udp pending handles. */
+      assert(handle->io_watcher.iocb_events == UV__POLLOUT);
+
       if (handle->connect_req)
       {
         lcbn = lcbn_get(handle->connect_req->cb_type_to_lcbn, UV_CONNECT_CB);

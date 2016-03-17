@@ -87,6 +87,7 @@ struct uv__io_s {
   void* watcher_queue[2];
   unsigned int pevents; /* Pending event mask i.e. mask at next tick. */
   unsigned int events;  /* Current event mask. */
+  unsigned int iocb_events; /* JD: Events accompanying this w into its uv__io_cb. */
   int fd;
   UV_IO_PRIVATE_PLATFORM_FIELDS
   struct callback_node *logical_parent; /* The current CBN at the time of uv__io_feed. That parent always completes before CB is executed. */

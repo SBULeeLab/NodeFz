@@ -249,6 +249,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         continue;
 
 #if UNIFIED_CALLBACK
+      w->iocb_events = revents;
       INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, revents);
 #else
       w->cb(loop, w, revents);
