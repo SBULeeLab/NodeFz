@@ -81,39 +81,41 @@
   }                                                                           \
                                                                               \
   struct list * uv__ready_##_name##_lcbns(void *h, enum execution_context exec_context) { \
-    uv_handle_t *handle;                                                      \
+    uv_##_name##_t *handle;                                                   \
     lcbn_t *lcbn;                                                             \
     struct list *ready_lcbns;                                                 \
                                                                               \
     handle = (uv_handle_t *) h;                                               \
     assert(handle);                                                           \
-    assert(handle->type == UV_##_type);                                        \
+    assert(handle->type == UV_##_type);                                       \
                                                                               \
     ready_lcbns = list_create();                                              \
     switch (exec_context)                                                     \
     {                                                                         \
-      case EXEC_CONTEXT_UV__RUN_##_type:                                       \
-        lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_##_type##_CB);             \
-        assert(lcbn);                                                         \
+      case EXEC_CONTEXT_UV__RUN_##_type:                                      \
+        lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_##_type##_CB);            \
+        assert(lcbn && lcbn->cb == handle->_name##_cb);                       \
+        assert(lcbn->cb);                                                     \
         list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);          \
         break;                                                                \
       case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:                              \
         lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);                \
         assert(lcbn && lcbn->cb == handle->close_cb);                         \
-        list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);          \
+        if (lcbn->cb)                                                         \
+          list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);        \
         break;                                                                \
       default:                                                                \
-        assert(!"uv__ready_##_name##_lcbns: Error, unexpected context");       \
+        assert(!"uv__ready_##_name##_lcbns: Error, unexpected context");      \
     }                                                                         \
                                                                               \
     return ready_lcbns;                                                       \
   }                                                                           \
                                                                               \
-  void uv__run_##_name(uv_loop_t* loop) {                                      \
+  void uv__run_##_name(uv_loop_t* loop) {                                     \
     struct list *ready_handles;                                               \
     sched_context_t *next_sched_context;                                      \
     sched_lcbn_t *next_sched_lcbn;                                            \
-    uv_##_name##_t *next_handle;                                               \
+    uv_##_name##_t *next_handle;                                              \
                                                                               \
     lcbn_t *orig, *tmp;                                                       \
                                                                               \
@@ -127,14 +129,14 @@
                                                                               \
       /* Run the next handle. */                                              \
       next_sched_lcbn = scheduler_next_lcbn(next_sched_context);              \
-      next_handle = (uv_##_name##_t *) next_sched_context->handle_or_req;      \
+      next_handle = (uv_##_name##_t *) next_sched_context->handle_or_req;     \
                                                                               \
       assert(next_sched_lcbn->lcbn == lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB)); \
                                                                               \
       INVOKE_CALLBACK_1(UV_##_type##_CB, next_handle->_name##_cb, next_handle); \
                                                                               \ 
       /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. */     \
-      tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB);           \
+      tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB);          \
       assert(tmp != NULL);                                                    \
       lcbn_current_set(tmp);                                                  \
       uv__register_callback(next_handle, next_handle->_name##_cb, UV_##_type##_CB); \

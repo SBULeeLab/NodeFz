@@ -932,17 +932,20 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
             - for each req in handle->write_completed_queue, call req->send_cb (UV_UDP_SEND_CB) if any
          NB In Node.js usage, every req has a send_cb.
        */
+      /* TODO ready_lcbn func for the duplicate queue traversal. */
       QUEUE_FOREACH(q, &handle->write_completed_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
         assert(lcbn && lcbn->cb == req->send_cb);
-        list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       QUEUE_FOREACH(q, &handle->write_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
         assert(lcbn && lcbn->cb == req->send_cb);
-        list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
@@ -953,18 +956,21 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
         assert(lcbn && lcbn->cb == req->send_cb);
-        list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       QUEUE_FOREACH(q, &handle->write_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
         assert(lcbn && lcbn->cb == req->send_cb);
-        list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
 
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
       assert(lcbn && lcbn->cb == handle->close_cb);
-      list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+      if (lcbn->cb)
+        list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;
     default:
       assert(!"uv__ready_udp_lcbns: Error, unexpected context");

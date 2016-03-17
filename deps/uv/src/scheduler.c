@@ -337,6 +337,7 @@ ready_lcbns_func req_lcbn_funcs[UV_REQ_TYPE_MAX] = {
   /* UV_REQ_TYPE_PRIVATE -- empty in uv-unix.h. */
 };
 
+#define SILENT_CONTEXT 0x1
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 {
   uv_handle_t *handle;
@@ -379,7 +380,33 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 
   /* NB This must return lcbns in the order in which they will be invoked by the handle. */
   ready_lcbns = (*lcbns_func)(handle_or_req, sched_context->exec_context);
-  assert(!list_empty(ready_lcbns));
+
+  /* If SCHED_CONTEXT is schedulable but there are no LCBNs associated with it,
+     then there is no (anticipated) harm in invoking it.
+     Failure to invoke it means that we may not make forward progress.
+
+     An example of possible harm is if there are two stream handles to the same
+     client, and the user submits write requests along both handles.
+     On one handle he submits requests with WRITE_CBs and on the other he does not.
+     Executing the requests themselves can alter the behavior on REPLAY,
+     but we cannot know that.
+
+     I do not believe Node.js makes use of libuv in this fashion, though I suppose
+     a 3rd-party library can do anything it wants to. 
+
+     If it does, however, the application behavior is undefined anyway. 
+     
+     TODO This could be avoided by having the ready_lcbn funcs load up all possible LCBNs
+     that COULD be invoked (if there's an associated CB), rather than all LCBNs that WILL be invoked,
+     and changing INVOKE_CALLBACK to HANDLE_LCBN. Then we would eliminate these invisible guys, and have
+     no SILENT_CONTEXTs at all.
+     */
+  if (list_empty(ready_lcbns))
+  {
+    mylog("scheduler_next_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", handle_or_req);
+    next_lcbn = SILENT_CONTEXT;
+    goto CLEANUP;
+  }
 
   next_lcbn = NULL;
   for (e = list_begin(ready_lcbns); e != list_end(ready_lcbns); e = list_next(e))
@@ -391,17 +418,20 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
       break;
     }
   }
-  /* If being called from scheduler_next_context, there may not be a match.
-     Either way, clean up. */
   if (next_lcbn)
+    /* Make a copy so we can clean up ready_lcbns. */
     next_lcbn = sched_lcbn_create(next_lcbn->lcbn);
-  list_destroy_full(ready_lcbns, sched_lcbn_list_destroy_func, NULL);
 
-  /* RECORD: next_lcbn must be defined.
-     REPLAY: we may not have found it. */
-  assert(next_lcbn || scheduler.mode == SCHEDULE_MODE_REPLAY);
+  CLEANUP:
+    /* If being called from scheduler_next_context, there may not be a match.
+       Either way, clean up. */
+    list_destroy_full(ready_lcbns, sched_lcbn_list_destroy_func, NULL);
 
-  return next_lcbn;
+    /* RECORD: next_lcbn must be defined.
+       REPLAY: we may not have found it. */
+    assert(next_lcbn || scheduler.mode == SCHEDULE_MODE_REPLAY);
+
+    return next_lcbn;
 }
 
 void scheduler_advance (void)
@@ -444,14 +474,5 @@ struct list * uv__ready_handle_lcbns_wrap (handle_or_req_P *h_or_r, enum executi
   assert(func);
 
   ret = (*func)(handle, context);
-
-  if (list_empty(ret))
-  {
-    /* TODO We need to always run such handles, else we'll never schedule them. 
-       For example, handles processed in uv__run_closing_handles may not have a UV_CLOSE_CB CB, but should
-       still be closed to free up internal resources. */
-     assert(!"uv__ready_handle_lcbns_wrap: No ready LCBNs means we should invoke this one!");
-  }
-
   return ret;
 }

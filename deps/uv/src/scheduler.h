@@ -111,11 +111,26 @@ void scheduler_emit (void);
 sched_context_t * scheduler_next_context (const struct list *sched_context_list);
 
 /* Determine the next LCBN to invoke from those available in SCHED_CONTEXT. 
+   (internal only) Returns SILENT_CONTEXT if SCHED_CONTEXT has no ready LCBNs, i.e. if
+     no user CBs will be invoked if we schedule it. This is a clue to schedule it.
    If none of those available in SCHED_CONTEXT is up next, returns NULL. 
-   This should not happen if you provide the sched_context most recently returned by scheduler_next_context. */
+   This should not happen if you provide the sched_context most recently returned by scheduler_next_context. 
+
+   This API is relevant as used in scheduler_next_context, but not outside of
+   the scheduler internals. For the majority of use cases, invoking
+   a handle will inevitably result in invoking a series/stream/cluster/sequence of related LCBNs.
+   For example, invoking uv__stream_io on a handle's uv__io_t may invoke an arbitrary number
+   of LCBNs, and in a specific order.
+   At the moment I do not wish to violate this order, so we'll see how trustworthy the order is
+   under schedule variations. My hypothesis is that, provided you acknowledge fixed sequences
+   when manipulating a schedule (e.g. not inserting another LCBN in the middle of a sequence), 
+   the sequences will naturally occur in the recorded order. 
+    
+   Call sched_lcbn_is_next in invoke_callback to confirm or reject this hypothesis. */
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
 
-/* For debugging purposes only. Not intended to be used outside of invoke_callback. */
+/* (scheduler_next_context) check if SCHED_LCBN is next on the schedule, or 
+   (invoke_callback) verify that SCHED_LCBN is supposed to be next on the schedule. */
 int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
 /* Tell the scheduler that the most-recent LCBN has been executed. */

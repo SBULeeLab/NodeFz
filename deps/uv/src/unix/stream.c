@@ -1746,6 +1746,7 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
   ready_stream_lcbns = list_create();
   switch (exec_context)
   {
+    /* TODO static ready_func for queue traversal. */
     case EXEC_CONTEXT_UV__IO_POLL:
       /* TODO */
       assert(!"uv__ready_stream_lcbns: not yet ready");
@@ -1755,7 +1756,8 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
       {
         lcbn = lcbn_get(handle->connect_req->cb_type_to_lcbn, UV_CONNECT_CB);
         assert(lcbn && lcbn->cb == handle->connect_req->cb);
-        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       else if (uv__stream_fd(handle) != -1)
       {
@@ -1764,7 +1766,8 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
           req = QUEUE_DATA(q, uv_write_t, queue);
           lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
           assert(lcbn && lcbn->cb == req->cb);
-          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+          if (lcbn->cb)
+            list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
         }
 
         /* uv__write moves the head of handle->write_queue to handle->write_completed_queue */
@@ -1774,7 +1777,8 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
           req = QUEUE_DATA(q, uv_write_t, queue);
           lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
           assert(lcbn && lcbn->cb == req->cb);
-          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+          if (lcbn->cb)
+            list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
         }
 
         /* Enter uv__drain if write_queue will be emtpy.
@@ -1784,7 +1788,8 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
         {
           lcbn = lcbn_get(handle->shutdown_req->cb_type_to_lcbn, UV_SHUTDOWN_CB);
           assert(lcbn && lcbn->cb == handle->shutdown_req->cb);
-          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+          if (lcbn->cb)
+            list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
         }
       }
       break;
@@ -1796,7 +1801,8 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
       {
         lcbn = lcbn_get(handle->connect_req->cb_type_to_lcbn, UV_CONNECT_CB);
         assert(lcbn && lcbn->cb == handle->connect_req->cb);
-        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       /* uv__stream_flush_write_queue: stream->write_completed_queue.append(stream->write_queue) */
       /* uv__write_callbacks: pop uv_write_t reqs off of stream->write_completed_queue. */
@@ -1804,13 +1810,15 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
         req = QUEUE_DATA(q, uv_write_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
         assert(lcbn && lcbn->cb == req->cb);
-        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       QUEUE_FOREACH(q, &handle->write_queue) {
         req = QUEUE_DATA(q, uv_write_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
         assert(lcbn && lcbn->cb == req->cb);
-        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
 
       /* shutdown_req */
@@ -1818,7 +1826,8 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
       {
         lcbn = lcbn_get(handle->shutdown_req->cb_type_to_lcbn, UV_SHUTDOWN_CB);
         assert(lcbn && lcbn->cb == handle->shutdown_req->cb);
-        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+        if (lcbn->cb)
+          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
 
       break;
