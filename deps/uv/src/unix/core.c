@@ -382,7 +382,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     uv__io_poll(loop, timeout);
     uv__run_check(loop);
-    /* JD: This will invoke the close_cb of any handles that have one defined. */
+    /* JD: This will invoke the close_cb of any closing handles that have one defined. */
     uv__run_closing_handles(loop);
 
     if (mode == UV_RUN_ONCE) {
