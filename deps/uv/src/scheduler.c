@@ -250,6 +250,8 @@ void scheduler_emit (void)
   char lcbn_str_buf[1024];
 
   assert(scheduler_initialized());
+  if (scheduler.mode != SCHEDULE_MODE_RECORD)
+    return;
 
   mylog("scheduler_emit: Writing schedule to %s\n", scheduler.schedule_file);
 
