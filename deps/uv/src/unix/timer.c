@@ -221,6 +221,9 @@ void uv__run_timers(uv_loop_t* loop) {
   sched_lcbn_t *next_timer_lcbn;
   uv_timer_t* next_timer_handle;
 
+  if (heap_empty(&loop->timer_heap))
+    return;
+
   ready_timers = NULL;
   for (;;) {
     if (ready_timers)

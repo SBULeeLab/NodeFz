@@ -50,6 +50,7 @@ typedef void (*heap_walk_fn)(struct heap_node* a,
 
 /* Public functions. */
 HEAP_EXPORT(void heap_init(struct heap* heap));
+HEAP_EXPORT(int heap_empty(struct heap* heap));
 HEAP_EXPORT(struct heap_node* heap_min(const struct heap* heap));
 HEAP_EXPORT(void heap_insert(struct heap* heap,
                              struct heap_node* newnode,
@@ -68,6 +69,10 @@ static void heap_walk_helper(struct heap_node *hn, heap_walk_fn apply, void *aux
 HEAP_EXPORT(void heap_init(struct heap* heap)) {
   heap->min = NULL;
   heap->nelts = 0;
+}
+
+HEAP_EXPORT(int heap_empty(struct heap* heap)) {
+  return (heap->min == NULL);
 }
 
 HEAP_EXPORT(struct heap_node* heap_min(const struct heap* heap)) {

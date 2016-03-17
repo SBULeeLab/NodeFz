@@ -119,6 +119,9 @@
                                                                               \
     lcbn_t *orig, *tmp;                                                       \
                                                                               \
+    if (QUEUE_EMPTY(&loop->_name##_handles))                                  \
+      return;                                                                 \
+                                                                              \
     orig = lcbn_current_get();                                                \
     ready_handles = uv__ready_##_name##s(loop, EXEC_CONTEXT_UV__RUN_##_type); \
     while (ready_handles)                                                     \
