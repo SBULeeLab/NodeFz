@@ -1733,6 +1733,8 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
   uv_stream_t *handle;
   lcbn_t *lcbn;
   struct list *ready_stream_lcbns;
+  QUEUE *q;
+  uv_write_t *req;
 
   handle = (uv_handle_t *) h;
   assert(handle);
@@ -1740,5 +1742,44 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
 
   ready_stream_lcbns = list_create();
   /* TODO */
+  switch (exec_context)
+  {
+    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
+      /* Called from uv__finish_close (cf. uv__stream_destroy) */
+
+      /* Cancel the connect_req */
+      if (handle->connect_req)
+      {
+        lcbn = lcbn_get(handle->connect_req->cb_type_to_lcbn, UV_CONNECT_CB);
+        assert(lcbn && lcbn->cb == handle->connect_req->cb);
+        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+      }
+      /* uv__stream_flush_write_queue: stream->write_completed_queue.append(stream->write_queue) */
+      /* uv__write_callbacks: pop uv_write_t reqs off of stream->write_completed_queue. */
+      QUEUE_FOREACH(q, &handle->write_completed_queue) {
+        req = QUEUE_DATA(q, uv_write_t, queue);
+        lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
+        assert(lcbn && lcbn->cb == req->cb);
+        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+      }
+      QUEUE_FOREACH(q, &handle->write_queue) {
+        req = QUEUE_DATA(q, uv_write_t, queue);
+        lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
+        assert(lcbn && lcbn->cb == req->cb);
+        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+      }
+
+      /* Cancel the shutdown_req */
+      if (handle->shutdown_req) 
+      {
+        lcbn = lcbn_get(handle->connect_req->cb_type_to_lcbn, UV_SHUTDOWN_CB);
+        assert(lcbn && lcbn->cb == handle->shutdown_req->cb);
+        list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
+      }
+
+      break;
+    default:
+      assert(!"uv__ready_stream_lcbns: Error, unexpected context");
+  }
   return ready_stream_lcbns;
 }
