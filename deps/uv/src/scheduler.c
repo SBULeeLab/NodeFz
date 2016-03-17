@@ -34,7 +34,6 @@ scheduler_t scheduler;
 
 /* Private API declarations. */
 static int scheduler_initialized (void);
-static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
 /* This extracts the type of handle H_OR_R and routes it to the appropriate handler,
    padding with an 'always execute' option if there is no user CB pending
@@ -42,7 +41,7 @@ static int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 struct list * uv__ready_handle_lcbns_wrap (handle_or_req_P *h_or_r, enum execution_context context);
 
 /* Return non-zero if SCHED_LCBN is next, else zero. */
-static int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
+int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
 {
   lcbn_t *next_lcbn;
   int equal;

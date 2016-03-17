@@ -115,6 +115,9 @@ sched_context_t * scheduler_next_context (const struct list *sched_context_list)
    This should not happen if you provide the sched_context most recently returned by scheduler_next_context. */
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
 
+/* For debugging purposes only. Not intended to be used outside of invoke_callback. */
+int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
+
 /* Tell the scheduler that the most-recent LCBN has been executed. */
 void scheduler_advance (void);
 

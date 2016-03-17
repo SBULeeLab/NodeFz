@@ -1767,6 +1767,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   enum callback_behavior cb_behavior;
   int is_logical_cb;
   lcbn_t *lcbn_orig, *lcbn_new;
+  sched_lcbn_t *sched_lcbn;
 
   assert (cbi != NULL);  
 
@@ -1897,6 +1898,12 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     }
 
     lcbn_determine_executing_thread(lcbn_new);
+
+    /* Verify that this LCBN is next in the schedule. 
+       If not, in REPLAY mode something has gone amiss in the input schedule. */
+    sched_lcbn = sched_lcbn_create(lcbn_new);
+    assert(sched_lcbn_is_next(sched_lcbn));
+    sched_lcbn_destroy(sched_lcbn);
   }
 
   uv__metadata_unlock();
