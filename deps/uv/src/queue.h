@@ -33,6 +33,12 @@ typedef void *QUEUE[2];
 #define QUEUE_FOREACH(q, h)                                                   \
   for ((q) = QUEUE_NEXT(h); (q) != (h); (q) = QUEUE_NEXT(q))
 
+#define QUEUE_LEN(len, q, h)                                                  \
+  (len) = 0;                                                                  \
+  QUEUE_FOREACH((q), (h)) {                                                   \
+    (len)++;                                                                  \
+  }
+
 #define QUEUE_EMPTY(q)                                                        \
   ((const QUEUE *) (q) == (const QUEUE *) QUEUE_NEXT(q))
 
