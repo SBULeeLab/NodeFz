@@ -1739,7 +1739,9 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
 
   handle = (uv_handle_t *) h;
   assert(handle);
-  assert(handle->type == UV_STREAM);
+  assert(handle->type == UV_TCP ||
+         handle->type == UV_NAMED_PIPE ||
+         handle->type == UV_TTY);
 
   ready_stream_lcbns = list_create();
   switch (exec_context)

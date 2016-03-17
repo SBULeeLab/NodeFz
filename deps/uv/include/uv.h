@@ -1119,6 +1119,7 @@ struct uv_fs_s {
 UV_EXTERN void * uv_uv__fs_work_ptr (void);
 UV_EXTERN void * uv_uv__fs_done_ptr (void);
 UV_EXTERN void * uv_uv__stream_io_ptr (void);
+UV_EXTERN void * uv_uv__udp_io_ptr (void);
 UV_EXTERN void * uv_uv__async_io_ptr (void);
 UV_EXTERN void * uv_uv__async_event_ptr (void);
 UV_EXTERN void * uv_uv__server_io_ptr (void);

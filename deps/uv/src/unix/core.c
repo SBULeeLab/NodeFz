@@ -288,7 +288,7 @@ static void uv__run_closing_handles(uv_loop_t* loop) {
     list_push_back(closing_handles, &sched_context->elem);
   }
 
-  while(!list_empty(closing_handles))
+  while (!list_empty(closing_handles))
   {
     /* Find, remove, and execute the handle next in the schedule. */
     sched_context = scheduler_next_context(closing_handles);
@@ -773,7 +773,10 @@ static int uv__run_pending(uv_loop_t* loop) {
   QUEUE* q;
   QUEUE pq;
   uv__io_t* w;
+  uv_handle_t *handle;
   int did_anything;
+  struct list *pending_handles;
+  sched_context_t *sched_context;
 
   uv__mark_uv__run_pending_begin();
 
@@ -784,24 +787,62 @@ static int uv__run_pending(uv_loop_t* loop) {
   did_anything = 1;
   QUEUE_INIT(&pq);
   q = QUEUE_HEAD(&loop->pending_queue);
-  /* JD: QUEUE_SPLIT'ing fixes the size of the work we'll do. Otherwise we might loop forever. */
+  /* JD: QUEUE_SPLIT'ing fixes the size of the work we'll do this time. */
   QUEUE_SPLIT(&loop->pending_queue, q, &pq);
 
+  /* Interpret pq as a list of handles. */
+  pending_handles = list_create();
+  QUEUE_FOREACH(q, &pq) {
+    w = QUEUE_DATA(q, uv__io_t, pending_queue);
+    if (w->cb == uv_uv__stream_io_ptr())
+      handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
+    else if (w->cb == uv_uv__udp_io_ptr())
+      handle = (uv_handle_t *) container_of(w, uv_udp_t, io_watcher);
+    else
+      assert(!"uv__run_pending: unexpected cb");
+    sched_context = sched_context_create(EXEC_CONTEXT_UV__RUN_PENDING, CALLBACK_CONTEXT_HANDLE, handle);
+    list_push_back(pending_handles, &sched_context->elem);
+  }
+
+  while (!list_empty(pending_handles))
+  {
+    /* Find, remove, and execute the handle next in the schedule. */
+    sched_context = scheduler_next_context(pending_handles);
+    if (sched_context)
+    {
+      list_remove(pending_handles, &sched_context->elem);
+      handle = (uv_handle_t *) sched_context->handle_or_req;
+      sched_context_destroy(sched_context);
+
+      if (handle->type == UV_UDP)
+        w = &((uv_udp_t *) handle)->io_watcher;
+      else
+        w = &((uv_stream_t *) handle)->io_watcher;
+      assert(w);
+
+      /* Remove from pq. */
+      q = &w->pending_queue;
+      QUEUE_REMOVE(q);
+      QUEUE_INIT(q);
+
+      /* Run the handle. */
+      mylog("<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
+      uv__uv__run_pending_set_active_cb(w->cb);
+      INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
+      uv__uv__run_pending_set_active_cb(NULL);
+    }
+    else
+      break;
+  }
+
+  /* Repair: add any handles we didn't run back onto the front of pending_queue. */
   while (!QUEUE_EMPTY(&pq)) {
     q = QUEUE_HEAD(&pq);
     QUEUE_REMOVE(q);
     QUEUE_INIT(q);
-    w = QUEUE_DATA(q, uv__io_t, pending_queue);
-
-#if UNIFIED_CALLBACK
-    mylog("<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
-    uv__uv__run_pending_set_active_cb(w->cb);
-    INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
-    uv__uv__run_pending_set_active_cb(NULL);
-#else
-    w->cb(loop, w, UV__POLLOUT);
-#endif
+    QUEUE_INSERT_HEAD(&loop->pending_queue, q);
   }
+  list_destroy_full(pending_handles, sched_context_list_destroy_func, NULL); 
 
   DONE:
     uv__mark_uv__run_pending_end();

@@ -132,6 +132,7 @@ static void uv__udp_run_completed(uv_udp_t* handle) {
 }
 
 
+
 static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
   uv_udp_t* handle;
 
@@ -146,6 +147,12 @@ static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
     uv__udp_run_completed(handle);
   }
 }
+
+void * uv_uv__udp_io_ptr (void)
+{
+  return (void *) uv__udp_io;
+}
+
 
 
 static void uv__udp_recvmsg(uv_udp_t* handle) {

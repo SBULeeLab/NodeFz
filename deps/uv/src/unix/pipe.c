@@ -307,6 +307,9 @@ struct list * uv__ready_pipe_lcbns(void *h, enum execution_context exec_context)
   /* TODO */
   switch (exec_context)
   {
+    case EXEC_CONTEXT_UV__RUN_PENDING:
+      list_concat(ready_pipe_lcbns, uv__ready_stream_lcbns(handle, exec_context));
+      break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       list_concat(ready_pipe_lcbns, uv__ready_stream_lcbns(handle, exec_context));
 
