@@ -335,6 +335,7 @@ struct list * uv__ready_async_lcbns(void *h, enum execution_context exec_context
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
       assert(lcbn && lcbn->cb == handle->close_cb);
       list_push_back(ready_async_lcbns, &sched_lcbn_create(lcbn)->elem);
+      break;
     default:
       assert(!"uv__ready_async_lcbns: Error, unexpected context");
   }
