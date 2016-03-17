@@ -913,8 +913,35 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
   /* TODO */
   switch (exec_context)
   {
+    case EXEC_CONTEXT_UV__RUN_PENDING:
+      /* uv__run_pending -> uv__udp_io: 
+         uv__run_pending calls w->cb(loop, w, UV__POLLOUT), so:
+           uv__udp_sendmsg 
+            - empties handle->write_queue, pushing each req onto handle->write_completed_queue
+            - calls uv__io_feed for each
+             
+           uv__udp_run_completed
+            - empties handle->write_completed_queue
+            - for each req in handle->write_completed_queue, call req->send_cb (UV_UDP_SEND_CB) if any
+         NB In Node.js usage, every req has a send_cb.
+       */
+      QUEUE_FOREACH(q, &handle->write_completed_queue) {
+        req = QUEUE_DATA(q, uv_udp_send_t, queue);
+        lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
+        assert(lcbn && lcbn->cb == req->send_cb);
+        list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+      }
+      QUEUE_FOREACH(q, &handle->write_queue) {
+        req = QUEUE_DATA(q, uv_udp_send_t, queue);
+        lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
+        assert(lcbn && lcbn->cb == req->send_cb);
+        list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
+      }
+      break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      /* uv__finish_close -> uv__udp_finish_close: Iterate over handle->write_completed_queue, then over handle->write_queue: this is the order in which the UV_UDP_SEND_CBs of the uv_udp_send_t reqs contained within will be invoked. */
+      /* uv__finish_close -> uv__udp_finish_close: Flush write queue, then run write_completed_queue via uv__udp_run_completed. 
+         Same as for EXEC_CONTEXT_UV__RUN_PENDING, plus the CLOSE_CB at the end.
+        */
       QUEUE_FOREACH(q, &handle->write_completed_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
