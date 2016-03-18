@@ -26,7 +26,7 @@ static char *callback_type_strings[] = {
 };
 
 /* Keep aligned with the declaration of enum callback_context. */
-static char *callback_context_strings[] = { "HANDLE", "REQ", "UNKNOWN" };
+static char *callback_context_strings[] = { "HANDLE", "REQ", "IO_ASYNC", "IO_INOTIFY_READ", "IO_SIGNAL_EVENT", "UNKNOWN" };
 
 /* Keep aligned with the declaration of enum callback_behavior. */
 static char *callback_behavior_strings[] = { "ACTION", "RESPONSE", "UNKNOWN" };

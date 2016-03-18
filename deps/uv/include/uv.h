@@ -1128,6 +1128,8 @@ UV_EXTERN void * uv_uv__getaddrinfo_work_ptr (void);
 UV_EXTERN void * uv_uv__getaddrinfo_done_ptr (void);
 UV_EXTERN void * uv_uv__queue_work_ptr (void);
 UV_EXTERN void * uv_uv__queue_done_ptr (void);
+UV_EXTERN void * uv_uv__inotify_read_ptr (void);
+UV_EXTERN void * uv_uv__poll_io_ptr (void);
 
 UV_EXTERN void * uv_uv__fs_work_wrapper_ptr (void);
 UV_EXTERN void * uv_uv__getaddrinfo_work_wrapper_ptr (void);

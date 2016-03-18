@@ -372,8 +372,20 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
     wrapper = req;
     lcbns_func = req_lcbn_funcs[req_type];
   }
+  else if (sched_context->cb_context == CALLBACK_CONTEXT_IO_ASYNC)
+  {
+    assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_ASYNC not yet handled");
+  }
+  else if (sched_context->cb_context == CALLBACK_CONTEXT_IO_INOTIFY_READ)
+  {
+    assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_INOTIFY_READ not yet handled");
+  }
+  else if (sched_context->cb_context == CALLBACK_CONTEXT_IO_SIGNAL_EVENT)
+  {
+    assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_SIGNAL_EVENT not yet handled");
+  }
   else
-    NOT_REACHED;
+    assert(!"scheduler_next_lcbn: Error, unexpected cb_context");
 
   assert(wrapper);
   assert(lcbns_func);

@@ -172,6 +172,10 @@ static void uv__inotify_read(uv_loop_t* loop,
   }
 }
 
+void * uv_uv__inotify_read_ptr (void)
+{
+  return (void *) uv__inotify_read;
+}
 
 int uv_fs_event_init(uv_loop_t* loop, uv_fs_event_t* handle) {
   uv__handle_init(loop, (uv_handle_t*)handle, UV_FS_EVENT);

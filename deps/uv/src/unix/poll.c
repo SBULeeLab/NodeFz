@@ -58,6 +58,10 @@ static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 #endif
 }
 
+void * uv_uv__poll_io_ptr (void)
+{
+  return (void *) uv__poll_io;
+}
 
 int uv_poll_init(uv_loop_t* loop, uv_poll_t* handle, int fd) {
   int err;
