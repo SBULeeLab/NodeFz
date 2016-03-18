@@ -246,7 +246,7 @@ void uv__run_timers(uv_loop_t* loop) {
 
     /* Run the next timer. */
     next_timer_lcbn = scheduler_next_lcbn(next_timer_context);
-    next_timer_handle = (uv_timer_t *) next_timer_context->handle_or_req;
+    next_timer_handle = (uv_timer_t *) next_timer_context->wrapper;
 
     assert(next_timer_lcbn->lcbn == lcbn_get(next_timer_handle->cb_type_to_lcbn, UV_TIMER_CB));
     assert(uv__timer_ready(next_timer_handle));

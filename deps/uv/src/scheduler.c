@@ -38,7 +38,7 @@ static int scheduler_initialized (void);
 /* This extracts the type of handle H_OR_R and routes it to the appropriate handler,
    padding with an 'always execute' option if there is no user CB pending
    (e.g. in EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES). */
-struct list * uv__ready_handle_lcbns_wrap (handle_or_req_P *h_or_r, enum execution_context context);
+struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context);
 
 /* Return non-zero if SCHED_LCBN is next, else zero. */
 int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
@@ -87,10 +87,10 @@ void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn)
   free(sched_lcbn);
 }
 
-sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *handle_or_req)
+sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *wrapper)
 {
   sched_context_t *sched_context;
-  assert(handle_or_req);
+  assert(wrapper);
 
   sched_context = (sched_context_t *) malloc(sizeof *sched_context);
   assert(sched_context != NULL);
@@ -98,7 +98,7 @@ sched_context_t *sched_context_create (enum execution_context exec_context, enum
 
   sched_context->exec_context = exec_context;
   sched_context->cb_context = cb_context;
-  sched_context->handle_or_req = handle_or_req;
+  sched_context->wrapper = wrapper;
 
   return sched_context;
 }
@@ -347,39 +347,39 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 
   struct list *ready_lcbns;
   ready_lcbns_func lcbns_func;
-  void *handle_or_req;
+  void *wrapper;
 
   struct list_elem *e;
   sched_lcbn_t *sched_lcbn, *next_lcbn;
 
   assert(scheduler_initialized());
   assert(sched_context);
-  assert(sched_context->handle_or_req);
+  assert(sched_context->wrapper);
 
   if (sched_context->cb_context == CALLBACK_CONTEXT_HANDLE)
   {
-    handle = (uv_handle_t *) sched_context->handle_or_req;
+    handle = (uv_handle_t *) sched_context->wrapper;
     handle_type = handle->type;
 
-    handle_or_req = handle;
+    wrapper = handle;
     lcbns_func = uv__ready_handle_lcbns_wrap;
  }
   else if (sched_context->cb_context == CALLBACK_CONTEXT_REQ)
   {
-    req = (uv_req_t *) sched_context->handle_or_req;
+    req = (uv_req_t *) sched_context->wrapper;
     req_type = req->type;
 
-    handle_or_req = req;
+    wrapper = req;
     lcbns_func = req_lcbn_funcs[req_type];
   }
   else
     NOT_REACHED;
 
-  assert(handle_or_req);
+  assert(wrapper);
   assert(lcbns_func);
 
   /* NB This must return lcbns in the order in which they will be invoked by the handle. */
-  ready_lcbns = (*lcbns_func)(handle_or_req, sched_context->exec_context);
+  ready_lcbns = (*lcbns_func)(wrapper, sched_context->exec_context);
 
   /* If SCHED_CONTEXT is schedulable but there are no LCBNs associated with it,
      then there is no (anticipated) harm in invoking it.
@@ -403,7 +403,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
      */
   if (list_empty(ready_lcbns))
   {
-    mylog("scheduler_next_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", handle_or_req);
+    mylog("scheduler_next_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", wrapper);
     next_lcbn = SILENT_CONTEXT;
     goto CLEANUP;
   }
@@ -460,14 +460,14 @@ void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
   sched_lcbn_destroy(sched_lcbn);
 }
 
-struct list * uv__ready_handle_lcbns_wrap (handle_or_req_P *h_or_r, enum execution_context context)
+struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context)
 {
   struct list *ret;
   uv_handle_t *handle;
   ready_lcbns_func func;
 
-  assert(h_or_r);
-  handle = (uv_handle_t *) h_or_r;
+  assert(wrapper);
+  handle = (uv_handle_t *) wrapper;
   assert(handle->magic == UV_HANDLE_MAGIC);
 
   func = handle_lcbn_funcs[handle->type];

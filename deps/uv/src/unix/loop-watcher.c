@@ -132,7 +132,7 @@
                                                                               \
       /* Run the next handle. */                                              \
       next_sched_lcbn = scheduler_next_lcbn(next_sched_context);              \
-      next_handle = (uv_##_name##_t *) next_sched_context->handle_or_req;     \
+      next_handle = (uv_##_name##_t *) next_sched_context->wrapper;           \
                                                                               \
       assert(next_sched_lcbn->lcbn == lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB)); \
                                                                               \

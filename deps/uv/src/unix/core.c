@@ -295,7 +295,7 @@ static void uv__run_closing_handles(uv_loop_t* loop) {
     if (sched_context)
     {
       list_remove(closing_handles, &sched_context->elem);
-      p = (uv_handle_t *) sched_context->handle_or_req;
+      p = (uv_handle_t *) sched_context->wrapper;
       uv__finish_close(p);
       sched_context_destroy(sched_context);
     }
@@ -309,7 +309,7 @@ static void uv__run_closing_handles(uv_loop_t* loop) {
   {
     e = list_pop_front(closing_handles);
     sched_context = list_entry(e, sched_context_t, elem);
-    p = (uv_handle_t *) sched_context->handle_or_req;
+    p = (uv_handle_t *) sched_context->wrapper;
     uv__make_close_pending(p);
   }
   list_destroy(closing_handles);
@@ -773,8 +773,9 @@ static int uv__run_pending(uv_loop_t* loop) {
   QUEUE* q;
   QUEUE pq;
   uv__io_t* w;
-  uv_handle_t *handle;
   int did_anything;
+
+  uv_handle_t *handle;
   struct list *pending_handles;
   sched_context_t *sched_context;
 
@@ -812,9 +813,10 @@ static int uv__run_pending(uv_loop_t* loop) {
     if (sched_context)
     {
       list_remove(pending_handles, &sched_context->elem);
-      handle = (uv_handle_t *) sched_context->handle_or_req;
+      handle = (uv_handle_t *) sched_context->wrapper;
       sched_context_destroy(sched_context);
 
+      /* TODO Move this extraction step to a scheduler API. */
       if (handle->type == UV_UDP)
         w = &((uv_udp_t *) handle)->io_watcher;
       else
