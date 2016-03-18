@@ -209,7 +209,14 @@ int uv__next_timeout(const uv_loop_t* loop) {
 
   diff = handle->timeout - loop->time;
   if (diff > INT_MAX)
+  {
+    /* JD: TODO. If scheduler delays execution of a timer,
+      handle->timeout will be less than the current loop time.
+      This means that we may wait "forever" instead of going back 
+      to uv__run_timers. */
+    assert(!"uv__next_timeout: you should change this");
     diff = INT_MAX;
+  }
 
   return diff;
 }
