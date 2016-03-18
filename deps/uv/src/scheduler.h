@@ -71,13 +71,13 @@ struct sched_context_s
   enum execution_context exec_context;
 
   enum callback_context cb_context;
-  void *handle_or_req;
+  void *wrapper; /* uv_handle_t, uv_req_t?, uv_loop_t, struct uv__async */
 
   struct list_elem elem;
 };
 typedef struct sched_context_s sched_context_t;
 
-sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *handle_or_req);
+sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *wrapper);
 void sched_context_destroy (sched_context_t *sched_context);
 void sched_context_list_destroy_func (struct list_elem *e, void *aux);
 
@@ -133,14 +133,15 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
    (invoke_callback) verify that SCHED_LCBN is supposed to be next on the schedule. */
 int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
-/* Tell the scheduler that the most-recent LCBN has been executed. */
+/* Tell the scheduler that the most-recent LCBN has been executed. 
+   This can be done prior to executing an LCBN provided that the executing
+   LCBN is allowed to complete before a new (non-nested) LCBN is invoked. */
 void scheduler_advance (void);
 
 /* Each type of handle and req should declare a function of this type in internal.h
    for use in scheduler_next_context and scheduler_next_lcbn. 
      Name it like: uv__ready_*_lcbns {for * in async, check, fs_event, etc.} 
-   It should return the list of sched_lcbn_t's that are available on the provided handle_or_req_P. */
-typedef void * handle_or_req_P;
-typedef struct list * (*ready_lcbns_func)(handle_or_req_P, enum execution_context context);
+   It should return the list of sched_lcbn_t's that are available on the provided wrapper. */
+typedef struct list * (*ready_lcbns_func)(void *wrapper, enum execution_context context);
 
 #endif  /* UV_SRC_SCHEDULER_H_ */

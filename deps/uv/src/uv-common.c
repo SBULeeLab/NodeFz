@@ -1904,6 +1904,12 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     sched_lcbn = sched_lcbn_create(lcbn_new);
     assert(sched_lcbn_is_next(sched_lcbn));
     sched_lcbn_destroy(sched_lcbn);
+
+    /* Advance the scheduler prior to invoking the CB. 
+       This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
+       the nested ones will perceive themselves as 'next'. */
+    mylog("invoke_callback: cb_type %s; advancing the scheduler\n", callback_type_to_string(lcbn_new->cb_type));
+    scheduler_advance();
   }
 
   uv__metadata_unlock();
@@ -1911,12 +1917,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   cbn_start(cbn);
   current_callback_node_set(cbn); /* Thread-safe. */
   cbn_execute_callback(cbn); 
-
-  if (is_logical_cb)
-  {
-    mylog("invoke_callback: cb_type %s; advancing the scheduler", callback_type_to_string(lcbn_new->cb_type));
-    scheduler_advance();
-  }
 
   cbn_stop(cbn);
 
