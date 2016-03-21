@@ -135,9 +135,9 @@ struct list * uv__ready_poll_lcbns(void *h, enum execution_context exec_context)
   lcbn_t *lcbn;
   struct list *ready_poll_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_poll_t *) h;
   assert(handle);
-  assert(handle->type == UV_POLL);
+  assert(handle->magic == UV_HANDLE_MAGIC && handle->type == UV_POLL);
 
   ready_poll_lcbns = list_create();
   switch (exec_context)

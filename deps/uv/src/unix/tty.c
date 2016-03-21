@@ -276,9 +276,9 @@ struct list * uv__ready_tty_lcbns(void *h, enum execution_context exec_context)
   lcbn_t *lcbn;
   struct list *ready_tty_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_tty_t *) h;
   assert(handle);
-  assert(handle->type == UV_TTY);
+  assert(handle->magic == UV_HANDLE_MAGIC && handle->type == UV_TTY);
 
   ready_tty_lcbns = list_create();
   switch (exec_context)

@@ -791,7 +791,7 @@ static int uv__run_pending(uv_loop_t* loop) {
   /* JD: QUEUE_SPLIT'ing fixes the size of the work we'll do this time. */
   QUEUE_SPLIT(&loop->pending_queue, q, &pq);
 
-  /* Interpret pq as a list of handles. */
+  /* Interpret pq as a list of handle contexts. */
   pending_handles = list_create();
   QUEUE_FOREACH(q, &pq) {
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
@@ -806,9 +806,9 @@ static int uv__run_pending(uv_loop_t* loop) {
     list_push_back(pending_handles, &sched_context->elem);
   }
 
+  /* Find, remove, and execute the handle next in the schedule. */
   while (!list_empty(pending_handles))
   {
-    /* Find, remove, and execute the handle next in the schedule. */
     sched_context = scheduler_next_context(pending_handles);
     if (sched_context)
     {
