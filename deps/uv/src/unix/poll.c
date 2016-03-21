@@ -140,9 +140,16 @@ struct list * uv__ready_poll_lcbns(void *h, enum execution_context exec_context)
   assert(handle->type == UV_POLL);
 
   ready_poll_lcbns = list_create();
-  /* TODO */
   switch (exec_context)
   {
+    case EXEC_CONTEXT_UV__IO_POLL:
+      /* uv__poll_io 
+         Either error or not error: invoke UV_POLL_CB appropriately, then return. */
+      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_POLL_CB);
+      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn->cb);
+      list_push_back(ready_poll_lcbns, &sched_lcbn_create(lcbn)->elem);
+      break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
       assert(lcbn && lcbn->cb == handle->close_cb);
