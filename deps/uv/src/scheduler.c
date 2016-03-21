@@ -24,6 +24,7 @@ struct scheduler_s
   lcbn_t *shadow_root; /* Root of the "shadow tree" -- the registration tree described in the input file. */
   struct map *name_to_lcbn; /* Used to map hash(name) to lcbn. Allows us to re-build the tree. */
   struct list *desired_schedule; /* A tree_as_list list (rooted at shadow_root) of sched_lcbn_t's, expressing desired execution order, first to last. We discard internal nodes (e.g. initial stack node). We left-shift as we execute nodes. */
+  int n_executed;
 
   int magic;
 };
@@ -39,6 +40,22 @@ static int scheduler_initialized (void);
    padding with an 'always execute' option if there is no user CB pending
    (e.g. in EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES). */
 struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context);
+
+enum callback_type scheduler_next_lcbn_type (void)
+{
+  lcbn_t *next_lcbn;
+  assert(scheduler_initialized());
+  enum callback_type cb_type = CALLBACK_TYPE_ANY;
+
+  if (scheduler.mode == SCHEDULE_MODE_REPLAY && !list_empty(scheduler.desired_schedule))
+  {
+    next_lcbn = tree_entry(list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem),
+                         lcbn_t, tree_node);
+    cb_type = next_lcbn->cb_type;
+  }
+
+  return cb_type;
+}
 
 /* Return non-zero if SCHED_LCBN is next, else zero. */
 int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
@@ -61,7 +78,8 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
   assert(next_lcbn);
 
   equal = lcbn_semantic_equals(next_lcbn, ready_lcbn->lcbn);
-  printf("sched_lcbn_is_next: ready_lcbn %p next_lcbn %p equal? %i\n", ready_lcbn->lcbn, next_lcbn, equal);
+  assert(next_lcbn->global_exec_id == scheduler.n_executed);
+  mylog("sched_lcbn_is_next: exec_id %i ready_lcbn %p next_lcbn %p equal? %i\n", next_lcbn->global_exec_id, ready_lcbn->lcbn, next_lcbn, equal);
   return equal;
 }
 
@@ -135,7 +153,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
   assert(lcbn);
 
   lcbn_to_string(lcbn, buf, sizeof buf);
-  printf("%s\n", buf);
+  printf("%p: %s\n", lcbn, buf);
 }
 
 void scheduler_init (enum schedule_mode mode, char *schedule_file)
@@ -165,6 +183,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   scheduler.magic = SCHEDULER_MAGIC;
   scheduler.recorded_schedule = list_create();
   scheduler.desired_schedule = NULL;
+  scheduler.n_executed = 1; /* Skip initial stack. */
 
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
   {
@@ -331,7 +350,7 @@ ready_lcbns_func req_lcbn_funcs[UV_REQ_TYPE_MAX] = {
   NULL, /* UV_SHUTDOWN */
   NULL, /* UV_UDP_SEND */
   NULL, /* UV_FS */
-  NULL, /* UV_WORK */
+  uv__ready_work_lcbns, /* UV_WORK */
   NULL, /* UV_GETADDRINFO */
   NULL  /* UV_GETNAMEINFO */
   /* UV_REQ_TYPE_PRIVATE -- empty in uv-unix.h. */
@@ -356,36 +375,36 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
   assert(sched_context);
   assert(sched_context->wrapper);
 
-  if (sched_context->cb_context == CALLBACK_CONTEXT_HANDLE)
+  switch (sched_context->cb_context)
   {
-    handle = (uv_handle_t *) sched_context->wrapper;
-    handle_type = handle->type;
+    case CALLBACK_CONTEXT_HANDLE:
+      handle = (uv_handle_t *) sched_context->wrapper;
+      assert(handle->magic == UV_HANDLE_MAGIC);
+      handle_type = handle->type;
 
-    wrapper = handle;
-    lcbns_func = uv__ready_handle_lcbns_wrap;
- }
-  else if (sched_context->cb_context == CALLBACK_CONTEXT_REQ)
-  {
-    req = (uv_req_t *) sched_context->wrapper;
-    req_type = req->type;
+      wrapper = handle;
+      lcbns_func = uv__ready_handle_lcbns_wrap;
+      break;
+    case CALLBACK_CONTEXT_REQ:
+      req = (uv_req_t *) sched_context->wrapper;
+      assert(req->magic == UV_REQ_MAGIC);
+      req_type = req->type;
 
-    wrapper = req;
-    lcbns_func = req_lcbn_funcs[req_type];
+      wrapper = req;
+      lcbns_func = req_lcbn_funcs[req_type];
+      break;
+    case CALLBACK_CONTEXT_IO_ASYNC:
+      assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_ASYNC not yet handled");
+      break;
+    case CALLBACK_CONTEXT_IO_INOTIFY_READ:
+      assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_INOTIFY_READ not yet handled");
+      break;
+    case CALLBACK_CONTEXT_IO_SIGNAL_EVENT:
+      assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_SIGNAL_EVENT not yet handled");
+      break;
+    default:
+      assert(!"scheduler_next_lcbn: Error, unexpected cb_context");
   }
-  else if (sched_context->cb_context == CALLBACK_CONTEXT_IO_ASYNC)
-  {
-    assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_ASYNC not yet handled");
-  }
-  else if (sched_context->cb_context == CALLBACK_CONTEXT_IO_INOTIFY_READ)
-  {
-    assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_INOTIFY_READ not yet handled");
-  }
-  else if (sched_context->cb_context == CALLBACK_CONTEXT_IO_SIGNAL_EVENT)
-  {
-    assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_SIGNAL_EVENT not yet handled");
-  }
-  else
-    assert(!"scheduler_next_lcbn: Error, unexpected cb_context");
 
   assert(wrapper);
   assert(lcbns_func);
@@ -462,6 +481,7 @@ void scheduler_advance (void)
     lcbn, callback_type_to_string(lcbn->cb_type));
   fflush(NULL);
   lcbn = NULL;
+  scheduler.n_executed++;
 }
 
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
@@ -487,4 +507,14 @@ struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context
 
   ret = (*func)(handle, context);
   return ret;
+}
+
+int scheduler_remaining (void)
+{
+  assert(scheduler_initialized());
+
+  if (scheduler.mode == SCHEDULE_MODE_RECORD)
+    return -1;
+  assert(scheduler.mode == SCHEDULE_MODE_REPLAY);
+  return list_size(scheduler.desired_schedule);
 }

@@ -325,8 +325,15 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       assert((unsigned) fd < loop->nwatchers);
 
       w = loop->watchers[fd];
-      if (w == NULL)
+      if (w == NULL) {
+        /* File descriptor that we've stopped watching, disarm it.
+         *
+         * Ignore all errors because we may be racing with another thread
+         * when the file descriptor is closed.
+         */
+        uv__epoll_ctl(loop->backend_fd, UV__EPOLL_CTL_DEL, fd, pe);
         continue;
+      }
 
       /* The pending events determine whether or not we'll actually invoke w's CB. */
       io_events = pe->events;
@@ -383,7 +390,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         switch (sched_context->cb_context)
         {
           case CALLBACK_CONTEXT_IO_ASYNC:
-            w = &((struct uv__async *) sched_context->wrapper)->io_watcher;
+            w = &((uv_loop_t *) sched_context->wrapper)->async_watcher.io_watcher;
             break;
           case CALLBACK_CONTEXT_IO_INOTIFY_READ:
             w = &((uv_loop_t *) sched_context->wrapper)->inotify_read_watcher;
@@ -404,6 +411,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         sched_context_destroy(sched_context);
 
         /* Run w. */
+        mylog("pre-invoke_callback: w->cb %p\n", w->cb);
         INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, w->iocb_events);
         nevents++;
       }

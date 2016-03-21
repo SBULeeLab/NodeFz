@@ -1058,14 +1058,21 @@ Fri 18 Mar 2016
 1. uv__io_poll: hook into scheduler
   - still missing the ready_lcbns funcs
 
+---------
+
+Mon 21 Mar 2016
+
+1. Ready_lcbns for uv__io_poll stream functions: uv__stream_io (output), uv__server_io (input)
+  > tested (notes on 3/21)
+2. One thread, scheduled threadpool
+
+Pending:
+  - mutex'd invoke_callback
+  - ready_lcbns for async (specifically needed for threadpool)
+
 --------------------------------
 
 Next steps:
-  By Mar 17: implement the easier portions of the scheduler, and have a sense of how to do the harder ones
-    x scheduler support for: uv__run_{idle,prepare,check}
-    x scheduler support for: uv__run_pending, uv__run_closing_handles
-    x peek at uv__io_poll
-
   By Mar 24:
     o mutex'd invoke_callback
     o scheduling of uv__io_poll 

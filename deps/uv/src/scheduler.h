@@ -63,7 +63,10 @@ enum execution_context
   EXEC_CONTEXT_UV__RUN_PREPARE,
   EXEC_CONTEXT_UV__IO_POLL,
   EXEC_CONTEXT_UV__RUN_CHECK,
-  EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES
+  EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES,
+
+  EXEC_CONTEXT_THREADPOOL_WORKER,
+  EXEC_CONTEXT_THREADPOOL_DONE,
 };
 
 struct sched_context_s
@@ -129,6 +132,9 @@ sched_context_t * scheduler_next_context (const struct list *sched_context_list)
    Call sched_lcbn_is_next in invoke_callback to confirm or reject this hypothesis. */
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
 
+/* Returns the callback_type of the next scheduled LCBN. */
+enum callback_type scheduler_next_lcbn_type (void);
+
 /* (scheduler_next_context) check if SCHED_LCBN is next on the schedule, or 
    (invoke_callback) verify that SCHED_LCBN is supposed to be next on the schedule. */
 int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
@@ -137,6 +143,10 @@ int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
    This can be done prior to executing an LCBN provided that the executing
    LCBN is allowed to complete before a new (non-nested) LCBN is invoked. */
 void scheduler_advance (void);
+
+/* How many LCBNs remain to be scheduled? 
+   If in RECORD mode, returns -1. */
+int scheduler_remaining (void);
 
 /* Each type of handle and req should declare a function of this type in internal.h
    for use in scheduler_next_context and scheduler_next_lcbn. 

@@ -769,6 +769,8 @@ struct list *global_order_list;
 unsigned lcbn_global_exec_counter = 0;
 unsigned lcbn_global_reg_counter = 0;
 
+pthread_mutex_t invoke_callback_lcbn_lock; /* Recursive. */
+
 struct list *lcbn_global_reg_order_list;
 
 /* We identify unique clients based on the associated 'peer info' (struct sockaddr).
@@ -827,6 +829,16 @@ static void uv__metadata_lock (void)
 static void uv__metadata_unlock (void)
 {
   pthread_mutex_unlock(&metadata_lock);
+}
+
+static void uv__invoke_callback_lcbn_lock (void)
+{
+  pthread_mutex_lock(&invoke_callback_lcbn_lock);
+}
+
+static void uv__invoke_callback_lcbn_unlock (void)
+{
+  pthread_mutex_unlock(&invoke_callback_lcbn_lock);
 }
 
 /* Callback node APIs. */
@@ -1622,6 +1634,8 @@ void unified_callback_init (void)
   char *schedule_modeP, *schedule_fileP;
   enum schedule_mode schedule_mode;
   static int initialized = 0;
+  pthread_mutexattr_t attr;
+
   if (initialized)
     return;
 
@@ -1641,6 +1655,10 @@ void unified_callback_init (void)
   atexit(scheduler_emit);
 
   pthread_mutex_init(&metadata_lock, NULL);
+
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&invoke_callback_lcbn_lock, &attr);
+
   global_order_list = list_create();
   root_list = list_create();
 
@@ -1872,6 +1890,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* If CB is a logical callback, retrieve and update the LCBN. */
   if (is_logical_cb)
   {
+    uv__invoke_callback_lcbn_lock();
+
     lcbn_new = lcbn_get(cb_type_to_lcbn, cbi->type);
     assert(lcbn_new);
     assert(lcbn_new->cb_type == cbi->type);
@@ -1915,6 +1935,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   uv__metadata_unlock();
 
   cbn_start(cbn);
+
   current_callback_node_set(cbn); /* Thread-safe. */
   cbn_execute_callback(cbn); 
 
@@ -1932,6 +1953,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     mylog("invoke_callback: Done with lcbn %p parent %p cb %p\n",
       lcbn_new, 0, cbi->cb);
     lcbn_mark_end(lcbn_new);
+
+    uv__invoke_callback_lcbn_unlock();
   }
 
   mylog("invoke_callback: completed cbn %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
@@ -2715,6 +2738,7 @@ static void cbn_execute_callback (struct callback_node *cbn)
   assert(cbn->info != NULL);
 
   info = cbn->info;
+  assert(info->cb);
 
   /* Invoke the callback. */
   switch (info->type)

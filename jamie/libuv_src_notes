@@ -817,3 +817,47 @@ uv__finish_close:
       uv__udp_run_completed -> this invokes all of the handle->write_completed_queue requests on UV_UDP_SEND_CB with the recorded status (-ECANCELED for the ones we just emptied out of the write queue)
 
 ----------
+
+uv__run_pending:
+  Exhausts loop->pending_queue, which contains uv__io_t's.
+  We invoke w->cb(loop, w UV__POLLOUT)  each uv__io _t.
+
+  w's get into loop->pending_queue via uv__io_feed.
+  Callers:
+    - uv__write_req_finish(), part of stream.c
+        -> e.g. from write (via write2), after writing to the console. Try requiring sys; it will print a warning message and then uv__io_feed.
+      ?
+    - uv_pipe_connect(), but only in the case of an error.
+      ?
+    - uv_tcp_connect(), but only in the case of an error.
+      ?
+    - uv__udp_send_msg(), for all sent messages.
+      DONE
+
+pipe, tcp:
+  uv_X_init calls uv__stream_init
+    uv__stream_init calls uv__io_init with the stream's io_watcher and uv__stream_io
+    When pipe
+udp:
+  uv_udp_init[_ex] calls uv__io_init with the udp handle's io_watcher and uv__udp_io
+
+Conclusion: in uv__run_pending, the value of w->cb should be uv__stream_io or uv__udp_io. The handle should be extractable based on the value.
+
+Portions of uv__stream_io relevant to UV__POLLOUT:
+  if (stream->connect_req)
+    uv__stream_connect
+    return
+  if (uv__stream_fd(stream) == -1)
+    return; 
+  uv__write 
+    -- first request off of stream->write_queue
+  uv__write_callbacks 
+    -- all CBs from stream->write_completed_queue
+  if there was only one CB in stream->write_queue, uv__drain
+    -- if(stream->shutdown_req) (this is a valid thing to base decision on due to assert in uv__drain), honor it
+      
+
+----------
+
+TODO Write notes about how loop->watcher_queue works in uv__io_poll
+TODO Take notes about how to turn uv__io_t's into associated function.

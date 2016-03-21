@@ -62,6 +62,7 @@ int uv_loop_init(uv_loop_t* loop) {
   loop->timer_counter = 0;
   loop->stop_flag = 0;
   loop->niter = 0;
+  loop->magic = UV_LOOP_MAGIC;
 
   err = uv__platform_loop_init(loop);
   if (err)

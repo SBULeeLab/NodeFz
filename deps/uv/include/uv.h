@@ -1468,7 +1468,7 @@ union uv_any_req {
 };
 #undef XX
 
-
+#define UV_LOOP_MAGIC 19285555
 struct uv_loop_s {
   /* User data - use this for whatever. */
   void* data;
@@ -1480,6 +1480,7 @@ struct uv_loop_s {
   unsigned int stop_flag;
   /* Number of iterations completed. */
   unsigned int niter;
+  int magic;
   UV_LOOP_PRIVATE_FIELDS
 };
 
