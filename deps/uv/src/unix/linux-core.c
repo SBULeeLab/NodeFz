@@ -362,6 +362,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
           io_handle = container_of(w, uv_stream_t, io_watcher);
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
         }
+        else if (w->cb == uv_uv__server_io_ptr())
+        {
+          io_handle = container_of(w, uv_stream_t, io_watcher);
+          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
+        }
         else
           assert(!"uv__io_poll: Error, unexpected w->cb");
       }

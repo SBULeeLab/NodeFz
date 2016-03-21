@@ -304,9 +304,11 @@ struct list * uv__ready_pipe_lcbns(void *h, enum execution_context exec_context)
   assert(handle->type == UV_NAMED_PIPE);
 
   ready_pipe_lcbns = list_create();
-  /* TODO */
   switch (exec_context)
   {
+    case EXEC_CONTEXT_UV__IO_POLL:
+      list_concat(ready_pipe_lcbns, uv__ready_stream_lcbns(handle, exec_context));
+      break;
     case EXEC_CONTEXT_UV__RUN_PENDING:
       list_concat(ready_pipe_lcbns, uv__ready_stream_lcbns(handle, exec_context));
       break;

@@ -36,6 +36,9 @@
 #include <unistd.h>
 #include <limits.h> /* IOV_MAX */
 
+#include <sys/ioctl.h> /* scheduling: FIONREAD for an assert */
+#include <termios.h>
+
 #if defined(__APPLE__)
 # include <sys/event.h>
 # include <sys/time.h>
@@ -1728,14 +1731,208 @@ int uv_stream_set_blocking(uv_stream_t* handle, int blocking) {
   return uv__nonblock(uv__stream_fd(handle), !blocking);
 }
 
+static struct list * uv__ready_stream_lcbns_uv__write_callbacks (uv_stream_t *handle, unsigned int events)
+{
+  struct list *ready_lcbns;
+  QUEUE *q;
+  uv_write_t *req;
+  lcbn_t *lcbn;
+
+  assert(handle);
+
+  ready_lcbns = list_create();
+  QUEUE_FOREACH(q, &handle->write_completed_queue) {
+    req = QUEUE_DATA(q, uv_write_t, queue);
+    lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
+    assert(lcbn && lcbn->cb == req->cb);
+    if (lcbn->cb)
+      list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+  }
+  return ready_lcbns;
+}
+
+static struct list * uv__ready_stream_lcbns_uv__write (uv_stream_t *handle, unsigned int events)
+{
+  struct list *ready_lcbns;
+  QUEUE *q;
+  uv_write_t *req;
+  lcbn_t *lcbn;
+
+  assert(handle);
+
+  ready_lcbns = list_create();
+  /* uv__write moves the head of handle->write_queue to handle->write_completed_queue */
+  if (!QUEUE_EMPTY(&handle->write_queue))
+  {
+    q = QUEUE_HEAD(&handle->write_queue);
+    req = QUEUE_DATA(q, uv_write_t, queue);
+    lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
+    assert(lcbn && lcbn->cb == req->cb);
+    if (lcbn->cb)
+      list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+  }
+  return ready_lcbns;
+}
+
+static struct list * uv__ready_stream_lcbns_uv__stream_flush_write_queue (uv_stream_t *handle, unsigned int events)
+{
+  struct list *ready_lcbns;
+  QUEUE *q;
+  uv_write_t *req;
+  lcbn_t *lcbn;
+  
+  assert(handle);
+
+  ready_lcbns = list_create();
+  QUEUE_FOREACH(q, &handle->write_queue) {
+    req = QUEUE_DATA(q, uv_write_t, queue);
+    lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
+    assert(lcbn && lcbn->cb == req->cb);
+    if (lcbn->cb)
+      list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+  }
+  return ready_lcbns;
+}
+
+static struct list * uv__ready_stream_lcbns_uv__stream_connect (uv_stream_t *stream, unsigned int events)
+{
+  struct list *ready_lcbns;
+  lcbn_t *lcbn;
+  assert(stream);
+
+  ready_lcbns = list_create();
+  lcbn = lcbn_get(stream->connect_req->cb_type_to_lcbn, UV_CONNECT_CB);
+  assert(lcbn && lcbn->cb == stream->connect_req->cb);
+  if (lcbn->cb)
+    list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+  return ready_lcbns;
+}
+
+static struct list * uv__ready_stream_lcbns_uv__read (uv_stream_t *stream, unsigned int events)
+{
+  struct list *ready_lcbns;
+  lcbn_t *lcbn;
+  int pending_bytes;
+  assert(stream);
+
+  ready_lcbns = list_create();
+  /* We don't need to push multiple ALLOC/READ CBs, for two reasons.
+     1. If we complete more than one alloc/read cycle, the new LCBNs won't
+        actually exist until the old ones have executed (see invoke_callback).
+     2. The scheduler only cares about the first one. The subsequent ones will
+        happen anyway. If they DON'T happen, our assumption about repeatable results
+        goes away.
+     NB node: StreamWrap::OnAlloc always uses the suggested_size, so we can do a bit of math. */ 
+  if (stream->read_cb && (stream->flags & UV_STREAM_READING))
+  {
+    /* Verify there are pending bytes.
+       TODO Not sure if this is valid. */
+    assert(ioctl(uv__stream_fd(stream), FIONREAD, &pending_bytes) == 0);
+    assert(0 < pending_bytes);
+    mylog("uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
+
+    lcbn = lcbn_get(stream->cb_type_to_lcbn, UV_ALLOC_CB);
+    assert(lcbn && lcbn->cb);
+    list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+
+    lcbn = lcbn_get(stream->cb_type_to_lcbn, UV_READ_CB);
+    assert(lcbn && lcbn->cb);
+    list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+  }
+     
+  return ready_lcbns;
+}
+
+static struct list * uv__ready_stream_lcbns_uv__drain (uv_stream_t *stream, unsigned int events)
+{
+  struct list *ready_lcbns;
+  lcbn_t *lcbn;
+  uv_shutdown_t *req;
+
+  assert(stream);
+
+  ready_lcbns = list_create();
+
+  /* In uv__drain, complete shutdown_req if there is one. */
+  if ((stream->flags & UV_STREAM_SHUTTING) &&
+      !(stream->flags & UV_CLOSING) &&
+      !(stream->flags & UV_STREAM_SHUT))
+  {
+    req = stream->shutdown_req;
+    assert(req);
+    lcbn = lcbn_get(req->cb_type_to_lcbn, UV_SHUTDOWN_CB);
+    assert(lcbn && lcbn->cb == req->cb);
+    if (lcbn->cb)
+      list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+  }
+
+  return ready_lcbns;
+}
+
+static struct list * uv__ready_stream_lcbns_uv__stream_io (uv_stream_t *stream, unsigned int events)
+{
+  struct list *ready_lcbns;
+  QUEUE *q;
+  int queue_len;
+
+  assert(stream);
+
+  ready_lcbns = list_create();
+
+  if (stream->connect_req)
+  {
+    list_concat(ready_lcbns, uv__ready_stream_lcbns_uv__stream_connect(stream, events));
+    return ready_lcbns;
+  }
+  else if (uv__stream_fd(stream) != -1)
+  {
+    if (events & (UV__POLLIN | UV__POLLERR | UV__POLLHUP))
+      list_concat(ready_lcbns, uv__ready_stream_lcbns_uv__read(stream, events));
+    if (uv__stream_fd(stream) == -1)
+      return ready_lcbns;
+
+    /* Not ready to deal with this yet. */
+    assert(!(events & UV__POLLHUP));
+
+    if (events & (UV__POLLOUT | UV__POLLERR | UV__POLLHUP))
+    {
+      list_concat(ready_lcbns, uv__ready_stream_lcbns_uv__write_callbacks(stream, events));
+      list_concat(ready_lcbns, uv__ready_stream_lcbns_uv__write(stream, events));
+
+      /* Enter uv__drain if write_queue will be empty. */
+      QUEUE_LEN(queue_len, q, &stream->write_queue);
+      if (queue_len == 1 && stream->shutdown_req)
+        list_concat(ready_lcbns, uv__ready_stream_lcbns_uv__drain(stream, events));
+    }
+  }
+
+  return ready_lcbns;
+}
+
+static struct list * uv__ready_stream_lcbns_uv__server_io (uv_stream_t *stream, unsigned int events)
+{
+  struct list *ready_lcbns;
+  lcbn_t *lcbn;
+
+  assert(stream);
+
+  ready_lcbns = list_create();
+
+  /* If uv__accept returns -EAGAIN or -EWOULDBLOCK, this CB won't actually be called. 
+     TODO It's not clear to me why this would happen. */
+  lcbn = lcbn_get(stream->cb_type_to_lcbn, UV_CONNECTION_CB);
+  assert(lcbn && lcbn->cb == stream->connection_cb);
+  assert(lcbn->cb);
+  list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);
+
+  return ready_lcbns;
+}
+
 struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_context)
 {
   uv_stream_t *handle;
   lcbn_t *lcbn;
   struct list *ready_stream_lcbns;
-  QUEUE *q;
-  uv_write_t *req;
-  int queue_len;
 
   handle = (uv_handle_t *) h;
   assert(handle);
@@ -1746,55 +1943,23 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
   ready_stream_lcbns = list_create();
   switch (exec_context)
   {
-    /* TODO static ready_func for queue traversal. */
+    case EXEC_CONTEXT_UV__IO_POLL:
+      /* uv__stream_io */
+      assert(handle->io_watcher.cb);
+      if (handle->io_watcher.cb == uv__stream_io)
+        list_concat(ready_stream_lcbns, uv__ready_stream_lcbns_uv__stream_io(handle, handle->io_watcher.iocb_events));
+      else if (handle->io_watcher.cb == uv__server_io)
+        list_concat(ready_stream_lcbns, uv__ready_stream_lcbns_uv__server_io(handle, handle->io_watcher.iocb_events));
+      else
+        assert(!"uv__ready_stream_lcbns: Error, unexpected io_watcher.cb");
+      break;
     case EXEC_CONTEXT_UV__RUN_PENDING:
       /* uv__run_pending: uv__stream_io(loop, w, UV__POLLOUT) for non-udp pending handles. */
       assert(handle->io_watcher.iocb_events == UV__POLLOUT);
-
-      if (handle->connect_req)
-      {
-        lcbn = lcbn_get(handle->connect_req->cb_type_to_lcbn, UV_CONNECT_CB);
-        assert(lcbn && lcbn->cb == handle->connect_req->cb);
-        if (lcbn->cb)
-          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
-      }
-      else if (uv__stream_fd(handle) != -1)
-      {
-        /* uv__write_callbacks */
-        QUEUE_FOREACH(q, &handle->write_completed_queue) {
-          req = QUEUE_DATA(q, uv_write_t, queue);
-          lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
-          assert(lcbn && lcbn->cb == req->cb);
-          if (lcbn->cb)
-            list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
-        }
-
-        /* uv__write moves the head of handle->write_queue to handle->write_completed_queue */
-        if (!QUEUE_EMPTY(&handle->write_queue))
-        {
-          q = QUEUE_HEAD(&handle->write_queue);
-          req = QUEUE_DATA(q, uv_write_t, queue);
-          lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
-          assert(lcbn && lcbn->cb == req->cb);
-          if (lcbn->cb)
-            list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
-        }
-
-        /* Enter uv__drain if write_queue will be emtpy.
-           In uv__drain, complete shutdown_req if there is one. */
-        QUEUE_LEN(queue_len, q, &handle->write_queue);
-        if (queue_len == 1 && handle->shutdown_req)
-        {
-          lcbn = lcbn_get(handle->shutdown_req->cb_type_to_lcbn, UV_SHUTDOWN_CB);
-          assert(lcbn && lcbn->cb == handle->shutdown_req->cb);
-          if (lcbn->cb)
-            list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
-        }
-      }
+      list_concat(ready_stream_lcbns, uv__ready_stream_lcbns_uv__stream_io(handle, handle->io_watcher.iocb_events));
       break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      /* Called from uv__finish_close (cf. uv__stream_destroy) */
-
+      /* uv__finish_close: uv__stream_destroy */
       /* Cancel the connect_req */
       if (handle->connect_req)
       {
@@ -1803,24 +1968,11 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
         if (lcbn->cb)
           list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
-      /* uv__stream_flush_write_queue: stream->write_completed_queue.append(stream->write_queue) */
-      /* uv__write_callbacks: pop uv_write_t reqs off of stream->write_completed_queue. */
-      QUEUE_FOREACH(q, &handle->write_completed_queue) {
-        req = QUEUE_DATA(q, uv_write_t, queue);
-        lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
-        assert(lcbn && lcbn->cb == req->cb);
-        if (lcbn->cb)
-          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
-      }
-      QUEUE_FOREACH(q, &handle->write_queue) {
-        req = QUEUE_DATA(q, uv_write_t, queue);
-        lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
-        assert(lcbn && lcbn->cb == req->cb);
-        if (lcbn->cb)
-          list_push_back(ready_stream_lcbns, &sched_lcbn_create(lcbn)->elem);
-      }
 
-      /* shutdown_req */
+      list_concat(ready_stream_lcbns, uv__ready_stream_lcbns_uv__write_callbacks(handle, handle->io_watcher.iocb_events));
+      list_concat(ready_stream_lcbns, uv__ready_stream_lcbns_uv__stream_flush_write_queue(handle, handle->io_watcher.iocb_events));
+
+      /* Cancel the shutdown_req */
       if (handle->shutdown_req) 
       {
         lcbn = lcbn_get(handle->shutdown_req->cb_type_to_lcbn, UV_SHUTDOWN_CB);

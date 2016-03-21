@@ -16,11 +16,11 @@ method : 'POST'
 };
 
 http.request( options, function log_response (response) {
-  console.log('I got response ' + response);
+  console.log('APP: I got response ' + response);
   response.on('data', function(chunk) { 
-    console.log('got %d bytes of data: %s', chunk.length, chunk);
+    console.log('APP: got %d bytes of data: %s', chunk.length, chunk);
   });
   response.on('end', function() { 
-    console.log('No more data is coming');
+    console.log('APP: No more data is coming');
   });
 }).end();

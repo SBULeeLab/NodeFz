@@ -412,9 +412,11 @@ struct list * uv__ready_tcp_lcbns(void *h, enum execution_context exec_context)
   assert(handle->type == UV_TCP);
 
   ready_tcp_lcbns = list_create();
-  /* TODO */
   switch (exec_context)
   {
+    case EXEC_CONTEXT_UV__IO_POLL:
+      list_concat(ready_tcp_lcbns, uv__ready_stream_lcbns(handle, exec_context));
+      break;
     case EXEC_CONTEXT_UV__RUN_PENDING:
       list_concat(ready_tcp_lcbns, uv__ready_stream_lcbns(handle, exec_context));
       break;

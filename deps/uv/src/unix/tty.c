@@ -281,9 +281,11 @@ struct list * uv__ready_tty_lcbns(void *h, enum execution_context exec_context)
   assert(handle->type == UV_TTY);
 
   ready_tty_lcbns = list_create();
-  /* TODO */
   switch (exec_context)
   {
+    case EXEC_CONTEXT_UV__IO_POLL:
+      list_concat(ready_tty_lcbns, uv__ready_stream_lcbns(handle, exec_context));
+      break;
     case EXEC_CONTEXT_UV__RUN_PENDING:
       list_concat(ready_tty_lcbns, uv__ready_stream_lcbns(handle, exec_context));
       break;
