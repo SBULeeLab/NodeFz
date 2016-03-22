@@ -138,7 +138,8 @@
                                                                               \
       INVOKE_CALLBACK_1(UV_##_type##_CB, next_handle->_name##_cb, next_handle); \
                                                                               \ 
-      /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. */     \
+      /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. \
+          TODO Don't we do this in invoke_callback for such handles? */       \
       tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB);          \
       assert(tmp != NULL);                                                    \
       lcbn_current_set(tmp);                                                  \
@@ -155,8 +156,8 @@
     lcbn_current_set(orig);                                                   \
   }                                                                           \
                                                                               \
-  void uv__##_name##_close(uv_##_name##_t* handle) {                            \
-    uv_##_name##_stop(handle);                                                 \
+  void uv__##_name##_close(uv_##_name##_t* handle) {                          \
+    uv_##_name##_stop(handle);                                                \
   }
 
 UV_LOOP_WATCHER_DEFINE(prepare, PREPARE)
