@@ -394,7 +394,8 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
       lcbns_func = req_lcbn_funcs[req_type];
       break;
     case CALLBACK_CONTEXT_IO_ASYNC:
-      assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_ASYNC not yet handled");
+      wrapper = (uv_loop_t *) sched_context->wrapper;
+      lcbns_func = uv__ready_async_event_lcbns;
       break;
     case CALLBACK_CONTEXT_IO_INOTIFY_READ:
       assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_INOTIFY_READ not yet handled");

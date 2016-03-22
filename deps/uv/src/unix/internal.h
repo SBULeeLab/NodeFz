@@ -264,8 +264,11 @@ struct list * uv__ready_timer_lcbns(void *handle, enum execution_context exec_co
 struct list * uv__ready_tty_lcbns(void *handle, enum execution_context exec_context);
 struct list * uv__ready_udp_lcbns(void *handle, enum execution_context exec_context);
 struct list * uv__ready_signal_lcbns(void *handle, enum execution_context exec_context);
+struct list * uv__ready_async_lcbns(void *handle, enum execution_context exec_context);
 /* Requests. */
 struct list * uv__ready_work_lcbns(void *req, enum execution_context exec_context);
+/* Async. */
+struct list * uv__ready_async_event_lcbns(void *loop, enum execution_context exec_context);
 
 #if defined(__APPLE__)
 int uv___stream_fd(const uv_stream_t* handle);

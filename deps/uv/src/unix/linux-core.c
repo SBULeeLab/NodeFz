@@ -347,7 +347,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         if (w->cb == uv_uv__async_io_ptr())
         {
           io_wa = container_of(w, struct uv__async, io_watcher);
-          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_ASYNC, io_wa)->elem);
+          io_loop = container_of(io_wa, uv_loop_t, async_watcher);
+          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_ASYNC, io_loop)->elem);
         }
         else if (w->cb == uv_uv__inotify_read_ptr())
         {

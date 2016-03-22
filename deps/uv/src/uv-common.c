@@ -2394,7 +2394,7 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
     cb_type_to_lcbn = context_req->cb_type_to_lcbn;
   }
   else
-    NOT_REACHED;
+    assert(!"uv__register_callback: Error, unexpected cb_context");
 
   /* Identify the behavior of the callback. */
   cb_behavior = callback_type_to_behavior(cb_type);

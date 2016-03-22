@@ -49,6 +49,7 @@ enum callback_context callback_type_to_context (enum callback_type cb_type)
     case UV_CONNECTION_CB:
     case UV_ALLOC_CB:
     case UV_READ_CB:
+    case UV_ASYNC_CB:
       return CALLBACK_CONTEXT_HANDLE;
 
     case UV_WORK_CB:
@@ -107,12 +108,13 @@ enum callback_behavior callback_type_to_behavior (enum callback_type cb_type)
     case UV_CONNECTION_CB:  /* uv_tcp_listen, uv_pipe_listen: One active CB per handle. */
     case UV_ALLOC_CB:       /* One active CB per handle. */
     case UV_READ_CB:        /* One active CB per handle. */
+    case UV_ASYNC_CB:       /* One active CB per handle. */
       return CALLBACK_BEHAVIOR_RESPONSE;
 
     default:
       return CALLBACK_BEHAVIOR_UNKNOWN;
   }
-  NOT_REACHED;
+  assert(!"callback_type_to_behavior: Error, how did I get here");
 }
 
 char * callback_type_to_string (enum callback_type type)
