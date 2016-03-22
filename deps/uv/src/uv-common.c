@@ -1656,8 +1656,10 @@ void unified_callback_init (void)
 
   pthread_mutex_init(&metadata_lock, NULL);
 
+  pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init(&invoke_callback_lcbn_lock, &attr);
+  pthread_mutexattr_destroy(&attr);
 
   global_order_list = list_create();
   root_list = list_create();

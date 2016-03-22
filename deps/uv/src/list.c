@@ -53,6 +53,7 @@ static void list_init (struct list *list)
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init (&list->_lock, &attr);
+  pthread_mutexattr_destroy(&attr);
 
   list->n_elts = 0;
 }

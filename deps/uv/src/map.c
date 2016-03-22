@@ -42,6 +42,7 @@ struct map * map_create (void)
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init (&new_map->_lock, &attr);
+  pthread_mutexattr_destroy(&attr);
 
   return new_map;
 }
