@@ -78,7 +78,10 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
   assert(next_lcbn);
 
   equal = lcbn_semantic_equals(next_lcbn, ready_lcbn->lcbn);
-  assert(next_lcbn->global_exec_id == scheduler.n_executed);
+  if (equal)
+    /* Equality assures thread safety, as noone else will call scheduler_advance.
+       Thus we can make this assert. */
+    assert(next_lcbn->global_exec_id == scheduler.n_executed);
   mylog("sched_lcbn_is_next: exec_id %i ready_lcbn %p next_lcbn %p equal? %i\n", next_lcbn->global_exec_id, ready_lcbn->lcbn, next_lcbn, equal);
   return equal;
 }
@@ -242,7 +245,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     /* Remove more "unexecuted" nodes: internal nodes like the initial stack node are just placeholders, 
          and will never be executed through invoke_callback.
        TODO If we have more than one 'internal node', use another filter instead of this more direct approach. */
-    assert(&scheduler.shadow_root->tree_node == list_entry(list_front(scheduler.desired_schedule), tree_node_t, tree_as_list_elem));
+    assert(&scheduler.shadow_root->tree_node == list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem));
     list_pop_front(scheduler.desired_schedule);
 
     printf("scheduler_init: Printing parsed nodes in exec order.\n");
@@ -478,6 +481,10 @@ void scheduler_advance (void)
   lcbn = tree_entry(list_entry(list_pop_front(scheduler.desired_schedule),
                                tree_node_t, tree_as_list_elem),
                     lcbn_t, tree_node);
+  /* Make sure we're executing the right one! 
+     If not, this is probably a sign that the input schedule has been
+     modified incorrectly. */
+  assert(lcbn->global_exec_id == scheduler.n_executed);
   printf("schedule_advance: discarding lcbn %p (type %s)\n",
     lcbn, callback_type_to_string(lcbn->cb_type));
   fflush(NULL);

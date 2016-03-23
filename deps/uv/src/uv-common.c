@@ -1885,6 +1885,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   if (cbi->type == UV__WORK_WORK && !cbn->logical_parent)
     NOT_REACHED;
 #endif
+  uv__metadata_unlock();
 
   /* Run the callback. */
   mylog("invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
@@ -1933,8 +1934,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     mylog("invoke_callback: cb_type %s; advancing the scheduler\n", callback_type_to_string(lcbn_new->cb_type));
     scheduler_advance();
   }
-
-  uv__metadata_unlock();
 
   cbn_start(cbn);
 
