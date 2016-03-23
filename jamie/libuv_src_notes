@@ -109,8 +109,11 @@ Threadpool stack:
     invoke req->work_cb (i.e. the 'work' from uv_queue_work) of type UV_WORK_CB
 
   uv__work_done:
-    Called via indirection along async paths, I guess
-    invoke req->done (i.e. uv__queue_done) of type UV__WORK_DONE
+    Called via indirection along async paths.
+      loop.c: err = uv_async_init(loop, &loop->wq_async, uv__work_done);
+      uv__work_done invokes w->done for each 'done' work item in loop->wq.
+
+    invoke req->done (which is always(?) uv__queue_done) of type UV__WORK_DONE
 
   uv__queue_done:
     invoke req->after_work_cb (i.e. the 'after' from uv_queue_work) of type UV_AFTER_WORK_CB
@@ -859,5 +862,43 @@ Portions of uv__stream_io relevant to UV__POLLOUT:
 
 ----------
 
-TODO Write notes about how loop->watcher_queue works in uv__io_poll
-TODO Take notes about how to turn uv__io_t's into associated function.
+async handles:
+  - no internal-API-only users (unlike the way FS and DNS used the threadpool under the hood)
+  - the only internal use is for recognizing pending 'done' items from the threadpool, and it does so using the same APIs that external users do
+
+uv_async_init(handle) 
+  - calls uv_async_start with &loop->async_watcher, with CB uv__async_event. uv_async_start calls uv__io_init with loop->async_watcher and CB uv__async_io
+  - places the handle at the end of the queue loop->async_handles
+uv_async_send(handle)
+  - if handle is pending, do nothing (coalesces send's)
+  - else, set handle to pending, then uv__async_send to loop->async_watcher
+    (this writes a byte to the shared pipe)
+
+  Users can call this directly on their async handles to trigger the async CB associated with it.
+  The threadpool calls it after completing a work item and adding it to the loop's 'done' list.
+
+uv__io_poll: The only async fd added to the loop->backend_fd is the one associated with loop->async_watcher.
+             Thus, uv_async_send'ing on any registered async handle 'sets' only one fd in loop->backend_fd.
+             This wrapping requires identifying which async handle(s) actually triggered the umbrella fd...
+uv__async_io: Empties the pipe, then calls uv__async_event. 
+
+uv__async_event:
+  This goes through all of the registered async handles looking for pending ones, and calls the associated CB. 
+  For the threadpool, this CB is uv__work_done, which goes through the loop's "done queue" and invokes all of the CBs.
+  If any async handles are deferred by the scheduler, we uv_async_send again to ensure we have the opportunity to schedule them later.
+
+uv__work_done: 
+  - Executes any of the pending 'done' CBs according to the schedule.
+  - Spins waiting for 'done' CBs if the next scheduled CB is an AFTER_WORK CB and it is not yet availble
+  - If any 'done' items are deferred by the scheduler, we uv_async_send again to ensure we have the opportunity to schedule them later.
+
+Scheduling: 
+  - Because the threadpool uses the same APIs that external users do, the ASYNC_CB that goes off when there is a 'done' item in the threadpool
+    is included counted in the user-CB schedule.
+  - This means that if we defer events threadpool events, we need to add new ASYNC_CBs at appropriate spots to obtain a valid schedule.
+
+  Example: Suppose we have the schedule: WORK1, WORK2, ASYNC, DONE1, DONE2, and we want to invoke DONE1 before WORK2.
+    The new schedule is:
+      WORK1, ASYNC, DONE1, WORK2, ASYNC, DONE2
+    Note the addition of a second ASYNC CB to ensure that we can get to DONE2.
+    This will require "shifting" exec IDs in the second schedule.
