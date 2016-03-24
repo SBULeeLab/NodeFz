@@ -245,6 +245,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
         abort();
 
+    if (scheduler_remaining() == 0)
+    {
+      mylog("uv__io_poll: No items left to schedule. I'm outta here!\n");
+      return;
+    }
+
     mylog("epoll'ing\n");
     if (no_epoll_wait != 0 || (sigmask != 0 && no_epoll_pwait == 0)) {
       nfds = uv__epoll_pwait(loop->backend_fd,

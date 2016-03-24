@@ -77,6 +77,7 @@
 
 #include "uv-common.h"
 #include "../mylog.h"
+#include "scheduler.h"
 
 static int uv__run_pending(uv_loop_t* loop);
 
@@ -400,6 +401,13 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     r = uv__loop_alive(loop);
     loop->niter++;
+
+    if (scheduler_remaining() == 0)
+    {
+      mylog("uv_run: No items left to schedule. I'm outta here!\n");
+      exit(0);
+    }
+
     if (mode == UV_RUN_ONCE || mode == UV_RUN_NOWAIT)
       break;
   }
