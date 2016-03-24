@@ -1064,18 +1064,45 @@ Mon 21 Mar 2016
 
 1. Ready_lcbns for uv__io_poll stream functions: uv__stream_io (output), uv__server_io (input)
   > tested (notes on 3/21)
-2. One thread, scheduled threadpool
+2. One thread, scheduled threadpool (work only)
 
-Pending:
-  - mutex'd invoke_callback
-  - ready_lcbns for async (specifically needed for threadpool)
+---------
+
+Tue 22 Mar 2016
+
+1. Fix async bugs
+2. Full scheduler support for threadpool
+3. mutex for LCBN invocations in invoke_callback
+
+---------
+
+Wed 23 Mar 2016
+
+1. Document async info
+2. Research GUI editors for graphviz files
+3. Update cbGraphVis to show 'timeline-friendly' version
+  ./cbGraphVis --execOrder ...
+  Nodes are graphed with vertical distance indicating execution order.
+
+
+  - Successfully demonstrate re-ordering(s) for fs_nondet.js
+    (need to develop schedule re-ordering tools)
+
+---------
+
+Thur 24 Mar 2016
+
+1. Identify an easier-to-reorder FS case: fs_nondet_stat.js
+  - stat, unlink both incur a single WORK/AFTER_WORK cycle, rather than 3 or 4 like write/read
+  - success: ~/Desktop/node_project/node/jamie/weekly_meetings/mar24_2016
+2. uv__io_poll, uv_run: instead of hanging at epoll() at end of schedule, just exit(0). This won't work for applications that have listeners that go off when the 'exit' event is emitted, but it's certainly convenient for now.
 
 --------------------------------
 
 Next steps:
   By Mar 24:
-    o mutex'd invoke_callback
-    o scheduling of uv__io_poll 
+    x mutex'd invoke_callback
+    x scheduling of uv__io_poll 
       > streams
       > threadpool
     o demonstrate record/replay system to expose race in FS-driven application
