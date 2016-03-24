@@ -6,8 +6,9 @@
 var fs = require("fs");
 
 fs.readFile("/tmp/foo", function(){
+  console.log("APP: Level 1");
   fs.readFile("/tmp/foo", function(){
-    console.log("Bottomed out");
+    console.log("APP: Bottomed out");
   });
 });
 

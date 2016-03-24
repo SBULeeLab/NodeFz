@@ -7,7 +7,7 @@ var fs = require("fs");
 
 fs.writeFile("/tmp/foo", "AAAAAA", function(){
   fs.writeFile("/tmp/foo", "AAAAAA", function(){
-    console.log("Bottomed out");
+    console.log("APP: Bottomed out");
   });
 });
 
