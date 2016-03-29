@@ -121,7 +121,10 @@ static void uv__async_event(uv_loop_t* loop,
     }
   }
 
-  /* Find, remove, and execute the handle next in the schedule. */
+  /* Find, remove, and execute the handle next in the schedule.   
+     One of these handles is the async handle for the threadpool. 
+     In REPLAY mode, if it is not scheduled next then we will not invoke
+      it even if there are pending threadpool events. */
   while (!list_empty(async_handles))
   {
     assert(!QUEUE_EMPTY(&aq));
