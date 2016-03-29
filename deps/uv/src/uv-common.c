@@ -913,7 +913,7 @@ static int cbn_embed_parentage (struct callback_node *cbn)
   assert(cbn != NULL);
   assert(cbn->info != NULL);
 
-  mylog("cbn_embed_parentage: BEGIN: cbn %p type %s\n", cbn, callback_type_to_string(cbn->info->type));
+  mylog(LOG_MAIN, 9, "cbn_embed_parentage: BEGIN: cbn %p type %s\n", cbn, callback_type_to_string(cbn->info->type));
 
   did_something = 1;
   info = cbn->info;
@@ -949,7 +949,7 @@ static int cbn_embed_parentage (struct callback_node *cbn)
       did_something = 0;
   }
 
-  mylog("cbn_embed_parentage: END: cbn %p type %s did_something %i\n", cbn, callback_type_to_string(cbn->info->type), did_something);
+  mylog(LOG_MAIN, 9, "cbn_embed_parentage: END: cbn %p type %s did_something %i\n", cbn, callback_type_to_string(cbn->info->type), did_something);
   return did_something;
 }
 
@@ -1231,11 +1231,11 @@ static struct callback_node * cbn_get_root (struct callback_node *cbn, enum call
   char child_buf[1024], parent_buf[1024];
 
   assert(cbn != NULL);
-  mylog("cbn_get_root: Finding root for cbn %p\n", cbn);
+  mylog(LOG_MAIN, 9, "cbn_get_root: Finding root for cbn %p\n", cbn);
   while (!cbn_is_root(cbn, type))
   {
     parent = cbn_get_parent(cbn, type);
-    mylog("cbn_get_root: %p is not root, climbing. child %p (%s) parent (type %i) %p (%s)\n",
+    mylog(LOG_MAIN, 9, "cbn_get_root: %p is not root, climbing. child %p (%s) parent (type %i) %p (%s)\n",
       cbn, cbn, cbn_to_string(cbn, child_buf, 1024), 
       type, parent, cbn_to_string(parent, parent_buf, 1024));
     cbn = parent;
@@ -1348,9 +1348,9 @@ void current_callback_node_set (struct callback_node *cbn)
   /* My maps are thread safe. */
   map_insert(tid_to_current_cbn, (int) pthread_self(), (void *) cbn);
   if (cbn == NULL)
-    mylog("current_callback_node_set: Next callback will be a root\n");
+    mylog(LOG_MAIN, 9, "current_callback_node_set: Next callback will be a root\n");
   else
-    mylog("current_callback_node_set: Current CBN for %li is %p\n", (long) pthread_self(), (void *) cbn);
+    mylog(LOG_MAIN, 9, "current_callback_node_set: Current CBN for %li is %p\n", (long) pthread_self(), (void *) cbn);
 }
 
 /* Retrieves the current callback node for this thread, or NULL if no such node. 
@@ -1611,19 +1611,19 @@ static int get_client_id (struct sockaddr_storage *addr)
   if (found)
   {
     client_id = (int) entry;
-    mylog("get_peer_info: Existing client\n");
+    mylog(LOG_MAIN, 9, "get_peer_info: Existing client\n");
   }
   else
   {
     client_id = next_client_id;
     map_insert(id_to_peer_info, client_id, (void *) addr);
     map_insert(peer_info_to_id, addr_hash, (void *) client_id);
-    mylog("get_peer_info: New client\n");
+    mylog(LOG_MAIN, 9, "get_peer_info: New client\n");
   }
 
   /* Print the client's info. */
   addr_getnameinfo(addr, &nameinfo);
-  mylog("get_peer_info: Client: %i -> %i -> %s:%s (id %i)\n", client_id, addr_hash, nameinfo.host, nameinfo.service, client_id);
+  mylog(LOG_MAIN, 9, "get_peer_info: Client: %i -> %i -> %s:%s (id %i)\n", client_id, addr_hash, nameinfo.host, nameinfo.service, client_id);
 
   return client_id;
 }
@@ -1639,17 +1639,23 @@ void unified_callback_init (void)
   if (initialized)
     return;
 
-  mylog("DEBUG: Testing list\n");
+  init_log();
+  set_verbosity(LOG_MAIN, 3);
+  set_verbosity(LOG_LCBN, 3);
+  set_verbosity(LOG_SCHEDULER, 3);
+  set_verbosity(LOG_THREADPOOL, 3);
+
+  mylog(LOG_MAIN, 9, "DEBUG: Testing list\n");
   list_UT();
-  mylog("DEBUG: Testing map\n");
+  mylog(LOG_MAIN, 9, "DEBUG: Testing map\n");
   map_UT();
-  mylog("DEBUG: Testing tree\n");
+  mylog(LOG_MAIN, 9, "DEBUG: Testing tree\n");
   tree_UT();
 
   schedule_modeP = getenv("UV_SCHEDULE_MODE");
   schedule_fileP = getenv("UV_SCHEDULE_FILE");
   assert(schedule_modeP && schedule_fileP);
-  mylog("schedule_mode %s schedule_file %s\n", schedule_modeP, schedule_fileP);
+  mylog(LOG_MAIN, 1, "schedule_mode %s schedule_file %s\n", schedule_modeP, schedule_fileP);
   schedule_mode = (strcmp(schedule_modeP, "RECORD" ) == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
   scheduler_init(schedule_mode, schedule_fileP);
   atexit(scheduler_emit);
@@ -1786,7 +1792,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   enum callback_context cb_context;
   enum callback_behavior cb_behavior;
   int is_logical_cb;
-  lcbn_t *lcbn_orig, *lcbn_new;
+  lcbn_t *lcbn_orig, *lcbn_new, *lcbn_par;
   sched_lcbn_t *sched_lcbn;
 
   assert (cbi != NULL);  
@@ -1888,7 +1894,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   uv__metadata_unlock();
 
   /* Run the callback. */
-  mylog("invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
+  mylog(LOG_MAIN, 5, "invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
 
   /* If CB is a logical callback, retrieve and update the LCBN. */
   if (is_logical_cb)
@@ -1899,14 +1905,15 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     assert(lcbn_new);
     assert(lcbn_new->cb_type == cbi->type);
     assert(tree_get_parent(&lcbn_new->tree_node));
+    lcbn_par = tree_entry(tree_get_parent(&lcbn_new->tree_node), lcbn_t, tree_node);
 
     lcbn_new->info = cbi;
 
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
 
-    mylog("invoke_callback: invoking lcbn %p context %p tree_parent %p registrar %p cb %p type %s lcbn_orig %p\n",
-      lcbn_new, context, 0, 0, cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
+    mylog(LOG_MAIN, 5, "invoke_callback: invoking lcbn %p context %p parent %p (parent type %s) cb %p type %s lcbn_orig %p\n",
+      lcbn_new, context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
     lcbn_mark_begin(lcbn_new);
 
     lcbn_new->global_exec_id = lcbn_next_exec_id();
@@ -1915,7 +1922,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     {
       /* If this LCBN is a response, it may repeat. If so, the next response must come after this response,
          and is in some sense caused by this response. Consequently, register after setting LCBN so that it becomes a child of this LCBN. */
-      mylog("invoke_callback: registering cb %p under context %p with type %s as child of LCBN %p\n",
+      mylog(LOG_MAIN, 5, "invoke_callback: registering cb %p under context %p with type %s as child of LCBN %p\n",
         lcbn_get_cb(lcbn_new), lcbn_get_context(lcbn_new), callback_type_to_string(lcbn_get_cb_type(lcbn_new)), lcbn_new);
       uv__register_callback(lcbn_get_context(lcbn_new), lcbn_get_cb(lcbn_new), lcbn_get_cb_type(lcbn_new));
     }
@@ -1931,7 +1938,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     /* Advance the scheduler prior to invoking the CB. 
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
        the nested ones will perceive themselves as 'next'. */
-    mylog("invoke_callback: cb_type %s; advancing the scheduler\n", callback_type_to_string(lcbn_new->cb_type));
+    mylog(LOG_MAIN, 5, "invoke_callback: cb_type %s; advancing the scheduler\n", callback_type_to_string(lcbn_new->cb_type));
     scheduler_advance();
   }
 
@@ -1942,7 +1949,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   cbn_stop(cbn);
 
-  mylog("invoke_callback: Done with callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
+  mylog(LOG_MAIN, 5, "invoke_callback: Done with callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
 
   /* Done with the callback. */
   current_callback_node_set(cbn->physical_parent);
@@ -1951,14 +1958,14 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   if (is_logical_cb)
   {
     lcbn_current_set(lcbn_orig);
-    mylog("invoke_callback: Done with lcbn %p parent %p cb %p\n",
+    mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p parent %p cb %p\n",
       lcbn_new, 0, cbi->cb);
     lcbn_mark_end(lcbn_new);
 
     uv__invoke_callback_lcbn_unlock();
   }
 
-  mylog("invoke_callback: completed cbn %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
+  mylog(LOG_MAIN, 5, "invoke_callback: completed cbn %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
   return cbn;
 }
 
@@ -2420,8 +2427,8 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
   lcbn_new->global_reg_id = lcbn_next_reg_id();
   scheduler_record(sched_lcbn_create(lcbn_new));
 
-  mylog("uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
-    lcbn_new, cb, context, callback_type_to_string(cb_type), 0);
+  mylog(LOG_MAIN, 5, "uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
+    lcbn_new, cb, context, callback_type_to_string(cb_type), lcbn_cur);
 
   /* OLD CODE FOLLOWS. */
 
@@ -2458,7 +2465,7 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
   co->origin = origin;
   key = (int) (long) cb;
   map_insert(callback_to_origin_map, key, co);
-  mylog("uv__register_callback: registered cb %p as key %i type %s origin %i\n",
+  mylog(LOG_MAIN, 5, "uv__register_callback: registered cb %p as key %i type %s origin %i\n",
     co->cb, key, callback_type_to_string(co->type), co->origin);
 }
 
@@ -2497,7 +2504,7 @@ struct callback_origin * uv__callback_origin (void *cb)
   found = 0;
   
   key = (int) (long) cb;
-  mylog("uv__callback_origin: looking up origin of cb %p\n", cb);
+  mylog(LOG_MAIN, 9, "uv__callback_origin: looking up origin of cb %p\n", cb);
 
   co = (struct callback_origin *) map_lookup(callback_to_origin_map, key, &found);
   if (!found)
@@ -2572,7 +2579,7 @@ void uv__mark_init_stack_begin (void)
   lcbn_current_set(init_stack_lcbn);
   lcbn_mark_begin(init_stack_lcbn);
 
-  mylog("uv__mark_init_stack_begin: inital stack has begun\n");
+  mylog(LOG_MAIN, 9, "uv__mark_init_stack_begin: inital stack has begun\n");
 }
 
 /* Note that we've finished the initial application stack. 
@@ -2595,7 +2602,7 @@ void uv__mark_init_stack_end (void)
   lcbn_mark_end(init_stack_lcbn);
   lcbn_current_set(NULL);
 
-  mylog("uv__mark_init_stack_end: inital stack has ended\n");
+  mylog(LOG_MAIN, 9, "uv__mark_init_stack_end: inital stack has ended\n");
 }
 
 /* Returns non-zero if we're in the application's initial stack, else 0. */
@@ -2611,7 +2618,7 @@ void uv__mark_uv_run_begin (void)
 {
   assert(!uv_run_active);
   uv_run_active = 1;
-  mylog("uv__mark_uv_run_begin: uv_run has begun\n");
+  mylog(LOG_MAIN, 9, "uv__mark_uv_run_begin: uv_run has begun\n");
 }
 
 /* Note that we've finished the libuv uv_run loop.
@@ -2620,7 +2627,7 @@ void uv__mark_uv_run_end (void)
 {
   assert(uv_run_active);
   uv_run_active = 0;
-  mylog("uv__mark_uv_run_end: uv_run has ended\n");
+  mylog(LOG_MAIN, 9, "uv__mark_uv_run_end: uv_run has ended\n");
 }
 
 /* Returns non-zero if we're in the application's initial stack, else 0. */
@@ -2638,7 +2645,7 @@ void uv__mark_uv__run_pending_begin (void)
   assert(!uv__run_pending_active);
   uv__run_pending_active = 1;
   uv__uv__run_pending_set_active_cb(NULL);
-  mylog("uv__mark_uv__run_pending_begin: uv__run_pending has begun\n");
+  mylog(LOG_MAIN, 9, "uv__mark_uv__run_pending_begin: uv__run_pending has begun\n");
 }
 
 /* Note that we've finished the libuv uv__run_pending loop.
@@ -2648,7 +2655,7 @@ void uv__mark_uv__run_pending_end (void)
   assert(uv__run_pending_active);
   uv__run_pending_active = 0;
   uv__uv__run_pending_set_active_cb(NULL);
-  mylog("uv__mark_uv__run_pending_end: uv__run_pending has ended\n");
+  mylog(LOG_MAIN, 9, "uv__mark_uv__run_pending_end: uv__run_pending has ended\n");
 }
 
 /* Returns non-zero if we're in uv__run_pending, else 0. */
@@ -2683,11 +2690,11 @@ static int cbn_discover_id (struct callback_node *cbn)
   assert(!cbn_have_peer_info(cbn));
   assert(!cbn->discovered_client_id);
 
-  mylog("cbn_discover_id: Looking for the ID associated with CBN %p (cb %p)\n", cbn, cbn->info->cb);
+  mylog(LOG_MAIN, 9, "cbn_discover_id: Looking for the ID associated with CBN %p (cb %p)\n", cbn, cbn->info->cb);
   got_peer_info = look_for_peer_info(cbn->info, cbn, &uvht);
   if (got_peer_info)
   {
-    mylog("cbn_discover_id: Found peer info\n");
+    mylog(LOG_MAIN, 9, "cbn_discover_id: Found peer info\n");
     /* We determined the peer info. Convert to ID. */
     cbn->discovered_client_id = 1;
     cbn->true_client_id = get_client_id(cbn->peer_info);
@@ -2852,8 +2859,7 @@ static void cbn_execute_callback (struct callback_node *cbn)
       break;
 
     default:
-      mylog ("cbn_execute_callback: ERROR, unsupported type\n");
-      NOT_REACHED;
+      assert(!"cbn_execute_callback: ERROR, unsupported type");
   }
 }
 
@@ -2882,7 +2888,7 @@ static char * cbn_to_string (struct callback_node *cbn, char *buf, int size)
 static void cbn_print (struct callback_node *cbn)
 {
   char buf[1024];
-  mylog(cbn_to_string(cbn, buf, 1024));
+  mylog(LOG_MAIN, 1, cbn_to_string(cbn, buf, 1024));
 }
 
 /* Print CBN and all of its ancestors. */
@@ -2891,19 +2897,19 @@ static void cbn_print_ancestry (struct callback_node *cbn)
   char buf[1024];
   struct callback_node *parent;
 
-  mylog("cbn_print_ancestory: node %s\n", cbn_to_string(cbn, buf, 1024));
+  mylog(LOG_MAIN, 9, "cbn_print_ancestory: node %s\n", cbn_to_string(cbn, buf, 1024));
 
   parent = cbn->physical_parent;
   while (parent)
   {
-    mylog("cbn_print_ancestory: physical parent %s\n", cbn_to_string(parent, buf, 1024));
+    mylog(LOG_MAIN, 9, "cbn_print_ancestory: physical parent %s\n", cbn_to_string(parent, buf, 1024));
     parent = parent->physical_parent;
   }
 
   parent = cbn->logical_parent;
   while (parent)
   {
-    mylog("cbn_print_ancestory: logical parent %s\n", cbn_to_string(parent, buf, 1024));
+    mylog(LOG_MAIN, 9, "cbn_print_ancestory: logical parent %s\n", cbn_to_string(parent, buf, 1024));
     parent = parent->logical_parent;
   }
 }
@@ -2982,7 +2988,7 @@ void lcbn_register (struct map *cb_type_to_lcbn, enum callback_type cb_type, lcb
 lcbn_t * lcbn_get (struct map *cb_type_to_lcbn, enum callback_type cb_type)
 {
   int found;
-  assert(cb_type_to_lcbn != NULL);
+  assert(cb_type_to_lcbn);
   return (lcbn_t *) map_lookup(cb_type_to_lcbn, cb_type, &found);
 }
 
@@ -2996,9 +3002,9 @@ void lcbn_current_set (lcbn_t *lcbn)
   /* My maps are thread safe. */
   map_insert(tid_to_current_lcbn, (int) pthread_self(), (void *) lcbn);
   if (lcbn == NULL)
-    mylog("lcbn_current_set: Next callback will be a root\n");
+    mylog(LOG_LCBN, 9, "lcbn_current_set: Next callback will be a root\n");
   else
-    mylog("lcbn_current_set: Current CBN for %li is %p\n", (long) pthread_self(), (void *) lcbn);
+    mylog(LOG_LCBN, 9, "lcbn_current_set: Current CBN for %li is %p\n", (long) pthread_self(), (void *) lcbn);
 }
 
 /* Retrieves the current callback node for this thread, or NULL if no such node. 
