@@ -1097,6 +1097,37 @@ Thur 24 Mar 2016
   - success: ~/Desktop/node_project/node/jamie/weekly_meetings/mar24_2016
 2. uv__io_poll, uv_run: instead of hanging at epoll() at end of schedule, just exit(0). This won't work for applications that have listeners that go off when the 'exit' event is emitted, but it's certainly convenient for now.
 
+---------
+
+Mon 28 Mar 2016
+
+1. Tracked down the source of intermittent UV_WRITE_CBs. I changed the Node code so that every call to console.log results in a UV_WRITE_CB.
+2. I refactored mylog to have log classes and verbosity levels.
+3. I fixed a bad assert in scheduler.c and a missing map_looks_valid in map.c. These were causing issues.
+
+Pending problem:
+  When I run fs_several_stat.js > /tmp/out, no WRITE_CBs are registered.
+                                | tee /tmp/out, WRITE_CBs are registered in the correct order.
+                                under gdb, WRITE_CBs are registered in the correct order.
+                                with no redirection, WRITE_CBs are registered in an incorrect order
+
+    Commands: 
+      UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=/tmp/fs_several_stat.sched node fs_several_stat.js
+      scpdown /tmp/fs_several_stat.sched .; ./cbGraphVis --onlyExecuted --execOrder fs_several_stat.sched fs_several_stat.gv
+
+  In addition, when WRITE_CBs are registered in the correct order, REPLAY only sometimes seems to go through properly.
+  If I disable mylog altogether, RECORD sometimes shows a final ASYNC_CB. This will sometimes flummox REPLAY.
+
+---------
+
+Tue 29 Mar 2016
+
+1. I (think?) I've eliminated the "missing WRITE_CB" problem. Essentially I went through and fixed all of the compiler warnings, and fixed a few bad casts in the process. I guess one of them was threadily damaging the input CB.
+
+Once I've got that done, revisit the WRITE_CB parentage, then the source of the ASYNC_CB.
+  **Discovered potential cause: weird memory accesses due to uninitialized "bonus" requests added in unix/fs.c.
+    I've stuck a "YOU CANNOT PASS" assert in there for now. Fix tomorrow.
+
 --------------------------------
 
 Next steps:
@@ -1105,9 +1136,10 @@ Next steps:
     x scheduling of uv__io_poll 
       > streams
       > threadpool
-    o demonstrate record/replay system to expose race in FS-driven application
-
+    x demonstrate record/replay system to expose race in FS-driven application
   By Mar 31:
+    o demonstrate record/replay system for more complex applications (fs_several_stat.js; fs_several.js; httpserver_complex.js; MUD; etherpad)
+
   By Apr 7:
   By Apr 14:
   By Apr 21:
