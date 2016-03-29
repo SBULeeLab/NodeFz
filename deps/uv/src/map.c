@@ -75,26 +75,23 @@ unsigned map_size (struct map *map)
 {
   int size;
 
-  assert(map != NULL);
-  map__lock(map);
-
   assert(map_looks_valid(map));
-  size = list_size (map->list);
 
+  map__lock(map);
+  size = list_size (map->list);
   map__unlock(map);
+
   return size;
 }
 
 int map_empty (struct map *map)
 {
   int empty;
-  assert(map != NULL);
+
   assert(map_looks_valid(map));
 
   map__lock(map);
-
   empty = (map_size (map) == 0);
-
   map__unlock(map);
 
   return empty;
@@ -104,7 +101,8 @@ int map_looks_valid (struct map *map)
 {
   int is_valid; 
 
-  assert(map != NULL);
+  if (!map)
+    return 0;
   /* Magic must be correct. */
   if (map->magic != MAP_MAGIC)
     return 0;
@@ -168,7 +166,7 @@ void * map_lookup (struct map *map, int key, int *found)
   struct map_elem *me;
   void *ret;
 
-  assert(map != NULL);
+  assert(map_looks_valid(map));
   assert(found != NULL);
 
   map__lock(map);
