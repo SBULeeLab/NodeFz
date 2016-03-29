@@ -61,7 +61,7 @@ enum callback_type scheduler_next_lcbn_type (void)
 int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
 {
   lcbn_t *next_lcbn;
-  int equal;
+  int equal, verbosity;
 
   assert(scheduler_initialized());
   assert(ready_lcbn);
@@ -78,11 +78,8 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
   assert(next_lcbn);
 
   equal = lcbn_semantic_equals(next_lcbn, ready_lcbn->lcbn);
-  if (equal)
-    /* Equality assures thread safety, as noone else will call scheduler_advance.
-       Thus we can make this assert. */
-    assert(next_lcbn->global_exec_id == scheduler.n_executed);
-  mylog(LOG_SCHEDULER, 5, "sched_lcbn_is_next: exec_id %i next_lcbn %p (name %s) ready_lcbn %p equal? %i\n", next_lcbn->global_exec_id, next_lcbn, next_lcbn->name, ready_lcbn->lcbn, equal);
+  verbosity = equal ? 3 : 5;
+  mylog(LOG_SCHEDULER, verbosity, "sched_lcbn_is_next: exec_id %i next_lcbn %p (name %s) ready_lcbn %p equal? %i\n", next_lcbn->global_exec_id, next_lcbn, next_lcbn->name, ready_lcbn->lcbn, equal);
   return equal;
 }
 
@@ -470,6 +467,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
     return next_lcbn;
 }
 
+/* Must be called with mutex held. */
 void scheduler_advance (void)
 {
   lcbn_t *lcbn;
@@ -486,11 +484,11 @@ void scheduler_advance (void)
      If not, this is probably a sign that the input schedule has been
      modified incorrectly. */
   assert(lcbn->global_exec_id == scheduler.n_executed);
+  scheduler.n_executed++;
   mylog(LOG_SCHEDULER, 1, "schedule_advance: discarding lcbn %p (exec_id %i type %s)\n",
     lcbn, lcbn->global_exec_id, callback_type_to_string(lcbn->cb_type));
   fflush(NULL);
   lcbn = NULL;
-  scheduler.n_executed++;
 }
 
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
