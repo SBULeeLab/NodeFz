@@ -404,7 +404,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     if (scheduler_remaining() == 0)
     {
-      mylog("uv_run: No items left to schedule. I'm outta here!\n");
+      mylog(LOG_MAIN, 1, "uv_run: No items left to schedule. I'm outta here!\n");
       exit(0);
     }
 
@@ -837,7 +837,7 @@ static int uv__run_pending(uv_loop_t* loop) {
       QUEUE_INIT(q);
 
       /* Run the handle. */
-      mylog("<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
+      mylog(LOG_MAIN, 7, "<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
       uv__uv__run_pending_set_active_cb(w->cb);
       w->iocb_events = UV__POLLOUT;
       INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
@@ -1007,7 +1007,7 @@ void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
        This shows up when running npm install. I'm not sure if it shows up in other places. */
     w->logical_parent = current_callback_node_get();
     if (!w->logical_parent)
-      mylog("uv__io_feed: w has no logical parent\n");
+      mylog(LOG_MAIN, 5, "uv__io_feed: w has no logical parent\n");
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
   }
 }

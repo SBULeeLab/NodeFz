@@ -4,25 +4,64 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <assert.h>
+
+char log_class_strings[LOG_CLASS_MAX][100] = {
+  "MAIN",
+  "LCBN",
+  "SCHEDULER",
+  "THREADPOOL"
+};
+
+int verbosity_levels[LOG_CLASS_MAX];
 
 pthread_mutex_t log_lock;
-void init_log (void)
+int initialized = 0;
+
+int get_verbosity (enum log_class logClass)
 {
-  pthread_mutex_init(&log_lock, NULL);
+  assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
+  return verbosity_levels[logClass];
 }
 
-void mylog (const char *format, ...)
+void init_log (void)
 {
+  int i;
+
+  if (initialized)
+    return;
+  initialized = 1;
+
+  pthread_mutex_init(&log_lock, NULL);
+
+  /* Default verbosity levels. */
+  for (i = LOG_CLASS_MIN; i < LOG_CLASS_MAX; i++)
+    verbosity_levels[i] = 3;
+  /* Print log header. */
+  printf("%-10s %-3s %-30s %-7s %-20s %-10s\n", "LOG CLASS", "VOL", "TIME", "PID", "TID", "MESSAGE");
+}
+
+static int log_initialized (void)
+{
+  return initialized;
+}
+
+void set_verbosity (enum log_class logClass, int verbosity)
+{
+  assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
+  verbosity_levels[logClass] = verbosity;
+}
+
+void mylog (enum log_class logClass, int verbosity, const char *format, ...)
+{
+  int found;
   char buf1[2048];
   char buf2[2048];
 
-  static int initialized = 0;
-  if (!initialized)
-  {
-    /* Technically racy, I suppose... */
-    init_log();
-    initialized = 1;
-  }
+  if (get_verbosity(logClass) < verbosity)
+    return;
+
+  assert(log_initialized());
 
   pid_t my_pid;
   pthread_t my_tid;
@@ -30,25 +69,24 @@ void mylog (const char *format, ...)
   time_t now;
   char *now_s;
 
+  /* Boilerplate into buf1. */
   now = time (NULL);
   now_s = ctime (&now);
   now_s[strlen (now_s) - 1] = '\0'; /* Remove the trailing newline. */
   my_pid = getpid();
   my_tid = pthread_self();
-  sprintf(buf1, "%s process %i thread %li: ", now_s, my_pid, (long) my_tid);
+  sprintf(buf1, "%-10s %-3i %-30s %-7i %-20li ", log_class_strings[logClass], verbosity, now_s, my_pid, (long) my_tid);
 
+  /* printf into buf2. */
   va_start(args, format);
   vsprintf(buf2, format, args);
   va_end(args);
 
   strcat(buf1, buf2);
 
-#if 1
   pthread_mutex_lock(&log_lock);
   printf(buf1);
   pthread_mutex_unlock(&log_lock);
 
   fflush(NULL);
-#else
-#endif
 }

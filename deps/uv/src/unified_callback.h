@@ -100,7 +100,7 @@ struct callback_node * invoke_callback (struct callback_info *);
 
 /* Macros to prep a CBI for invoke_callback, with 0-5 args. */
 #define PREP_CBI_0(_type, _cb)                                          \
-  mylog("PREP_CBI_0: type %s cb %p", callback_type_to_string(_type), (_cb));                   \
+  mylog(LOG_MAIN, 7, "PREP_CBI_0: type %s cb %p", callback_type_to_string(_type), (_cb));                   \
   INIT_CBI(_type, _cb)                                                  \
   /* Determine the origin of the CB, add it to cbi_p. */                \
   struct callback_origin *co = uv__callback_origin((void *) (_cb));     \
@@ -123,7 +123,7 @@ struct callback_node * invoke_callback (struct callback_info *);
       assert(cbi_p->type == co->type);                                    \
     }                                                                     \
   }                                                                       \
-  mylog("PREP_CBI_0: CB %p\n", _cb);
+  mylog(LOG_MAIN, 7, "PREP_CBI_0: CB %p\n", _cb);
 
 #define PREP_CBI_1(type, cb, arg0)                         \
   PREP_CBI_0(type, cb)                                     \

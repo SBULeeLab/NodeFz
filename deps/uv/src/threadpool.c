@@ -197,6 +197,8 @@ static void init_once(void) {
   unsigned int i;
   const char* val;
 
+  init_log();
+
   nthreads = ARRAY_SIZE(default_threads);
   val = getenv("UV_THREADPOOL_SIZE");
   if (val != NULL)
@@ -295,7 +297,7 @@ void uv__work_done(uv_async_t* handle) {
      spin. Otherwise, by returning we introduce an unexpected UV_ASYNC_CB into the schedule. */
   do
   {
-    mylog("uv__work_done: Checking for done LCBNs\n");
+    mylog(LOG_THREADPOOL, 5, "uv__work_done: Checking for done LCBNs\n");
     uv_mutex_lock(&loop->wq_mutex);
     if (!QUEUE_EMPTY(&loop->wq)) {
       q = QUEUE_HEAD(&loop->wq);
@@ -359,7 +361,7 @@ void uv__work_done(uv_async_t* handle) {
 
     list_destroy_full(pending_done, sched_context_list_destroy_func, NULL); 
     /* TODO DEBUG */
-    mylog("uv__work_done: Next type is UV_AFTER_WORK_CB? %i\n", (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB));
+    mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is UV_AFTER_WORK_CB? %i\n", (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB));
   } while (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB);
 
   /* There are still done items in loop->wq, but we aren't supposed to execute

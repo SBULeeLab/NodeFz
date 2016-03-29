@@ -970,7 +970,10 @@ start:
 static void uv__write_callbacks(uv_stream_t* stream) {
   uv_write_t* req;
   QUEUE* q;
+  int queue_len;
 
+  QUEUE_LEN(queue_len, q, &stream->write_completed_queue);
+  mylog(LOG_MAIN, 7, "uv__write_callbacks: %i completed requests to handle\n", queue_len);
   while (!QUEUE_EMPTY(&stream->write_completed_queue)) {
     /* Pop a req off write_completed_queue. */
     q = QUEUE_HEAD(&stream->write_completed_queue);
@@ -1825,11 +1828,10 @@ static struct list * uv__ready_stream_lcbns_uv__read (uv_stream_t *stream, unsig
      NB node: StreamWrap::OnAlloc always uses the suggested_size, so we can do a bit of math. */ 
   if (stream->read_cb && (stream->flags & UV_STREAM_READING))
   {
-    /* Verify there are pending bytes.
-       TODO Not sure if this is valid. */
+    /* Verify there are pending bytes. */
     assert(ioctl(uv__stream_fd(stream), FIONREAD, &pending_bytes) == 0);
     assert(0 < pending_bytes);
-    mylog("uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
+    mylog(LOG_MAIN, 9, "uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
 
     lcbn = lcbn_get(stream->cb_type_to_lcbn, UV_ALLOC_CB);
     assert(lcbn && lcbn->cb);

@@ -247,11 +247,13 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
     if (scheduler_remaining() == 0)
     {
-      mylog("uv__io_poll: No items left to schedule. I'm outta here!\n");
+      mylog(LOG_MAIN, 1, "uv__io_poll: No items left to schedule. I'm outta here!\n");
       return;
     }
+    else
+      mylog(LOG_MAIN, 3, "uv__io_poll: %i items left in schedule\n", scheduler_remaining());
 
-    mylog("epoll'ing\n");
+    mylog(LOG_MAIN, 5, "epoll'ing\n");
     if (no_epoll_wait != 0 || (sigmask != 0 && no_epoll_pwait == 0)) {
       nfds = uv__epoll_pwait(loop->backend_fd,
                              events,
@@ -268,7 +270,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (nfds == -1 && errno == ENOSYS)
         no_epoll_wait = 1;
     }
-    mylog("done epoll'ing\n");
+    mylog(LOG_MAIN, 5, "done epoll'ing\n");
 
     if (sigmask != 0 && no_epoll_pwait != 0)
       if (pthread_sigmask(SIG_UNBLOCK, &sigset, NULL))
@@ -418,7 +420,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         sched_context_destroy(sched_context);
 
         /* Run w. */
-        mylog("pre-invoke_callback: w->cb %p\n", w->cb);
+        mylog(LOG_MAIN, 7, "pre-invoke_callback: w->cb %p\n", w->cb);
         INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, w->iocb_events);
         nevents++;
       }
@@ -430,7 +432,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
        executed. */
     list_destroy_full(pending_wrappers, sched_context_list_destroy_func, NULL); 
 
-    mylog("uv__io_poll: %i fds, %i scheduled executed events\n", nfds, nevents);
+    mylog(LOG_MAIN, 7, "uv__io_poll: %i fds, %i scheduled executed events\n", nfds, nevents);
 
     loop->watchers[loop->nwatchers] = NULL;
     loop->watchers[loop->nwatchers + 1] = NULL;

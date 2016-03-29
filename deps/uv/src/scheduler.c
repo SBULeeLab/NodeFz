@@ -82,7 +82,7 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
     /* Equality assures thread safety, as noone else will call scheduler_advance.
        Thus we can make this assert. */
     assert(next_lcbn->global_exec_id == scheduler.n_executed);
-  mylog("sched_lcbn_is_next: exec_id %i ready_lcbn %p next_lcbn %p equal? %i\n", next_lcbn->global_exec_id, ready_lcbn->lcbn, next_lcbn, equal);
+  mylog(LOG_SCHEDULER, 5, "sched_lcbn_is_next: exec_id %i next_lcbn %p (name %s) ready_lcbn %p equal? %i\n", next_lcbn->global_exec_id, next_lcbn, next_lcbn->name, ready_lcbn->lcbn, equal);
   return equal;
 }
 
@@ -233,7 +233,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
 
     /* TODO DEBUG: First sort by registration order and print out what we've parsed. */
     list_sort(scheduler.desired_schedule, lcbn_sort_by_reg_id, NULL);
-    printf("scheduler_init: Printing parsed nodes in registration order.\n");
+    mylog(LOG_SCHEDULER, 1, "scheduler_init: Printing parsed nodes in registration order.\n");
     list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
 
     /* Sort by exec order so that we can efficiently handle scheduler queries. 
@@ -248,7 +248,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     assert(&scheduler.shadow_root->tree_node == list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem));
     list_pop_front(scheduler.desired_schedule);
 
-    printf("scheduler_init: Printing parsed nodes in exec order.\n");
+    mylog(LOG_SCHEDULER, 1, "scheduler_init: Printing parsed nodes in exec order.\n");
     list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
   }
 
@@ -274,7 +274,7 @@ void scheduler_emit (void)
   if (scheduler.mode != SCHEDULE_MODE_RECORD)
     return;
 
-  mylog("scheduler_emit: Writing schedule to %s\n", scheduler.schedule_file);
+  mylog(LOG_SCHEDULER, 1, "scheduler_emit: Writing schedule to %s\n", scheduler.schedule_file);
 
   f = fopen(scheduler.schedule_file, "w");
   assert(f);
@@ -286,6 +286,7 @@ void scheduler_emit (void)
     assert(fprintf(f, "%s\n", lcbn_str_buf) == strlen(lcbn_str_buf) + 1);
   }
   assert(fclose(f) == 0);
+  fflush(NULL);
 }
 
 sched_context_t * scheduler_next_context (const struct list *sched_context_list)
@@ -438,7 +439,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
      */
   if (list_empty(ready_lcbns))
   {
-    mylog("scheduler_next_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", wrapper);
+    mylog(LOG_SCHEDULER, 1, "scheduler_next_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", wrapper);
     next_lcbn = SILENT_CONTEXT;
     goto CLEANUP;
   }
@@ -485,8 +486,8 @@ void scheduler_advance (void)
      If not, this is probably a sign that the input schedule has been
      modified incorrectly. */
   assert(lcbn->global_exec_id == scheduler.n_executed);
-  printf("schedule_advance: discarding lcbn %p (type %s)\n",
-    lcbn, callback_type_to_string(lcbn->cb_type));
+  mylog(LOG_SCHEDULER, 1, "schedule_advance: discarding lcbn %p (exec_id %i type %s)\n",
+    lcbn, lcbn->global_exec_id, callback_type_to_string(lcbn->cb_type));
   fflush(NULL);
   lcbn = NULL;
   scheduler.n_executed++;

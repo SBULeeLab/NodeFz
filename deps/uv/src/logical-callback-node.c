@@ -1,6 +1,7 @@
 #include "logical-callback-node.h"
 
 #include "list.h"
+#include "mylog.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -83,7 +84,7 @@ void lcbn_add_child (lcbn_t *parent, lcbn_t *child)
   assert(child != NULL);
 
   tree_add_child(&parent->tree_node, &child->tree_node);
-  mylog("parent %p child %p child level %i child childnum %i\n", parent, child, tree_depth(&child->tree_node), tree_get_child_num(&child->tree_node));
+  mylog(LOG_LCBN, 3, "lcbn_add_child: parent %p type %s child %p type %s child level %i child childnum %i\n", parent, callback_type_to_string(parent->cb_type), child, callback_type_to_string(child->cb_type), tree_depth(&child->tree_node), tree_get_child_num(&child->tree_node));
   sprintf(child->parent_name, "%p", parent);
 }
 
@@ -258,8 +259,8 @@ int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
     return 0;
   }
 
-  mylog("lcbn_semantic_equals: a %p type %i == b %p type %i? %i\n", a, a->cb_type, b, b->cb_type, a->cb_type == b->cb_type);
-  mylog("lcbn_semantic_equals: a child num %i == b child num %i? %i\n", tree_get_child_num(&a->tree_node), tree_get_child_num(&b->tree_node), tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node));
+  mylog(LOG_LCBN, 5, "lcbn_semantic_equals: a %p type %i == b %p type %i? %i\n", a, a->cb_type, b, b->cb_type, a->cb_type == b->cb_type);
+  mylog(LOG_LCBN, 5, "lcbn_semantic_equals: a child num %i == b child num %i? %i\n", tree_get_child_num(&a->tree_node), tree_get_child_num(&b->tree_node), tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node));
 
   return (a->cb_type == b->cb_type
        && tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node)
