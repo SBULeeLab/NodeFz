@@ -247,3 +247,53 @@ fs.writeFile:
   - close
 This means that to re-order execution we need to do a bit of footwork.
 Probably automated using tree tweaks rather than manual file editing.
+
+---------------------------------
+
+Source of the UV_WRITE_CBs that show up intermittently: 
+  - When running with mylog enabled, sometimes console.log registers a UV_WRITE_CB
+    (e.g. 1x or 2x out of 6 calls in fs_several.c).
+  - When running with mylog disabled, I have not seen this happen.
+Wandering through the node source code:
+  (relevant) callers of uv_write(): StreamWrap::DoWrite
+     Callers of this are: StreamBase::Writev
+                          StreamBase::WriteBuffer
+                          StreamBase::WriteString
+  This flavor has stack: StreamBase::JSMethod
+                           -> StreamBase::WriteString
+                           -> StreamBase::DoWrite
+  Examining StreamBase::WriteString in such an instance, it seems that try_write is true.
+  In this case we attempt StreamWrap::DoTryWrite (uv_try_write) and only resort to uv_write
+    in the event of failure. This failure occurs if we cannot immediately make the write,
+    e.g. because there's a pending connect request or because stream->write_queue_size > 0.
+
+Unfortunately, whether or not the stream is ready is beyond my control, so sometimes
+  a UV_WRITE_CB might get scheduled.
+
+Proposed solutions:
+  1. libuv: Ignore UV_WRITE_CBs that point to StreamWrap::AfterWrite
+    > efficient but unsound?
+  2. node: Skip the 'try_write' optimization and always file write requests
+    > inefficient but sound
+    >> I've taken this approach.
+
+--------------------------------------------
+
+Still plagued by UV_WRITE_CB funky parentage issues:
+  - changing my code to use fs.writeSync has eliminated that issue
+  - the sometime-UV_ASYNC_CB is still around
+Question: Why does UV_WRITE_CB sometimes have UV_FS_CB as its parent, and other times not?
+Answer: 
+  Still unsure. I suspect the cause is buffering at the Node-JS or Node-C++ layer.
+  Either way this is unpleasant, since it implies that similar library buffering could be a problem in other settings.
+  NB I wouldn't have this issue if scheduling were done at the Node.js level.
+
+A cursory inspection of Node-JS stdio architecture:
+  1. In lib/*js, "process.X" means look at node/src/node.js
+  2. createWritableStdioStream DOES guess at the stdio "type" (e.g. terminal vs. a file)
+    and obtain a stream to stdio accordingly. This means that it's entirely "reasonable" that
+    behavior might change based on "blah" vs. "blah > /tmp/out".
+
+--------------------------------------------
+
+Looking for process.nextTick and friends? See node/src/node.js

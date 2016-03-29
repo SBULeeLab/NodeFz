@@ -1123,23 +1123,45 @@ Pending problem:
 Tue 29 Mar 2016
 
 1. I (think?) I've eliminated the "missing WRITE_CB" problem. Essentially I went through and fixed all of the compiler warnings, and fixed a few bad casts in the process. I guess one of them was threadily damaging the input CB.
+2. I've studied the problem in more detail. See notes in node_src_notes.
 
-Once I've got that done, revisit the WRITE_CB parentage, then the source of the ASYNC_CB.
-  **Discovered potential cause: weird memory accesses due to uninitialized "bonus" requests added in unix/fs.c.
-    I've stuck a "YOU CANNOT PASS" assert in there for now. Fix tomorrow.
+OPEN PROBLEMS:
+
+1. UV_WRITE_CB
+  With redirection to a file, no UV_WRITE_CBs at all are registered.
+  Without redirection to a file, UV_WRITE_CBs are registered, but parentage varies between UV_FS_CB and UV_WRITE_CB.
+  Example:
+    (16:44:04) jamie@suwarna7-Lenovo-K450e ~/Desktop/node_project/node/jamie/simple_node_programs $ UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=/tmp/fs_several_stat.sched node fs_several_stat.js  > /tmp/out
+    (16:44:24) jamie@suwarna7-Lenovo-K450e ~/Desktop/node_project/node/jamie/simple_node_programs $ grep WRITE /tmp/fs_several_stat.sched
+    (16:44:25) jamie@suwarna7-Lenovo-K450e ~/Desktop/node_project/node/jamie/simple_node_programs $ grep APP /tmp/out
+    APP: 1: Wrote file
+    APP: 2: Read file
+    APP: 3: Wrote file
+    APP: 4: Read file
+    APP: 5: Wrote file
+    APP: 6: Read file
+
+  cf. node_src_notes, but since the underlying stream type changes depending on whether or not I use redirection, this seems reasonable.
+  
+  Next steps:
+    - Still unsure about root cause. I suspect the cause is buffering at the Node-JS or Node-C++ layer.
+      Either way this is unpleasant, since it implies that similar library buffering could be a problem in other settings.
+    - Identify the path taken when output goes to a file (gdb blah; run fs_several_stat.js > /tmp/out)
+    - Remove the buffering at Node-C++ or Node-JS level.
+
+  Why is this a problem? It means that on replay the behavior might diverge due to timing outside of my control.
+  I either need to get the timing under my control, or I need to add a "give up" mechanism instead of bailing out in invoke_callback
+    if sched_is_next_lcbn in not true.
+
+2. UV_ASYNC_CB
+  In fs_several.js, UV_ASYNC_CB shows up as the final item in RECORD, but REPLAY hangs without getting to it.
+  I'm guessing I'm missing a uv_async_send somewhere?
 
 --------------------------------
 
 Next steps:
-  By Mar 24:
-    x mutex'd invoke_callback
-    x scheduling of uv__io_poll 
-      > streams
-      > threadpool
-    x demonstrate record/replay system to expose race in FS-driven application
   By Mar 31:
     o demonstrate record/replay system for more complex applications (fs_several_stat.js; fs_several.js; httpserver_complex.js; MUD; etherpad)
-
   By Apr 7:
   By Apr 14:
   By Apr 21:
