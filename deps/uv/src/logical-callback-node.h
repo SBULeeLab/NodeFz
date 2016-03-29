@@ -57,7 +57,7 @@ char * lcbn_to_string (lcbn_t *cbn, char *buf, int size);
 lcbn_t * lcbn_from_string (char *buf);
 
 /* For use on LCBNs contained in a tree_as_list list. */
-void lcbn_tree_list_print_f (struct list_elem *e, int *fd);
+void lcbn_tree_list_print_f (struct list_elem *e, void *fd);
 
 void * lcbn_get_context (lcbn_t *lcbn);
 void * lcbn_get_cb (lcbn_t *lcbn);

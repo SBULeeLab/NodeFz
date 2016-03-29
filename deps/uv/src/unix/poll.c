@@ -38,7 +38,7 @@ static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     uv__io_stop(loop, w, UV__POLLIN | UV__POLLOUT);
     uv__handle_stop(handle);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3 (UV_POLL_CB, handle->poll_cb, handle, -EBADF, 0);
+    INVOKE_CALLBACK_3 (UV_POLL_CB, handle->poll_cb, (long) handle, (long) -EBADF, (long) 0);
 #else
     handle->poll_cb(handle, -EBADF, 0);
 #endif
@@ -52,7 +52,7 @@ static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     pevents |= UV_WRITABLE;
 
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_3 (UV_POLL_CB, handle->poll_cb, handle, 0, pevents);
+  INVOKE_CALLBACK_3 (UV_POLL_CB, handle->poll_cb, (long) handle, (long) 0, (long) pevents);
 #else
   handle->poll_cb(handle, 0, pevents);
 #endif

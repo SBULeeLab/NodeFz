@@ -407,7 +407,7 @@ struct list * uv__ready_tcp_lcbns(void *h, enum execution_context exec_context)
   lcbn_t *lcbn;
   struct list *ready_tcp_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_tcp_t *) h;
   assert(handle);
   assert(handle->type == UV_TCP);
 

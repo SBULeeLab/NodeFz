@@ -299,7 +299,7 @@ struct list * uv__ready_pipe_lcbns(void *h, enum execution_context exec_context)
   lcbn_t *lcbn;
   struct list *ready_pipe_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_pipe_t *) h;
   assert(handle);
   assert(handle->type == UV_NAMED_PIPE);
 

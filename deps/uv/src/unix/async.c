@@ -146,7 +146,7 @@ static void uv__async_event(uv_loop_t* loop,
       assert(cmpxchgi(&handle->pending, 1, 0) == 1);
       if (handle->async_cb)
       {
-        INVOKE_CALLBACK_1 (UV_ASYNC_CB, handle->async_cb, handle);
+        INVOKE_CALLBACK_1 (UV_ASYNC_CB, handle->async_cb, (long) handle);
       }
     }
     else
@@ -204,7 +204,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     assert(n == sizeof(val));
     memcpy(&val, buf, sizeof(val));  /* Avoid alignment issues. */
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, loop, wa, val);
+    INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, (long) loop, (long) wa, (long) val);
 #else
     wa->cb(loop, wa, val);
 #endif
@@ -213,7 +213,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 #endif
 
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, loop, wa, n);
+  INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, (long) loop, (long) wa, (long) n);
 #else
   wa->cb(loop, wa, n);
 #endif
@@ -370,10 +370,9 @@ skip_eventfd:
 struct list * uv__ready_async_event_lcbns (void *l, enum execution_context exec_context)
 {
   uv_loop_t *loop = (uv_loop_t *) l;
-  lcbn_t *lcbn;
-  struct list *ready_lcbns;
-  QUEUE *q;
-  uv_async_t *h;
+  struct list *ready_lcbns = NULL;
+  QUEUE *q = NULL;
+  uv_async_t *h = NULL;
 
   assert(exec_context == EXEC_CONTEXT_UV__IO_POLL);
     
@@ -394,7 +393,7 @@ struct list * uv__ready_async_lcbns(void *h, enum execution_context exec_context
   lcbn_t *lcbn;
   struct list *ready_async_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_async_t *) h;
   assert(handle);
   assert(handle->type == UV_ASYNC);
 

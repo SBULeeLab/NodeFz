@@ -163,7 +163,7 @@ static void uv__inotify_read(uv_loop_t* loop,
       QUEUE_FOREACH(q, &w->watchers) {
         h = QUEUE_DATA(q, uv_fs_event_t, watchers);
 #if UNIFIED_CALLBACK
-        INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, h->cb, h, path, events, 0);
+        INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, h->cb, (long) h, (long) path, (long) events, (long) 0);
 #else
         h->cb(h, path, events, 0);
 #endif
@@ -271,7 +271,7 @@ struct list * uv__ready_fs_event_lcbns(void *h, enum execution_context exec_cont
   lcbn_t *lcbn;
   struct list *ready_fs_event_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_fs_event_t *) h;
   assert(handle);
   assert(handle->type == UV_FS_EVENT);
 

@@ -7,7 +7,7 @@
 #define TREE_NODE_MAGIC 88771122
 
 /* Private functions. */
-static int tree__looks_valid (const tree_node_t *node);
+static int tree__looks_valid (tree_node_t *node);
 
 /* These are helper tree_apply[_ancestors] functions. */
 static void tree__add_node_to_list (tree_node_t *node, void *aux);
@@ -19,7 +19,7 @@ static void tree__find_helper (tree_node_t *node, void *aux);
 static int tree__UT_value_sort (struct list_elem *a, struct list_elem *b, void *aux);
 static int tree__UT_find_func (tree_node_t *e, void *aux);
 
-static int tree__looks_valid (const tree_node_t *node)
+static int tree__looks_valid (tree_node_t *node)
 {
   if (!node)
     return 0;
@@ -99,8 +99,6 @@ void tree_apply (tree_node_t *root, tree_apply_func f, void *aux)
 
 void tree_apply_up (tree_node_t *leaf, tree_apply_func f, void *aux)
 {
-  struct list_elem *e;
-
   if (!leaf)
     return;
   assert(tree__looks_valid(leaf));
@@ -137,7 +135,7 @@ static void tree__count (tree_node_t *node, void *aux)
   *counter = *counter + 1;
 }
 
-unsigned tree_size (const tree_node_t *root)
+unsigned tree_size (tree_node_t *root)
 {
   unsigned size;
 
@@ -196,7 +194,7 @@ void tree_UT (void)
 {
   struct list *list;
   struct list_elem *list_e;
-  int i, sort_order, counter, key;
+  int i, sort_order, counter;
   unsigned total_tree_size;
   tree_UT_t *node;
   tree_UT_t root, children[TREE_UT_FANOUT], grandchildren[TREE_UT_FANOUT*TREE_UT_FANOUT];

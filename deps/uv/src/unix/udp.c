@@ -115,7 +115,7 @@ static void uv__udp_run_completed(uv_udp_t* handle) {
      */
     int status = (req->status >= 0 ? 0 : req->status);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_2(UV_UDP_SEND_CB, req->send_cb, req, status);
+    INVOKE_CALLBACK_2(UV_UDP_SEND_CB, req->send_cb, (long) req, (long) status);
 #else
     req->send_cb(req, status);
 #endif
@@ -176,13 +176,13 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
 
   do {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (uv_handle_t*) handle, 64 * 1024, &buf);
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (long) (uv_handle_t*) handle, (long) 64 * 1024, (long) &buf);
 #else
     handle->alloc_cb((uv_handle_t*) handle, 64 * 1024, &buf);
 #endif
     if (buf.len == 0) {
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, UV_ENOBUFS, &buf, NULL, 0);
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, (long) handle, (long) UV_ENOBUFS, (long) &buf, (long) NULL, (long) 0);
 #else
       handle->recv_cb(handle, UV_ENOBUFS, &buf, NULL, 0);
 #endif
@@ -206,7 +206,7 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
       else
         nread = -errno;
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, nread, &buf, NULL, 0);
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) NULL, (long) 0);
 #else
       handle->recv_cb(handle, nread, &buf, NULL, 0);
 #endif
@@ -223,7 +223,7 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
         flags |= UV_UDP_PARTIAL;
 
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, handle, nread, &buf, addr, flags);
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) addr, (long) flags);
 #else
       handle->recv_cb(handle, nread, &buf, addr, flags);
 #endif
@@ -912,7 +912,7 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
   QUEUE *q;
   uv_udp_send_t *req;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_udp_t *) h;
   assert(handle);
   assert(handle->type == UV_UDP);
 

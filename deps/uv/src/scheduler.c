@@ -44,8 +44,8 @@ struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context
 enum callback_type scheduler_next_lcbn_type (void)
 {
   lcbn_t *next_lcbn;
-  assert(scheduler_initialized());
   enum callback_type cb_type = CALLBACK_TYPE_ANY;
+  assert(scheduler_initialized());
 
   if (scheduler.mode == SCHEDULE_MODE_REPLAY && !list_empty(scheduler.desired_schedule))
   {
@@ -143,7 +143,6 @@ static int scheduler_initialized (void)
 static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 {
   lcbn_t *lcbn;
-  int fd;
   char buf[2048];
 
   assert(e);
@@ -153,7 +152,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
   assert(lcbn);
 
   lcbn_to_string(lcbn, buf, sizeof buf);
-  printf("%p: %s\n", lcbn, buf);
+  printf("%p: %s\n", (void *) lcbn, buf);
 }
 
 void scheduler_init (enum schedule_mode mode, char *schedule_file)
@@ -280,13 +279,13 @@ void scheduler_emit (void)
     sched_lcbn = list_entry(e, sched_lcbn_t, elem);
     assert(sched_lcbn);
     lcbn_to_string(sched_lcbn->lcbn, lcbn_str_buf, sizeof lcbn_str_buf);
-    assert(fprintf(f, "%s\n", lcbn_str_buf) == strlen(lcbn_str_buf) + 1);
+    assert(fprintf(f, "%s\n", lcbn_str_buf) == (int) strlen(lcbn_str_buf) + 1);
   }
   assert(fclose(f) == 0);
   fflush(NULL);
 }
 
-sched_context_t * scheduler_next_context (const struct list *sched_context_list)
+sched_context_t * scheduler_next_context (struct list *sched_context_list)
 {
   struct list_elem *e;
   sched_context_t *next_sched_context, *sched_context;
@@ -361,7 +360,6 @@ ready_lcbns_func req_lcbn_funcs[UV_REQ_TYPE_MAX] = {
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 {
   uv_handle_t *handle;
-  uv_handle_type handle_type;
   uv_req_t *req;
   uv_req_type req_type;
 
@@ -381,7 +379,6 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
     case CALLBACK_CONTEXT_HANDLE:
       handle = (uv_handle_t *) sched_context->wrapper;
       assert(handle->magic == UV_HANDLE_MAGIC);
-      handle_type = handle->type;
 
       wrapper = handle;
       lcbns_func = uv__ready_handle_lcbns_wrap;
@@ -437,7 +434,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
   if (list_empty(ready_lcbns))
   {
     mylog(LOG_SCHEDULER, 1, "scheduler_next_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", wrapper);
-    next_lcbn = SILENT_CONTEXT;
+    next_lcbn = (sched_lcbn_t *) SILENT_CONTEXT;
     goto CLEANUP;
   }
 

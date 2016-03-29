@@ -85,7 +85,7 @@
     lcbn_t *lcbn;                                                             \
     struct list *ready_lcbns;                                                 \
                                                                               \
-    handle = (uv_handle_t *) h;                                               \
+    handle = (uv_##_name##_t *) h;                                            \
     assert(handle);                                                           \
     assert(handle->type == UV_##_type);                                       \
                                                                               \
@@ -136,8 +136,8 @@
                                                                               \
       assert(next_sched_lcbn->lcbn == lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB)); \
                                                                               \
-      INVOKE_CALLBACK_1(UV_##_type##_CB, next_handle->_name##_cb, next_handle); \
-                                                                              \ 
+      INVOKE_CALLBACK_1(UV_##_type##_CB, next_handle->_name##_cb, (long) next_handle); \
+                                                                              \
       /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. \
           TODO Don't we do this in invoke_callback for such handles? */       \
       tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB);          \

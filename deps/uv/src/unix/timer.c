@@ -228,7 +228,7 @@ void uv__run_timers(uv_loop_t* loop) {
   sched_lcbn_t *next_timer_lcbn;
   uv_timer_t* next_timer_handle;
 
-  if (heap_empty(&loop->timer_heap))
+  if (heap_empty((struct heap *) &loop->timer_heap))
     return;
 
   ready_timers = NULL;
@@ -254,7 +254,7 @@ void uv__run_timers(uv_loop_t* loop) {
     uv_timer_stop(next_timer_handle);
     uv_timer_again(next_timer_handle);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_1(UV_TIMER_CB, next_timer_handle->timer_cb, next_timer_handle);
+    INVOKE_CALLBACK_1(UV_TIMER_CB, next_timer_handle->timer_cb, (long) next_timer_handle);
 #else
     handle->timer_cb(next_timer_handle);
 #endif

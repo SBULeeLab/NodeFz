@@ -108,7 +108,7 @@ static void uv__chld(uv_signal_t* handle, int signum) {
       term_signal = WTERMSIG(process->status);
 
 #ifdef UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3 (UV_EXIT_CB, process->exit_cb, process, exit_status, term_signal);
+    INVOKE_CALLBACK_3 (UV_EXIT_CB, process->exit_cb, (long) process, (long) exit_status, (long) term_signal);
 #else
     process->exit_cb(process, exit_status, term_signal);
 #endif
@@ -566,7 +566,7 @@ struct list * uv__ready_process_lcbns(void *h, enum execution_context exec_conte
   lcbn_t *lcbn;
   struct list *ready_process_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_process_t *) h;
   assert(handle);
   assert(handle->type == UV_PROCESS);
 

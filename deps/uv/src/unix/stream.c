@@ -458,8 +458,8 @@ void uv__stream_destroy(uv_stream_t* stream) {
   if (stream->connect_req) {
     uv__req_unregister(stream->loop, stream->connect_req);
 #if UNIFIED_CALLBACK
-    /* printf ("uv__stream_destroy: destroying a connection\n"); */
-    INVOKE_CALLBACK_2(UV_CONNECT_CB, stream->connect_req->cb, stream->connect_req, -ECANCELED);
+    mylog(LOG_MAIN, 9, "uv__stream_destroy: destroying a connection\n");
+    INVOKE_CALLBACK_2(UV_CONNECT_CB, stream->connect_req->cb, (long) stream->connect_req, (long) -ECANCELED);
 #else
     stream->connect_req->cb(stream->connect_req, -ECANCELED);
 #endif
@@ -477,8 +477,8 @@ void uv__stream_destroy(uv_stream_t* stream) {
      */
     uv__req_unregister(stream->loop, stream->shutdown_req);
 #if UNIFIED_CALLBACK
-    /* printf ("uv__stream_destroy: shutting down a connection\n"); */
-    INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, stream->shutdown_req->cb, stream->shutdown_req, -ECANCELED);
+    mylog(LOG_MAIN, 9, "uv__stream_destroy: shutting down a connection\n");
+    INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, stream->shutdown_req->cb, (long) stream->shutdown_req, (long) -ECANCELED);
 #else
     stream->shutdown_req->cb(stream->shutdown_req, -ECANCELED);
 #endif
@@ -568,8 +568,8 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       }
 
 #if UNIFIED_CALLBACK
-      /* printf ("uv__server_io: accepting new connection failed\n"); */
-      INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, stream, err);
+      mylog(LOG_MAIN, 9, "uv__server_io: accepting new connection failed\n");
+      INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, (long) stream, (long) err);
 #else
       stream->connection_cb(stream, err);
 #endif
@@ -579,8 +579,8 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;
 #if UNIFIED_CALLBACK
-    /* printf ("uv__server_io: accepted new connection\n"); */
-    INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, stream, 0);
+    mylog(LOG_MAIN, 9, "uv__server_io: accepted new connection\n");
+    INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, (long) stream, (long) 0);
 #else
     stream->connection_cb(stream, 0);
 #endif
@@ -728,7 +728,7 @@ static void uv__drain(uv_stream_t* stream) {
     if (req->cb != NULL)
     {
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, req->cb, req, err);
+      INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, req->cb, (long) req, (long) err);
 #else
       req->cb(req, err);
 #endif
@@ -992,7 +992,7 @@ static void uv__write_callbacks(uv_stream_t* stream) {
     if (req->cb)
     {
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_2 (UV_WRITE_CB, req->cb, req, req->error);
+      INVOKE_CALLBACK_2 (UV_WRITE_CB, req->cb, (long) req, (long) req->error);
 #else
       req->cb(req, req->error);
 #endif
@@ -1044,7 +1044,7 @@ static void uv__stream_eof(uv_stream_t* stream, const uv_buf_t* buf) {
     uv__handle_stop(stream);
   uv__stream_osx_interrupt_select(stream);
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, UV_EOF, buf);
+  INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, (long) stream, (long) UV_EOF, (long) buf);
 #else
   stream->read_cb(stream, UV_EOF, buf);
 #endif
@@ -1172,14 +1172,14 @@ static void uv__read(uv_stream_t* stream) {
     assert(stream->alloc_cb != NULL);
 
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV_ALLOC_CB, stream->alloc_cb, (uv_handle_t*)stream, 64 * 1024, &buf); 
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, stream->alloc_cb, (long) (uv_handle_t*) stream, (long) 64 * 1024, (long) &buf); 
 #else
     stream->alloc_cb((uv_handle_t*)stream, 64 * 1024, &buf);
 #endif
     if (buf.len == 0) {
       /* User indicates it can't or won't handle the read. */
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, UV_ENOBUFS, &buf);
+      INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, (long) stream, (long) UV_ENOBUFS, (long) &buf);
 #else
       stream->read_cb(stream, UV_ENOBUFS, &buf);
 #endif
@@ -1220,14 +1220,14 @@ static void uv__read(uv_stream_t* stream) {
           uv__stream_osx_interrupt_select(stream);
         }
 #if UNIFIED_CALLBACK
-        INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, 0, &buf);
+        INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, (long) stream, (long) 0, (long) &buf);
 #else
         stream->read_cb(stream, 0, &buf);
 #endif
       } else {
         /* Error. User should call uv_close(). */
 #if UNIFIED_CALLBACK
-        INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, -errno, &buf);
+        INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, (long) stream, (long) -errno, (long) &buf);
 #else
         stream->read_cb(stream, -errno, &buf);
 #endif
@@ -1251,7 +1251,7 @@ static void uv__read(uv_stream_t* stream) {
         err = uv__stream_recv_cmsg(stream, &msg);
         if (err != 0) {
 #if UNIFIED_CALLBACK
-          INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, err, &buf);
+          INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, (long) stream, (long) err, (long) &buf);
 #else
           stream->read_cb(stream, err, &buf);
 #endif
@@ -1259,7 +1259,7 @@ static void uv__read(uv_stream_t* stream) {
         }
       }
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, stream, nread, &buf);
+      INVOKE_CALLBACK_3(UV_READ_CB, stream->read_cb, (long) stream, (long) nread, (long) &buf);
 #else
       stream->read_cb(stream, nread, &buf);
 #endif
@@ -1413,8 +1413,8 @@ static void uv__stream_connect(uv_stream_t* stream) {
   if (req->cb)
   {
 #if UNIFIED_CALLBACK
-    /* printf ("uv__stream_connect: connecting\n"); */
-    INVOKE_CALLBACK_2(UV_CONNECT_CB, req->cb, req, error);
+    mylog(LOG_MAIN, 9, "uv__stream_connect: connecting\n");
+    INVOKE_CALLBACK_2(UV_CONNECT_CB, req->cb, (long) req, (long) error);
 #else
     req->cb(req, error);
 #endif
@@ -1936,7 +1936,7 @@ struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_contex
   lcbn_t *lcbn;
   struct list *ready_stream_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_stream_t *) h;
   assert(handle);
   assert(handle->type == UV_TCP ||
          handle->type == UV_NAMED_PIPE ||

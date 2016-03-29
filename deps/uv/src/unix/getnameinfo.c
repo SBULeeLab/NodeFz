@@ -57,7 +57,7 @@ static void uv__getnameinfo_work_wrapper (uv_work_t *req)
 {
   uv_getnameinfo_t *name_req;
   name_req = (uv_getnameinfo_t *) req->data;
-  INVOKE_CALLBACK_1(UV_GETNAMEINFO_WORK_CB, uv__getnameinfo_work, &name_req->work_req);
+  INVOKE_CALLBACK_1(UV_GETNAMEINFO_WORK_CB, uv__getnameinfo_work, (long) &name_req->work_req);
 }
 
 void * uv_uv__getnameinfo_work_wrapper_ptr (void)
@@ -85,7 +85,7 @@ static void uv__getnameinfo_done(struct uv__work* w, int status) {
   if (req->getnameinfo_cb)
   {
 #ifdef UNIFIED_CALLBACK
-    INVOKE_CALLBACK_4 (UV_GETNAMEINFO_CB, req->getnameinfo_cb, req, req->retcode, host, service);
+    INVOKE_CALLBACK_4 (UV_GETNAMEINFO_CB, req->getnameinfo_cb, (long) req, (long) req->retcode, (long) host, (long) service);
 #else
     req->getnameinfo_cb(req, req->retcode, host, service);
 #endif

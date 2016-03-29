@@ -51,7 +51,7 @@ int tree_depth (tree_node_t *node);
 
 tree_node_t * tree_get_parent (tree_node_t *node);
 tree_node_t * tree_get_root (tree_node_t *node);
-unsigned tree_size (const tree_node_t *root);
+unsigned tree_size (tree_node_t *root);
 int tree_is_root (tree_node_t *node);
 
 /* Returns the relative child num NODE is of its parent. */

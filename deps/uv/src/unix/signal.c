@@ -392,7 +392,7 @@ static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events) 
       if (msg->signum == handle->signum) {
         assert(!(handle->flags & UV_CLOSING));
 #ifdef UNIFIED_CALLBACK
-        INVOKE_CALLBACK_2(UV_SIGNAL_CB, handle->signal_cb, handle, handle->signum);
+        INVOKE_CALLBACK_2(UV_SIGNAL_CB, handle->signal_cb, (long) handle, (long) handle->signum);
 #else
         handle->signal_cb(handle, handle->signum);
 #endif
@@ -482,7 +482,7 @@ struct list * uv__ready_signal_lcbns(void *h, enum execution_context exec_contex
   lcbn_t *lcbn;
   struct list *ready_signal_lcbns;
 
-  handle = (uv_handle_t *) h;
+  handle = (uv_signal_t *) h;
   assert(handle);
   assert(handle->type == UV_SIGNAL);
 

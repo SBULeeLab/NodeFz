@@ -66,7 +66,7 @@ enum execution_context
   EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES,
 
   EXEC_CONTEXT_THREADPOOL_WORKER,
-  EXEC_CONTEXT_THREADPOOL_DONE,
+  EXEC_CONTEXT_THREADPOOL_DONE
 };
 
 struct sched_context_s
@@ -111,7 +111,7 @@ void scheduler_emit (void);
 
    TODO If there are none available in SCHED_CONTEXT (because running the context executes no CBs),
     we need to somehow indicate that you should run it to ensure forward progress. */
-sched_context_t * scheduler_next_context (const struct list *sched_context_list);
+sched_context_t * scheduler_next_context (struct list *sched_context_list);
 
 /* Determine the next LCBN to invoke from those available in SCHED_CONTEXT. 
    (internal only) Returns SILENT_CONTEXT if SCHED_CONTEXT has no ready LCBNs, i.e. if

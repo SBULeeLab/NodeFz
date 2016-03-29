@@ -129,7 +129,7 @@ static void worker(void* arg) {
                            executing. */
 
         /* Run the work item. */
-        INVOKE_CALLBACK_1(UV__WORK_WORK, w->work, w);
+        INVOKE_CALLBACK_1(UV__WORK_WORK, w->work, (long int) w);
 
         /* Throw it onto the looper thread's queue. */
         uv_mutex_lock(&w->loop->wq_mutex);
@@ -279,15 +279,15 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
 
 
 void uv__work_done(uv_async_t* handle) {
-  struct uv__work* w;
-  uv_loop_t* loop;
-  uv_work_t *req;
-  QUEUE* q;
+  struct uv__work* w = NULL;
+  uv_loop_t* loop = NULL;
+  uv_work_t *req = NULL;
+  QUEUE* q = NULL;
   QUEUE wq;
-  int err, leftover_work;
+  int err;
 
-  struct list *pending_done;
-  sched_context_t *sched_context;
+  struct list *pending_done = NULL;
+  sched_context_t *sched_context = NULL;
 
   loop = container_of(handle, uv_loop_t, wq_async);
   QUEUE_INIT(&wq);
@@ -337,7 +337,7 @@ void uv__work_done(uv_async_t* handle) {
 
         /* Run the done item. */
         err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
-        INVOKE_CALLBACK_2(UV__WORK_DONE, w->done, w, err);
+        INVOKE_CALLBACK_2(UV__WORK_DONE, w->done, (long int) w, (long int) err);
       }
       else
         break;
@@ -345,18 +345,17 @@ void uv__work_done(uv_async_t* handle) {
 
     /* Repair: add any work we didn't run back onto the front of wq. */
     uv_mutex_lock(&loop->wq_mutex);
-    if (!QUEUE_EMPTY(&wq))
-    {
-      leftover_work = 1;
-      while (!QUEUE_EMPTY(&wq)) {
-        q = QUEUE_HEAD(&wq);
-        QUEUE_REMOVE(q);
-        QUEUE_INIT(q);
-        QUEUE_INSERT_HEAD(&loop->wq, q);
-      }
+    while (!QUEUE_EMPTY(&wq)) {
+      q = QUEUE_HEAD(&wq);
+      QUEUE_REMOVE(q);
+      QUEUE_INIT(q);
+      QUEUE_INSERT_HEAD(&loop->wq, q);
+
+      /* These may be the last items ever put in loop->wq, so
+         async_send to ensure we come back through this loop. */
+      w = QUEUE_DATA(q, struct uv__work, wq);
+      uv_async_send(&w->loop->wq_async);
     }
-    else
-      leftover_work = 0;
     uv_mutex_unlock(&loop->wq_mutex);
 
     list_destroy_full(pending_done, sched_context_list_destroy_func, NULL); 
@@ -364,18 +363,13 @@ void uv__work_done(uv_async_t* handle) {
     mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is UV_AFTER_WORK_CB? %i\n", (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB));
   } while (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB);
 
-  /* There are still done items in loop->wq, but we aren't supposed to execute
-     them next. However, they may be the last items ever put in loop->wq, so
-     async_send to ensure we come back through this loop. */
-  if (leftover_work)
-    uv_async_send(&w->loop->wq_async);
 }
 
 static void uv__queue_work(struct uv__work* w) {
   uv_work_t* req = container_of(w, uv_work_t, work_req);
 
 #ifdef UNIFIED_CALLBACK
-  INVOKE_CALLBACK_1(UV_WORK_CB, req->work_cb, req);
+  INVOKE_CALLBACK_1(UV_WORK_CB, req->work_cb, (long) req);
 #else
   req->work_cb(req);
 #endif
@@ -396,7 +390,7 @@ static void uv__queue_done(struct uv__work* w, int err) {
     return;
 
 #ifdef UNIFIED_CALLBACK
-  INVOKE_CALLBACK_2(UV_AFTER_WORK_CB, req->after_work_cb, req, err);
+  INVOKE_CALLBACK_2(UV_AFTER_WORK_CB, req->after_work_cb, (long int) req, (long int) err);
 #else
   req->after_work_cb(req, err);
 #endif

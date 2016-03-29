@@ -146,15 +146,15 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   if (!list_empty(lcbn->dependencies))
     dependency_buf[strlen(dependency_buf)-1] = '\0';
 
-  snprintf(buf, size, "<name> <%s> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%s> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
+  snprintf(buf, size, "<name> <%s> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%s> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
     lcbn->name, 
     lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
     lcbn->cb, callback_type_to_string(lcbn->cb_type), 
     callback_behavior_to_string(callback_type_to_behavior(lcbn->cb_type)), 
     0, tree_depth(&lcbn->tree_node), tree_get_child_num(&lcbn->tree_node), lcbn->global_exec_id, lcbn->global_reg_id,
     lcbn->info, tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node), lcbn->parent_name,
-    lcbn->registration_time.tv_sec, lcbn->registration_time.tv_nsec, lcbn->start_time.tv_sec, lcbn->start_time.tv_nsec, lcbn->end_time.tv_sec, lcbn->end_time.tv_nsec, 
-    lcbn->executing_thread, lcbn->active, lcbn->finished,
+    (int) lcbn->registration_time.tv_sec, lcbn->registration_time.tv_nsec, (int) lcbn->start_time.tv_sec, lcbn->start_time.tv_nsec, (int) lcbn->end_time.tv_sec, lcbn->end_time.tv_nsec, 
+    (long) lcbn->executing_thread, lcbn->active, lcbn->finished,
     dependency_buf);
 
   return buf;
@@ -167,16 +167,21 @@ lcbn_t * lcbn_from_string (char *buf)
   static char context_str[32];
   static char cb_type_str[32];
   static char cb_behavior_str[32];
-  lcbn_t *lcbn;
+
+  long reg_sec, reg_nsec, start_sec, start_nsec, end_sec, end_nsec;
+  long executing_thread;
+
+  lcbn_t *lcbn = NULL;
   assert(buf != NULL);
   
   lcbn = lcbn_create_raw();
-  sscanf(buf, "<name> %s | <context> %*s | <context_type> %s | <cb> %*s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%*i> | <tree_level> <%*i> | <level_entry> <%*i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %s | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%i> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
+
+  sscanf(buf, "<name> %s | <context> %*s | <context_type> %s | <cb> %*s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%*i> | <tree_level> <%*i> | <level_entry> <%*i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %s | <registration_time> <%lis %lins> | <start_time> <%lis %lins> | <end_time> <%lis %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
     lcbn->name, context_str, cb_type_str, cb_behavior_str,
     &lcbn->global_exec_id, &lcbn->global_reg_id,
     lcbn->parent_name,
-    &lcbn->registration_time.tv_sec, &lcbn->registration_time.tv_nsec, &lcbn->start_time.tv_sec, &lcbn->start_time.tv_nsec, &lcbn->end_time.tv_sec, &lcbn->end_time.tv_nsec, 
-    &lcbn->executing_thread, &lcbn->active, &lcbn->finished, dependency_buf);
+    &reg_sec, &reg_nsec, &start_sec, &start_nsec, &end_sec, &end_nsec,
+    &executing_thread, &lcbn->active, &lcbn->finished, dependency_buf);
 
   str_peel_carats(lcbn->name);
   str_peel_carats(lcbn->parent_name);
@@ -188,13 +193,23 @@ lcbn_t * lcbn_from_string (char *buf)
   lcbn->cb_type = callback_type_from_string(cb_type_str);
   lcbn->cb_behavior = callback_behavior_from_string(cb_behavior_str);
 
+  lcbn->registration_time.tv_sec = reg_sec; 
+  lcbn->registration_time.tv_nsec = reg_nsec;
+  lcbn->start_time.tv_sec = start_sec;
+  lcbn->start_time.tv_nsec = start_nsec;
+  lcbn->end_time.tv_sec = end_sec;
+  lcbn->end_time.tv_nsec = end_nsec; 
+
+  lcbn->executing_thread = executing_thread;
+
   return lcbn;
 }
 
-void lcbn_tree_list_print_f (struct list_elem *e, int *fd)
+void lcbn_tree_list_print_f (struct list_elem *e, void *_fd)
 {
   lcbn_t *lcbn;
   static char buf[1024];
+  int *fd = (int *) _fd;
 
   assert(e);
   assert(fd);
@@ -259,7 +274,7 @@ int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
     return 0;
   }
 
-  mylog(LOG_LCBN, 5, "lcbn_semantic_equals: a %p type %i == b %p type %i? %i\n", a, a->cb_type, b, b->cb_type, a->cb_type == b->cb_type);
+  mylog(LOG_LCBN, 5, "lcbn_semantic_equals: a %p type %s == b %p type %s? %i\n", a, callback_type_to_string(a->cb_type), b, callback_type_to_string(b->cb_type), a->cb_type == b->cb_type);
   mylog(LOG_LCBN, 5, "lcbn_semantic_equals: a child num %i == b child num %i? %i\n", tree_get_child_num(&a->tree_node), tree_get_child_num(&b->tree_node), tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node));
 
   return (a->cb_type == b->cb_type

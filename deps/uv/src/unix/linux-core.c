@@ -155,11 +155,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   static int no_epoll_pwait;
   static int no_epoll_wait;
   struct uv__epoll_event events[1024];
-  struct uv__epoll_event* pe;
+  struct uv__epoll_event* pe = NULL;
   struct uv__epoll_event e;
   int real_timeout;
-  QUEUE* q;
-  uv__io_t* w;
+  QUEUE* q = NULL;
+  uv__io_t* w = NULL;
   sigset_t sigset;
   uint64_t sigmask;
   uint64_t base;
@@ -171,16 +171,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   int i;
 
   /* Supplies for scheduling. */
-  uv_handle_t *io_handle;
-  struct uv__async *io_wa;
-  struct loop *io_loop;
-  enum callback_context io_context;
+  uv_handle_t *io_handle = NULL;
+  uv_loop_t *io_loop = NULL;
   unsigned int io_events;
 
-  lcbn_t *lcbn;
-  struct list *pending_wrappers;
-  sched_context_t *sched_context;
-
+  struct list *pending_wrappers = NULL;
+  sched_context_t *sched_context = NULL;
 
   if (loop->nfds == 0) {
     assert(QUEUE_EMPTY(&loop->watcher_queue));
@@ -354,8 +350,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         w->iocb_events = io_events;
         if (w->cb == uv_uv__async_io_ptr())
         {
-          io_wa = container_of(w, struct uv__async, io_watcher);
-          io_loop = container_of(io_wa, uv_loop_t, async_watcher);
+          io_loop = loop;
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_ASYNC, io_loop)->elem);
         }
         else if (w->cb == uv_uv__inotify_read_ptr())
@@ -370,17 +365,17 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         }
         else if (w->cb == uv_uv__poll_io_ptr())
         {
-          io_handle = container_of(w, uv_poll_t, io_watcher);
+          io_handle = (uv_handle_t *) container_of(w, uv_poll_t, io_watcher);
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
         }
         else if (w->cb == uv_uv__stream_io_ptr())
         {
-          io_handle = container_of(w, uv_stream_t, io_watcher);
+          io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
         }
         else if (w->cb == uv_uv__server_io_ptr())
         {
-          io_handle = container_of(w, uv_stream_t, io_watcher);
+          io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
         }
         else
@@ -421,7 +416,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
         /* Run w. */
         mylog(LOG_MAIN, 7, "pre-invoke_callback: w->cb %p\n", w->cb);
-        INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, w->iocb_events);
+        INVOKE_CALLBACK_3(UV__IO_CB, w->cb, (long) loop, (long) w, (long) w->iocb_events);
         nevents++;
       }
       else

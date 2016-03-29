@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <assert.h>
+#include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 char log_class_strings[LOG_CLASS_MAX][100] = {
   "MAIN",
@@ -54,7 +57,6 @@ void set_verbosity (enum log_class logClass, int verbosity)
 
 void mylog (enum log_class logClass, int verbosity, const char *format, ...)
 {
-  int found;
   char buf1[2048];
   char buf2[2048];
 
@@ -85,7 +87,7 @@ void mylog (enum log_class logClass, int verbosity, const char *format, ...)
   strcat(buf1, buf2);
 
   pthread_mutex_lock(&log_lock);
-  printf(buf1);
+  printf("%s", buf1);
   pthread_mutex_unlock(&log_lock);
 
   fflush(NULL);

@@ -63,9 +63,9 @@ struct list * list_create (void);
 void list_destroy (struct list *list);
 void list_destroy_full (struct list *list, list_destroy_func f, void *aux);
 
-unsigned list_size (const struct list *list);
-int list_empty (const struct list *list);
-int list_looks_valid (const struct list *list);
+unsigned list_size (struct list *list);
+int list_empty (struct list *list);
+int list_looks_valid (struct list *list);
 
 struct list * list_split (struct list *list, unsigned split_size);
 /* Add the elements of BACK to the end of FRONT. list_destroy's BACK. */
@@ -95,12 +95,12 @@ struct list_elem * list_remove (struct list *list, struct list_elem *elem);
    } 
   
   Iteration is NOT thread-safe, so use list_lock and list_unlock to protect yourself. */
-struct list_elem * list_next (const struct list_elem *elem);
-struct list_elem * list_front (const struct list *list);
-struct list_elem * list_back (const struct list *list);
-struct list_elem * list_begin (const struct list *list);
-struct list_elem * list_end (const struct list *list);
-struct list_elem * list_head (const struct list *list);
+struct list_elem * list_next (struct list_elem *elem);
+struct list_elem * list_front (struct list *list);
+struct list_elem * list_back (struct list *list);
+struct list_elem * list_begin (struct list *list);
+struct list_elem * list_end (struct list *list);
+struct list_elem * list_head (struct list *list);
 
 void list_apply (struct list *list, list_apply_func f, void *aux);
 /* In-place sort. */

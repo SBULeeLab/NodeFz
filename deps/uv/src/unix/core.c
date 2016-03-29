@@ -265,7 +265,7 @@ static void uv__finish_close(uv_handle_t* handle) {
 
   if (handle->close_cb) {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_1 (UV_CLOSE_CB, handle->close_cb, handle);
+    INVOKE_CALLBACK_1 (UV_CLOSE_CB, handle->close_cb, (long) handle);
     /* We no longer need to remember the peer, since it was already used
        in invoke_callback. */
     handle->peer_info = NULL;
@@ -277,13 +277,13 @@ static void uv__finish_close(uv_handle_t* handle) {
 
 
 static void uv__run_closing_handles(uv_loop_t* loop) {
-  uv_handle_t *p, *q;
-  struct list *closing_handles;
-  struct list_elem *e;
-  sched_context_t *sched_context;
+  uv_handle_t *p = NULL;
+  struct list *closing_handles = NULL;
+  struct list_elem *e = NULL;
+  sched_context_t *sched_context = NULL;
 
   closing_handles = list_create();
-  for (p = loop->closing_handles; p != NULL; q = p, p = p->next_closing)
+  for (p = loop->closing_handles; p != NULL; p = p->next_closing)
   {
     sched_context = sched_context_create(EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES, CALLBACK_CONTEXT_HANDLE, p);
     list_push_back(closing_handles, &sched_context->elem);
@@ -840,7 +840,7 @@ static int uv__run_pending(uv_loop_t* loop) {
       mylog(LOG_MAIN, 7, "<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
       uv__uv__run_pending_set_active_cb(w->cb);
       w->iocb_events = UV__POLLOUT;
-      INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, UV__POLLOUT);
+      INVOKE_CALLBACK_3(UV__IO_CB, w->cb, (long) loop, (long) w, (long) UV__POLLOUT);
       uv__uv__run_pending_set_active_cb(NULL);
     }
     else
