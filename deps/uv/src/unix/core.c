@@ -371,19 +371,28 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     uv__update_time(loop);
 
   while (r != 0 && loop->stop_flag == 0) {
+    mylog(LOG_MAIN, 1, "uv_run: loop begins\n");
+
     uv__update_time(loop);
+    mylog(LOG_MAIN, 1, "uv_run: uv__run_timers\n");
     uv__run_timers(loop);
+    mylog(LOG_MAIN, 1, "uv_run: uv__run_pending\n");
     ran_pending = uv__run_pending(loop);
+    mylog(LOG_MAIN, 1, "uv_run: uv__run_idle\n");
     uv__run_idle(loop);
+    mylog(LOG_MAIN, 1, "uv_run: uv__run_prepare\n");
     uv__run_prepare(loop);
 
     timeout = 0;
     if ((mode == UV_RUN_ONCE && !ran_pending) || mode == UV_RUN_DEFAULT)
       timeout = uv_backend_timeout(loop);
 
+    mylog(LOG_MAIN, 1, "uv_run: uv__io_poll\n");
     uv__io_poll(loop, timeout);
+    mylog(LOG_MAIN, 1, "uv_run: uv__run_check\n");
     uv__run_check(loop);
     /* JD: This will invoke the close_cb of any closing handles that have one defined. */
+    mylog(LOG_MAIN, 1, "uv_run: uv__run_closing_handles\n");
     uv__run_closing_handles(loop);
 
     if (mode == UV_RUN_ONCE) {
@@ -396,6 +405,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
        * the check.
        */
       uv__update_time(loop);
+      mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (again)\n");
       uv__run_timers(loop);
     }
 

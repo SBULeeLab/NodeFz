@@ -76,6 +76,7 @@ static void worker(void* arg) {
   (void) arg;
 
   for (;;) {
+    mylog(LOG_THREADPOOL, 1, "worker: begins\n");
     uv_mutex_lock(&mutex);
 
     while (QUEUE_EMPTY(&wq)) {
@@ -137,6 +138,7 @@ static void worker(void* arg) {
                             executing. */
         QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
         uv_async_send(&w->loop->wq_async); /* signal a pending done CB to be executed through uv__work_done. */
+        mylog(LOG_THREADPOOL, 1, "worker: signal'd a ready 'done' item\n");
         uv_mutex_unlock(&w->loop->wq_mutex);
       }
       else
@@ -294,7 +296,7 @@ void uv__work_done(uv_async_t* handle) {
 
   /* Go once through the loop every time.
      If we get to the end of the loop and the next LCBN is a (not-yet-present) done item,
-     spin. Otherwise, by returning we introduce an unexpected UV_ASYNC_CB into the schedule. */
+     spin. If we don't spin, by returning we introduce an unexpected UV_ASYNC_CB into the schedule. */
   do
   {
     mylog(LOG_THREADPOOL, 5, "uv__work_done: Checking for done LCBNs\n");

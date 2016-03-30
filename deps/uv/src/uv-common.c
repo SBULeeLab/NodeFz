@@ -1794,13 +1794,11 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   assert(cbi);
 
-  printf("BEFORE: cbi->type %i\n", cbi->type);
-  mylog(LOG_MAIN, 5, "invoke_callback: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
+  mylog(LOG_MAIN, 7, "invoke_callback: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
 
   /* Determine the context. */
   cb_context = callback_type_to_context(cbi->type);
   is_logical_cb = (cb_context != CALLBACK_CONTEXT_UNKNOWN);
-  printf("AFTER: cbi->type %i\n", cbi->type);
   lcbn_orig = lcbn_new = NULL;
   if (is_logical_cb)
   {
@@ -1893,7 +1891,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   uv__metadata_unlock();
 
   /* Run the callback. */
-  mylog(LOG_MAIN, 5, "invoke_callback: invoking callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
 
   /* If CB is a logical callback, retrieve and update the LCBN. */
   if (is_logical_cb)
@@ -1948,7 +1945,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   cbn_stop(cbn);
 
-  mylog(LOG_MAIN, 5, "invoke_callback: Done with callback_node %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
+  mylog(LOG_MAIN, 7, "invoke_callback: Done invoking cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
 
   /* Done with the callback. */
   current_callback_node_set(cbn->physical_parent);
@@ -1964,7 +1961,6 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     uv__invoke_callback_lcbn_unlock();
   }
 
-  mylog(LOG_MAIN, 5, "invoke_callback: completed cbn %i: %s\n", cbn->id, cbn_to_string(cbn, buf, 1024));
   return cbn;
 }
 

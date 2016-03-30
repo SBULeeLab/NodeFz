@@ -394,15 +394,19 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         switch (sched_context->cb_context)
         {
           case CALLBACK_CONTEXT_IO_ASYNC:
+            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is an async event\n");
             w = &((uv_loop_t *) sched_context->wrapper)->async_watcher.io_watcher;
             break;
           case CALLBACK_CONTEXT_IO_INOTIFY_READ:
+            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is an inotify event\n");
             w = &((uv_loop_t *) sched_context->wrapper)->inotify_read_watcher;
             break;
           case CALLBACK_CONTEXT_IO_SIGNAL_EVENT:
+            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is a signal event\n");
             w = &((uv_loop_t *) sched_context->wrapper)->signal_io_watcher;
             break;
           case CALLBACK_CONTEXT_HANDLE:
+            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is a handle event\n");
             io_handle = (uv_handle_t *) sched_context->wrapper;
             if (io_handle->type == UV_POLL)
               w = &((uv_poll_t *) io_handle)->io_watcher;
@@ -415,7 +419,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         sched_context_destroy(sched_context);
 
         /* Run w. */
-        mylog(LOG_MAIN, 7, "pre-invoke_callback: w->cb %p\n", w->cb);
+        mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: w->cb %p\n", w->cb);
         INVOKE_CALLBACK_3(UV__IO_CB, w->cb, (long) loop, (long) w, (long) w->iocb_events);
         nevents++;
       }
