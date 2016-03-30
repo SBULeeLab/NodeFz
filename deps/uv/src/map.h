@@ -1,8 +1,6 @@
 #ifndef UV_SRC_MAP_H_
 #define UV_SRC_MAP_H_
 
-#include <pthread.h>
-
 /* Key-value store.
    You can store void *values associated with int keys.
    Attempting to store a key already associated with a value will overwrite the previous value.

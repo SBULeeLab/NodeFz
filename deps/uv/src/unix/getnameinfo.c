@@ -98,7 +98,8 @@ static void uv__getnameinfo_done_wrapper (uv_work_t *req, int status)
   name_req = (uv_getnameinfo_t *) req->data;
 
   uv__getnameinfo_done(&name_req->work_req, status);
-  free(req);
+  /* TODO Re-enable this.
+    uv__free(req); */
 }
 
 /*
@@ -144,7 +145,7 @@ int uv_getnameinfo(uv_loop_t* loop,
     lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_GETNAMEINFO_WORK_CB),
                         lcbn_get(req->cb_type_to_lcbn, UV_GETNAMEINFO_CB));
 
-    work_req = (uv_work_t *) malloc(sizeof *work_req);
+    work_req = (uv_work_t *) uv__malloc(sizeof *work_req);
     assert(work_req != NULL);
     memset(work_req, 0, sizeof *work_req);
     work_req->data = req;

@@ -116,7 +116,7 @@
                           lcbn_get(req->cb_type_to_lcbn, UV_FS_CB));          \
                                                                               \
       /* Wrapper for uv_queue_work. */                                        \
-      work_req = (uv_work_t *) malloc(sizeof *work_req);                      \
+      work_req = (uv_work_t *) uv__malloc(sizeof *work_req);                      \
       assert(work_req);                                                       \
       memset(work_req, 0, sizeof *work_req);                                  \
       work_req->data = req;                                                   \
@@ -939,7 +939,8 @@ static void uv__fs_done_wrapper(uv_work_t *req, int status) {
   addr_req = (uv_fs_t *) req->data;
 
   uv__fs_done(&addr_req->work_req, status);
-  free(req);
+  /* TODO Re-enable this.
+    uv__free(req); */
 }
 
 void * uv_uv__fs_work_ptr (void)

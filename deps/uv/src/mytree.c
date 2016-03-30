@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stddef.h> /* NULL */
 #include <string.h> /* memset */
+#include "uv-common.h" /* Allocators */
 
 #define TREE_NODE_MAGIC 88771122
 

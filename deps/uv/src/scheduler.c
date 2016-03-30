@@ -89,7 +89,7 @@ sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn)
   sched_lcbn_t *sched_lcbn;
   assert(lcbn);
 
-  sched_lcbn = (sched_lcbn_t *) malloc(sizeof *sched_lcbn);
+  sched_lcbn = (sched_lcbn_t *) uv__malloc(sizeof *sched_lcbn);
   assert(sched_lcbn != NULL);
   memset(sched_lcbn, 0, sizeof *sched_lcbn);
 
@@ -101,8 +101,8 @@ sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn)
 void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn)
 {
   assert(sched_lcbn);
-  memset(sched_lcbn, 0, sizeof *sched_lcbn);
-  free(sched_lcbn);
+  memset(sched_lcbn, 'c', sizeof *sched_lcbn);
+  uv__free(sched_lcbn);
 }
 
 sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *wrapper)
@@ -110,7 +110,7 @@ sched_context_t *sched_context_create (enum execution_context exec_context, enum
   sched_context_t *sched_context;
   assert(wrapper);
 
-  sched_context = (sched_context_t *) malloc(sizeof *sched_context);
+  sched_context = (sched_context_t *) uv__malloc(sizeof *sched_context);
   assert(sched_context != NULL);
   memset(sched_context, 0, sizeof *sched_context);
 
@@ -124,7 +124,7 @@ sched_context_t *sched_context_create (enum execution_context exec_context, enum
 void sched_context_destroy (sched_context_t *sched_context)
 {
   assert(sched_context);
-  free(sched_context);
+  uv__free(sched_context);
 }
 
 void sched_context_list_destroy_func (struct list_elem *e, void *aux){
@@ -173,7 +173,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
 
   /* Allocate a line for SCHEDULE_MODE_REPLAY. */
   line_len = 2048;
-  line = (char *) malloc(line_len*sizeof(char));
+  line = (char *) uv__malloc(line_len*sizeof(char));
   assert(line);
   memset(line, 0, line_len);
 
@@ -248,7 +248,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
   }
 
-  free(line);
+  uv__free(line);
 }
 
 void scheduler_record (sched_lcbn_t *sched_lcbn)

@@ -9,6 +9,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <assert.h>
+#include <stdlib.h>
+
+#include "uv-common.h" /* uv__malloc/free */
 
 char log_class_strings[LOG_CLASS_MAX][100] = {
   "MAIN",

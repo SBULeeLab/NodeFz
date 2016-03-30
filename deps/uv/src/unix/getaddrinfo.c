@@ -160,7 +160,8 @@ static void uv__getaddrinfo_done_wrapper (uv_work_t *req, int status)
   addr_req = (uv_getaddrinfo_t *) req->data;
 
   uv__getaddrinfo_done(&addr_req->work_req, status);
-  free(req);
+  /* TODO Re-enable this.
+    uv__free(req); */
 }
 
 void * uv_uv__getaddrinfo_done_ptr (void)
@@ -227,7 +228,7 @@ int uv_getaddrinfo(uv_loop_t* loop,
                         lcbn_get(req->cb_type_to_lcbn, UV_GETADDRINFO_CB));
 
 
-    work_req = (uv_work_t *) malloc(sizeof *work_req);
+    work_req = (uv_work_t *) uv__malloc(sizeof *work_req);
     assert(work_req != NULL);
     memset(work_req, 0, sizeof *work_req);
     work_req->data = req;

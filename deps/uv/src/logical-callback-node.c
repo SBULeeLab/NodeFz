@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include "uv-common.h" /* Allocators */
 
 /* Private declarations. */
 static void lcbn_mark_registration_time (lcbn_t *lcbn);
@@ -21,7 +22,7 @@ static lcbn_t * lcbn_create_raw (void)
 {
   lcbn_t *lcbn;
 
-  lcbn = malloc(sizeof *lcbn);
+  lcbn = (lcbn_t *) uv__malloc(sizeof *lcbn);
   assert(lcbn != NULL);
   memset(lcbn, 0, sizeof *lcbn);
 
@@ -95,7 +96,7 @@ void lcbn_destroy (lcbn_t *lcbn)
     return;
 
   list_destroy(lcbn->dependencies);
-  free(lcbn);
+  uv__free(lcbn);
 }
 
 /* Set the registration_time field. */
@@ -248,7 +249,7 @@ void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ)
   assert(pred != NULL);
   assert(succ != NULL);
 
-  dep = (lcbn_dependency_t *) malloc(sizeof *dep);
+  dep = (lcbn_dependency_t *) uv__malloc(sizeof *dep);
   assert(dep != NULL);
   dep->dependency = pred;
 

@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
+#include "uv-common.h" /* Allocators */
 
 #define MAP_MAGIC 11223344
 
@@ -31,7 +32,7 @@ struct map * map_create (void)
   struct map *new_map;
   pthread_mutexattr_t attr;
   
-  new_map = (struct map *) malloc (sizeof *new_map);
+  new_map = (struct map *) uv__malloc(sizeof *new_map);
   assert (new_map != NULL);
   new_map->magic = MAP_MAGIC;
   new_map->list = list_create();
@@ -60,7 +61,7 @@ void map_destroy (struct map *map)
     assert(le != NULL);
     me = list_entry(le, struct map_elem, elem); 
     assert(me != NULL);
-    free (me);
+    uv__free(me);
     le = NULL;
     me = NULL;
   }
@@ -68,7 +69,7 @@ void map_destroy (struct map *map)
 
   pthread_mutex_destroy(&map->lock);
   pthread_mutex_destroy(&map->_lock);
-  free(map);
+  uv__free(map);
 }
 
 unsigned map_size (struct map *map)
@@ -146,7 +147,7 @@ void map_insert (struct map *map, int key, void *value)
   if (!in_map)
   {
     /* This key is not yet in the map. Allocate a new map_elem and insert it (at the front for improved locality). */
-    new_me = (struct map_elem *) malloc(sizeof *new_me); 
+    new_me = (struct map_elem *) uv__malloc(sizeof *new_me); 
     assert(new_me != NULL);
     new_me->key = key;
     new_me->value = value;
@@ -216,7 +217,7 @@ void * map_remove (struct map *map, int key, int *found)
       ret = me->value;
       *found = 1;
       list_remove(map->list, le);
-      free(me);
+      uv__free(me);
       break;
     }
   }

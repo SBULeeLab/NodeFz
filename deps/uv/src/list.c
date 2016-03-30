@@ -4,6 +4,7 @@
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
 #include <string.h> /* memset */
+#include "uv-common.h" /* Allocators */
 
 #define LIST_MAGIC 12345678
 
@@ -24,7 +25,7 @@ static int list__sorted (struct list *list, list_sort_func f, void *aux);
 struct list * list_create (void)
 {
   struct list *ret;
-  ret = (struct list *) malloc(sizeof *ret);
+  ret = (struct list *) uv__malloc(sizeof *ret);
   assert(ret != NULL);
   memset(ret, 0, sizeof *ret);
   list_init(ret);

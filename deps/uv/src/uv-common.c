@@ -1042,7 +1042,7 @@ static void cbn_determine_parentage (struct callback_node *cbn)
     /* If the parent is from a client, inherit its peer_info. */
     if (0 <= cbn->true_client_id)
     {
-      free(cbn->peer_info);
+      uv__free(cbn->peer_info);
       cbn->peer_info = parent_to_inherit_from->peer_info;
     }
   }
@@ -1171,7 +1171,7 @@ static void cbn_inherit (struct callback_node *cbn)
     cbn->discovered_client_id = 0;
 
     /* Inherit peer_info. */
-    free(cbn->peer_info);
+    uv__free(cbn->peer_info);
     cbn->peer_info = cbn->physical_parent->peer_info;
     assert(cbn->peer_info != NULL);
     original_peer_info = 0;
@@ -1192,7 +1192,7 @@ static void cbn_inherit (struct callback_node *cbn)
     /* Inherit peer_info. */
     if (original_peer_info)
     {
-      free(cbn->peer_info);
+      uv__free(cbn->peer_info);
       original_peer_info = 0;
     }
     cbn->peer_info = cbn->logical_parent->peer_info;
@@ -1367,7 +1367,7 @@ static struct callback_node * cbn_create (void)
 {
   struct callback_node *cbn;
 
-  cbn = malloc(sizeof *cbn);
+  cbn = (struct callback_node *) uv__malloc(sizeof *cbn);
   assert(cbn != NULL);
   memset(cbn, 0, sizeof *cbn);
 
@@ -1388,7 +1388,7 @@ static struct callback_node * cbn_create (void)
   cbn->logical_children = list_create();
   cbn->lcbn = NULL;
 
-  cbn->peer_info = (struct sockaddr_storage *) malloc(sizeof *cbn->peer_info);
+  cbn->peer_info = (struct sockaddr_storage *) uv__malloc(sizeof *cbn->peer_info);
   assert(cbn->peer_info != NULL);
   memset(cbn->peer_info, 0, sizeof *cbn->peer_info);
 
@@ -2426,7 +2426,7 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
 
   /* OLD CODE FOLLOWS. */
 
-  co = (struct callback_origin *) malloc(sizeof *co);
+  co = (struct callback_origin *) uv__malloc(sizeof *co);
   assert(co != NULL);
   memset(co, 0, sizeof *co);
 
@@ -3059,7 +3059,7 @@ static unsigned lcbn_next_reg_id (void)
 /* TODO varargs */
 struct callback_info * cbi_create_0 (enum callback_type type, void *cb)
 {
-  struct callback_info *cbi = malloc(sizeof *cbi);
+  struct callback_info *cbi = uv__malloc(sizeof *cbi);
   assert(cbi);
   memset(cbi, 0, sizeof(*cbi));                   
 
