@@ -404,7 +404,11 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     if (scheduler_remaining() == 0)
     {
+      /* TODO It could be that the last item(s) are threadpool WORK CBs, one of which is fatal.
+         In this case it might still be active, because invoke_callback scheduler_advance's prior
+         to executing the CB. */
       mylog(LOG_MAIN, 1, "uv_run: No items left to schedule. I'm outta here!\n");
+      sleep(1); /* Hack. */
       exit(0);
     }
 
