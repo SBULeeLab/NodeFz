@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <assert.h>
 
 char log_class_strings[LOG_CLASS_MAX][100] = {
   "MAIN",
@@ -42,6 +43,7 @@ void init_log (void)
     verbosity_levels[i] = 3;
   /* Print log header. */
   printf("%-10s %-3s %-30s %-7s %-20s %-10s\n", "LOG CLASS", "VOL", "TIME", "PID", "TID", "MESSAGE");
+  fflush(NULL);
 }
 
 static int log_initialized (void)
@@ -57,38 +59,43 @@ void set_verbosity (enum log_class logClass, int verbosity)
 
 void mylog (enum log_class logClass, int verbosity, const char *format, ...)
 {
-  char buf1[2048];
-  char buf2[2048];
+  char buf[2048];
+  pid_t my_pid;
+  pthread_t my_tid;
+  va_list args;
+
+  struct timespec now;
+  char now_s[64];
+  struct tm t;
 
   if (get_verbosity(logClass) < verbosity)
     return;
 
   assert(log_initialized());
 
-  pid_t my_pid;
-  pthread_t my_tid;
-  va_list args;
-  time_t now;
-  char *now_s;
+  memset(buf, 0, sizeof buf);
 
-  /* Boilerplate into buf1. */
-  now = time (NULL);
-  now_s = ctime (&now);
-  now_s[strlen (now_s) - 1] = '\0'; /* Remove the trailing newline. */
+  pthread_mutex_lock(&log_lock); /* Monotonically increasing log timestamps. */
+  /* Prefix. */
   my_pid = getpid();
   my_tid = pthread_self();
-  sprintf(buf1, "%-10s %-3i %-30s %-7i %-20li ", log_class_strings[logClass], verbosity, now_s, my_pid, (long) my_tid);
 
-  /* printf into buf2. */
+  assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
+  localtime_r(&now.tv_sec, &t);
+
+  memset(now_s, 0, sizeof now_s);
+  strftime(now_s, sizeof now_s, "%a %b %d %H:%M:%S", &t);
+  sprintf(now_s + strlen(now_s), ".%09ld", now.tv_nsec);
+
+  snprintf(buf, 2048, "%-10s %-3i %-32s %-7i %-20li ", log_class_strings[logClass], verbosity, now_s, my_pid, (long) my_tid);
+
+  /* User's statement. */
   va_start(args, format);
-  vsprintf(buf2, format, args);
+  vsnprintf(buf + strlen(buf), 2048 - strlen(buf), format, args);
   va_end(args);
 
-  strcat(buf1, buf2);
-
-  pthread_mutex_lock(&log_lock);
-  printf("%s", buf1);
-  pthread_mutex_unlock(&log_lock);
-
+  printf("%s", buf);
   fflush(NULL);
+
+  pthread_mutex_unlock(&log_lock);
 }
