@@ -1642,6 +1642,7 @@ void unified_callback_init (void)
   set_verbosity(LOG_LCBN, 5);
   set_verbosity(LOG_SCHEDULER, 3);
   set_verbosity(LOG_THREADPOOL, 3);
+  set_verbosity(LOG_STREAM, 7);
 
   mylog(LOG_MAIN, 9, "DEBUG: Testing list\n");
   list_UT();

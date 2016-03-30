@@ -8,6 +8,7 @@ enum log_class
   LOG_LCBN,
   LOG_SCHEDULER,
   LOG_THREADPOOL,
+  LOG_STREAM,
   LOG_CLASS_MAX
 };
 

@@ -458,7 +458,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
   if (stream->connect_req) {
     uv__req_unregister(stream->loop, stream->connect_req);
 #if UNIFIED_CALLBACK
-    mylog(LOG_MAIN, 9, "uv__stream_destroy: destroying a connection\n");
+    mylog(LOG_STREAM, 9, "uv__stream_destroy: destroying a connection\n");
     INVOKE_CALLBACK_2(UV_CONNECT_CB, stream->connect_req->cb, (long) stream->connect_req, (long) -ECANCELED);
 #else
     stream->connect_req->cb(stream->connect_req, -ECANCELED);
@@ -477,7 +477,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
      */
     uv__req_unregister(stream->loop, stream->shutdown_req);
 #if UNIFIED_CALLBACK
-    mylog(LOG_MAIN, 9, "uv__stream_destroy: shutting down a connection\n");
+    mylog(LOG_STREAM, 9, "uv__stream_destroy: shutting down a connection\n");
     INVOKE_CALLBACK_2(UV_SHUTDOWN_CB, stream->shutdown_req->cb, (long) stream->shutdown_req, (long) -ECANCELED);
 #else
     stream->shutdown_req->cb(stream->shutdown_req, -ECANCELED);
@@ -568,7 +568,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       }
 
 #if UNIFIED_CALLBACK
-      mylog(LOG_MAIN, 9, "uv__server_io: accepting new connection failed\n");
+      mylog(LOG_STREAM, 9, "uv__server_io: accepting new connection failed\n");
       INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, (long) stream, (long) err);
 #else
       stream->connection_cb(stream, err);
@@ -579,7 +579,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;
 #if UNIFIED_CALLBACK
-    mylog(LOG_MAIN, 9, "uv__server_io: accepted new connection\n");
+    mylog(LOG_STREAM, 9, "uv__server_io: accepted new connection\n");
     INVOKE_CALLBACK_2(UV_CONNECTION_CB, stream->connection_cb, (long) stream, (long) 0);
 #else
     stream->connection_cb(stream, 0);
@@ -873,8 +873,10 @@ start:
   } else {
     do {
       if (iovcnt == 1) {
+        mylog(LOG_STREAM, 1, "uv__write: write'ing %i bytes\n", iov[0].iov_len);
         n = write(uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len);
       } else {
+        mylog(LOG_STREAM, 1, "uv__write: writev'ing %i vectors\n", iovcnt);
         n = writev(uv__stream_fd(stream), iov, iovcnt);
       }
     }
@@ -907,6 +909,7 @@ start:
     }
   } else {
     /* Successful write */
+    mylog(LOG_STREAM, 1, "uv__write: Successful write!\n");
 
     while (n >= 0) {
       uv_buf_t* buf = &(req->bufs[req->write_index]);
@@ -973,7 +976,7 @@ static void uv__write_callbacks(uv_stream_t* stream) {
   int queue_len;
 
   QUEUE_LEN(queue_len, q, &stream->write_completed_queue);
-  mylog(LOG_MAIN, 7, "uv__write_callbacks: %i completed requests to handle\n", queue_len);
+  mylog(LOG_STREAM, 7, "uv__write_callbacks: %i completed requests to handle\n", queue_len);
   while (!QUEUE_EMPTY(&stream->write_completed_queue)) {
     /* Pop a req off write_completed_queue. */
     q = QUEUE_HEAD(&stream->write_completed_queue);
@@ -1413,7 +1416,7 @@ static void uv__stream_connect(uv_stream_t* stream) {
   if (req->cb)
   {
 #if UNIFIED_CALLBACK
-    mylog(LOG_MAIN, 9, "uv__stream_connect: connecting\n");
+    mylog(LOG_STREAM, 9, "uv__stream_connect: connecting\n");
     INVOKE_CALLBACK_2(UV_CONNECT_CB, req->cb, (long) req, (long) error);
 #else
     req->cb(req, error);
@@ -1831,7 +1834,7 @@ static struct list * uv__ready_stream_lcbns_uv__read (uv_stream_t *stream, unsig
     /* Verify there are pending bytes. */
     assert(ioctl(uv__stream_fd(stream), FIONREAD, &pending_bytes) == 0);
     assert(0 < pending_bytes);
-    mylog(LOG_MAIN, 9, "uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
+    mylog(LOG_STREAM, 9, "uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
 
     lcbn = lcbn_get(stream->cb_type_to_lcbn, UV_ALLOC_CB);
     assert(lcbn && lcbn->cb);
