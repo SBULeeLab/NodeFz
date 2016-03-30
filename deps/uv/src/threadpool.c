@@ -111,6 +111,7 @@ static void worker(void* arg) {
     }
 
     /* Find, remove, and execute the work next in the schedule. */
+    mylog(LOG_THREADPOOL, 5, "worker: %i ready 'work' items\n", list_size(pending_work));
     while (!list_empty(pending_work))
     {
       sched_context = scheduler_next_context(pending_work);
@@ -146,6 +147,7 @@ static void worker(void* arg) {
     }
 
     /* Repair: add any work we didn't run back onto the front of wq. */
+    mylog(LOG_THREADPOOL, 5, "worker: deferred %i 'work' items\n", list_size(pending_work));
     uv_mutex_lock(&mutex);
     while (!QUEUE_EMPTY(&wq_buf)) {
       q = QUEUE_HEAD(&wq_buf);
@@ -322,6 +324,7 @@ void uv__work_done(uv_async_t* handle) {
     /* Find, remove, and execute the work next in the schedule. */
     while (!list_empty(pending_done))
     {
+      mylog(LOG_THREADPOOL, 5, "uv__work_done: %i pending 'done' items\n", list_size(pending_done));
       sched_context = scheduler_next_context(pending_done);
       if (sched_context)
       {
@@ -339,6 +342,7 @@ void uv__work_done(uv_async_t* handle) {
 
         /* Run the done item. */
         err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
+        mylog(LOG_THREADPOOL, 5, "uv__work_done: Next work item: w->done %p\n", w->done);
         INVOKE_CALLBACK_2(UV__WORK_DONE, w->done, (long int) w, (long int) err);
       }
       else
@@ -346,6 +350,7 @@ void uv__work_done(uv_async_t* handle) {
     }
 
     /* Repair: add any work we didn't run back onto the front of wq. */
+    mylog(LOG_THREADPOOL, 5, "uv__work_done: deferred %i 'done' items\n", list_size(pending_done));
     uv_mutex_lock(&loop->wq_mutex);
     while (!QUEUE_EMPTY(&wq)) {
       q = QUEUE_HEAD(&wq);

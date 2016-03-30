@@ -1342,7 +1342,7 @@ void current_callback_node_set (struct callback_node *cbn)
   if (cbn == NULL)
     mylog(LOG_MAIN, 9, "current_callback_node_set: Next callback will be a root\n");
   else
-    mylog(LOG_MAIN, 9, "current_callback_node_set: Current CBN for %li is %p\n", (long) pthread_self(), (void *) cbn);
+    mylog(LOG_MAIN, 9, "current_callback_node_set: Current CBN is %p\n", (void *) cbn);
 }
 
 /* Retrieves the current callback node for this thread, or NULL if no such node. 
@@ -1934,7 +1934,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     /* Advance the scheduler prior to invoking the CB. 
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
        the nested ones will perceive themselves as 'next'. */
-    mylog(LOG_MAIN, 5, "invoke_callback: cb_type %s; advancing the scheduler\n", callback_type_to_string(lcbn_new->cb_type));
+    mylog(LOG_MAIN, 5, "invoke_callback: lcbn %p (type %s); advancing the scheduler\n", 
+      lcbn_new, callback_type_to_string(lcbn_new->cb_type));
     scheduler_advance();
   }
 
@@ -1945,7 +1946,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
 
   cbn_stop(cbn);
 
-  mylog(LOG_MAIN, 7, "invoke_callback: Done invoking cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
+  mylog(LOG_MAIN, 7, "invoke_callback: Done invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
 
   /* Done with the callback. */
   current_callback_node_set(cbn->physical_parent);
@@ -1953,10 +1954,11 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
   /* If a logical callback, restore the previous lcbn. */
   if (is_logical_cb)
   {
-    lcbn_current_set(lcbn_orig);
-    mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p parent %p cb %p\n",
-      lcbn_new, 0, cbi->cb);
+    mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s)\n",
+      lcbn_new, callback_type_to_string(lcbn_new->cb_type));
     lcbn_mark_end(lcbn_new);
+
+    lcbn_current_set(lcbn_orig);
 
     uv__invoke_callback_lcbn_unlock();
   }
@@ -2742,6 +2744,8 @@ static void cbn_execute_callback (struct callback_node *cbn)
   info = cbn->info;
   assert(info->cb);
 
+  mylog(LOG_MAIN, 3, "Executing cb %p\n", info->cb);
+
   /* Invoke the callback. */
   switch (info->type)
   {
@@ -3003,7 +3007,7 @@ void lcbn_current_set (lcbn_t *lcbn)
   if (lcbn == NULL)
     mylog(LOG_MAIN, 5, "lcbn_current_set: Next callback will be a root\n");
   else
-    mylog(LOG_MAIN, 5, "lcbn_current_set: Current CBN for %li is %p (type %s)\n", (long) pthread_self(), (void *) lcbn, callback_type_to_string(lcbn->cb_type));
+    mylog(LOG_MAIN, 5, "lcbn_current_set: Current LCBN is %p (type %s)\n", (void *) lcbn, callback_type_to_string(lcbn->cb_type));
   map_unlock(tid_to_current_lcbn);
 }
 
