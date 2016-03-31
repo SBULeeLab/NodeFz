@@ -902,3 +902,19 @@ Scheduling:
       WORK1, ASYNC, DONE1, WORK2, ASYNC, DONE2
     Note the addition of a second ASYNC CB to ensure that we can get to DONE2.
     This will require "shifting" exec IDs in the second schedule.
+
+-----------------
+
+uv memory allocation:
+  uv__malloc, uv__free, uv__calloc, uv__realloc:
+    wrappers for (static) 'uv__allocater.local_X'
+  Wrappers can call uv_replace_allocator and replace the allocator functions
+  with their own equivalent ones if they want to use another memory management scheme.
+
+  The defaults are libc malloc/free/calloc/realloc.
+  Node.js does not call uv_replace_allocator, so libuv uses the vanilla options.
+
+-----------------
+
+uv__work_cancel:
+  work items that can be cancelled (those not yet grabbed by a threadpool thread and not yet executed) have their work set to uv__cancelled and are added to loop->wq to get picked up by uv__work_done. In uv__work_done, if w->work == uv__cancelled then w->done is invoked with UV_ECANCELED
