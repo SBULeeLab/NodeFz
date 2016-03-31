@@ -11,7 +11,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include "uv-common.h" /* uv__malloc/free */
+#include "uv-common.h" /* uv__malloc/uv__free */
 
 char log_class_strings[LOG_CLASS_MAX][100] = {
   "MAIN",
@@ -62,7 +62,8 @@ void set_verbosity (enum log_class logClass, int verbosity)
 
 void mylog (enum log_class logClass, int verbosity, const char *format, ...)
 {
-  char buf[2048];
+  int bufSize = 2048;
+  char *buf = NULL;
   pid_t my_pid;
   pthread_t my_tid;
   va_list args;
@@ -76,29 +77,34 @@ void mylog (enum log_class logClass, int verbosity, const char *format, ...)
 
   assert(log_initialized());
 
-  memset(buf, 0, sizeof buf);
+  buf = (char *) uv__malloc(bufSize*sizeof(char));
+  assert(buf);
+  memset(buf, 0, bufSize);
 
   pthread_mutex_lock(&log_lock); /* Monotonically increasing log timestamps. */
+
   /* Prefix. */
   my_pid = getpid();
   my_tid = pthread_self();
 
-  assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
+  assert(clock_gettime(CLOCK_REALTIME, &now) == 0);
   localtime_r(&now.tv_sec, &t);
 
   memset(now_s, 0, sizeof now_s);
   strftime(now_s, sizeof now_s, "%a %b %d %H:%M:%S", &t);
   sprintf(now_s + strlen(now_s), ".%09ld", now.tv_nsec);
 
-  snprintf(buf, 2048, "%-10s %-3i %-32s %-7i %-20li ", log_class_strings[logClass], verbosity, now_s, my_pid, (long) my_tid);
+  snprintf(buf, bufSize, "%-10s %-3i %-32s %-7i %-20li ", log_class_strings[logClass], verbosity, now_s, my_pid, (long) my_tid);
 
   /* User's statement. */
   va_start(args, format);
-  vsnprintf(buf + strlen(buf), 2048 - strlen(buf), format, args);
+  vsnprintf(buf + strlen(buf), bufSize - strlen(buf), format, args);
   va_end(args);
 
-  printf("%s", buf);
+  fprintf(stdout, "%s", buf);
   fflush(NULL);
 
   pthread_mutex_unlock(&log_lock);
+
+  uv__free(buf);
 }
