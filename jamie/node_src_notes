@@ -290,10 +290,109 @@ Answer:
 
 A cursory inspection of Node-JS stdio architecture:
   1. In lib/*js, "process.X" means look at node/src/node.js
-  2. createWritableStdioStream DOES guess at the stdio "type" (e.g. terminal vs. a file)
+  2. See   startup.processStdio
+    - createWritableStdioStream's for stdout, stderr
+    - createReadStream's for stdin
+    - sets up SIGWINCH (change in window size) handlers for the streams
+  3. createWritableStdioStream DOES guess at the stdio "type" (e.g. terminal vs. a file)
     and obtain a stream to stdio accordingly. This means that it's entirely "reasonable" that
     behavior might change based on "blah" vs. "blah > /tmp/out".
+
+If stdout is redirected to a file, console.log commands are
+converetd to fs.writeSync requests.
+  src/node.js: 
+    case 'FILE':
+      var fs = NativeModule.require('fs');
+      stream = new fs.SyncWriteStream(fd, { autoClose: false }); 
+      stream._type = 'fs';
+      break;
+  lib/fs.js:
+    SyncWriteStream.prototype.write = function(data, arg1, arg2) {
+      ...
+      fs.writeSync(this.fd, data, 0, data.length);
+    }
+If stdout is a TTY, console.log commands work as follows:
+  src/node.js:
+    case 'TTY':
+      var tty = NativeModule.require('tty');
+      stream = new tty.WriteStream(fd);
+      stream._type = 'tty';
+      break;
+  lib/tty.js:
+    function WriteStream(fd) {
+      if (!(this instanceof WriteStream)) return new WriteStream(fd);
+      net.Socket.call(this, {
+        handle: new TTY(fd, false),
+        readable: false,
+        writable: true
+      }); 
+
+      var winSize = []; 
+      var err = this._handle.getWindowSize(winSize);
+      if (!err) {
+        this.columns = winSize[0];
+        this.rows = winSize[1];
+      }
+    }
+
+  const TTY = process.binding('tty_wrap').TTY;
+ 
+  inherits(WriteStream, net.Socket);
+
+  lib/net.js:
+    Socket.prototype.write = function(chunk, encoding, cb) {
+      if (typeof chunk !== 'string' && !(chunk instanceof Buffer))
+        throw new TypeError('invalid data');
+      return stream.Duplex.prototype.write.apply(this, arguments);
+    };
+  lib/stream.js:
+    Stream.Duplex = require('_stream_duplex');
+  /lib/_stream_duplex.js:
+    const Readable = require('_stream_readable');
+    const Writable = require('_stream_writable');
+  /lib/_stream_writable.js:
+    Writable.prototype.write = function(chunk, encoding, cb) {
+      ...
+      if (state.ended)
+        writeAfterEnd(this, cb);
+      else if (validChunk(this, state, chunk, cb)) {
+        state.pendingcb++;
+        ret = writeOrBuffer(this, state, chunk, encoding, cb);
+      }
+    }
+  
+    ...
+
+    // if we're already writing something, then just put this
+    // in the queue, and wait our turn.  Otherwise, call _write
+    // If we return false, then we need a drain event, so set that flag.
+    function writeOrBuffer(stream, state, chunk, encoding, cb) {
+      ...
+      if (state.writing || state.corked) {
+        var last = state.lastBufferedRequest;
+        state.lastBufferedRequest = new WriteReq(chunk, encoding, cb);
+        if (last) {
+          last.next = state.lastBufferedRequest;
+        } else {
+          state.bufferedRequest = state.lastBufferedRequest;
+        }
+      } else {
+        doWrite(stream, state, false, len, chunk, encoding, cb);
+      }
+      ...
+
+      Eventually clearBuffer will be called, which will handle any
+      pending requests.
+
+      // if there's something in the buffer waiting, then process it
+      function clearBuffer(stream, state) {
+ 
+  
 
 --------------------------------------------
 
 Looking for process.nextTick and friends? See node/src/node.js
+
+--------------------------------------------
+
+To reduce compiler optimizations, search for -O in node/common.gypi 

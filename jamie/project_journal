@@ -1157,6 +1157,35 @@ OPEN PROBLEMS:
   In fs_several.js, UV_ASYNC_CB shows up as the final item in RECORD, but REPLAY hangs without getting to it.
   I'm guessing I'm missing a uv_async_send somewhere?
 
+---------
+
+Wed 30 Mar 2016
+
+1. Reasonable overhaul and debugging for UV_WRITE_CB. 
+   When ssh'ing into woody from my laptop, the UV_WRITE_CB bug seems to be gone.
+   We'll see if it's just an ssh session (timing?) thing tomorrow when I'm in the office. 
+   But for now let's proceed.
+
+2. A variety of tests now pass. I fleshed out test_loop a bit. 
+   fs_several fails with trailing UV_ASYNC_CB, need to figure this out.
+
+---------
+
+Thur 31 Mar 2016
+
+1. I solved the trailing UV_ASYNC_CB bug. It was a benign race condition 
+  between the threadpool threads and the looper thread.
+  See commit message in 893f80c3a for details.
+
+2. I developed a run_tests wrapper to run tests in RECORD and REPLAY mode,
+delivering SIGINT for me. Requires the test to be self-driven and to
+complete within ~2 seconds. See 47cb3cdb0d7a7.
+
+Oh noes, the jumping bug has returned. run_tests can now hit it regularly.
+
+   - httpserver_complex_schedule fails. I must explore this further.
+   - need to try MUD too
+
 --------------------------------
 
 Next steps:
