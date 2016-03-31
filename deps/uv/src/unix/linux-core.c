@@ -231,6 +231,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   real_timeout = timeout;
 
   for (;;) {
+    mylog(LOG_MAIN, 9, "uv__io_poll: Top of the loop\n");
     /* See the comment for max_safe_timeout for an explanation of why
      * this is necessary.  Executive summary: kernel bug workaround.
      */
@@ -249,7 +250,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     else
       mylog(LOG_MAIN, 3, "uv__io_poll: %i items left in schedule\n", scheduler_remaining());
 
-    mylog(LOG_MAIN, 5, "epoll'ing\n");
+    mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing\n");
     if (no_epoll_wait != 0 || (sigmask != 0 && no_epoll_pwait == 0)) {
       nfds = uv__epoll_pwait(loop->backend_fd,
                              events,
@@ -266,7 +267,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (nfds == -1 && errno == ENOSYS)
         no_epoll_wait = 1;
     }
-    mylog(LOG_MAIN, 5, "done epoll'ing\n");
+    mylog(LOG_MAIN, 5, "uv__io_poll: done epoll'ing\n");
 
     if (sigmask != 0 && no_epoll_pwait != 0)
       if (pthread_sigmask(SIG_UNBLOCK, &sigset, NULL))
@@ -390,7 +391,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (sched_context)
       {
         list_remove(pending_wrappers, &sched_context->elem);
-        /* TODO Move this extraction step to a scheduler API. */
         switch (sched_context->cb_context)
         {
           case CALLBACK_CONTEXT_IO_ASYNC:
@@ -421,6 +421,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         /* Run w. */
         mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: w->cb %p\n", w->cb);
         INVOKE_CALLBACK_3(UV__IO_CB, w->cb, (long) loop, (long) w, (long) w->iocb_events);
+        mylog(LOG_MAIN, 7, "uv__io_poll: Done with work item\n");
         nevents++;
       }
       else

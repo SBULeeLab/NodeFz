@@ -698,8 +698,6 @@ static int cbn_is_active_pending_cb (const struct callback_node *cbn);
 static int cbn_is_active (const struct callback_node *cbn);
 static void cbn_execute_callback (struct callback_node *cbn);
 
-static char * cbn_to_string (struct callback_node *cbn, char *buf, int size);
-
 static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_type, void (*f)(struct callback_node *, void *), void *aux);
 
 /* Functions for cbn_walk. */
@@ -1638,11 +1636,11 @@ void unified_callback_init (void)
     return;
 
   init_log();
-  set_verbosity(LOG_MAIN, 5);
-  set_verbosity(LOG_LCBN, 5);
+  set_verbosity(LOG_MAIN, 3);
+  set_verbosity(LOG_LCBN, 3);
   set_verbosity(LOG_SCHEDULER, 3);
   set_verbosity(LOG_THREADPOOL, 3);
-  set_verbosity(LOG_STREAM, 7);
+  set_verbosity(LOG_STREAM, 3);
 
   mylog(LOG_MAIN, 9, "DEBUG: Testing list\n");
   list_UT();
@@ -2862,6 +2860,7 @@ static void cbn_execute_callback (struct callback_node *cbn)
   }
 }
 
+#if 0
 /* Debugging routine. To combat the annoying <optimized out> in gdb. */
 static char * cbn_to_string (struct callback_node *cbn, char *buf, int size)
 {
@@ -2882,6 +2881,7 @@ static char * cbn_to_string (struct callback_node *cbn, char *buf, int size)
 
   return buf;
 }
+#endif
 
 #if 0
 /* Debugging routine. To combat the annoying <optimized out> in gdb. */

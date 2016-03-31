@@ -73,6 +73,8 @@ static void worker(void* arg) {
   struct list *pending_work;
   sched_context_t *sched_context;
 
+  int tmp_queue_size = 0;
+
   (void) arg;
 
   for (;;) {
@@ -157,7 +159,10 @@ static void worker(void* arg) {
     }
     uv_mutex_unlock(&mutex);
 
+#if 0
+    /* TODO */
     list_destroy_full(pending_work, sched_context_list_destroy_func, NULL); 
+#endif
   }
 }
 
@@ -365,7 +370,10 @@ void uv__work_done(uv_async_t* handle) {
     }
     uv_mutex_unlock(&loop->wq_mutex);
 
+#if 0
+    /* TODO */
     list_destroy_full(pending_done, sched_context_list_destroy_func, NULL); 
+#endif
     /* TODO DEBUG */
     mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is UV_AFTER_WORK_CB? %i\n", (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB));
   } while (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB);
