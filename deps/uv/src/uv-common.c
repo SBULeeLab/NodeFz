@@ -1907,7 +1907,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
 
-    mylog(LOG_MAIN, 5, "invoke_callback: invoking lcbn %p context %p parent %p (parent type %s) cb %p type %s lcbn_orig %p\n",
+    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p context %p parent %p (parent type %s) cb %p type %s lcbn_orig %p\n",
       lcbn_new, context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
     lcbn_mark_begin(lcbn_new);
 

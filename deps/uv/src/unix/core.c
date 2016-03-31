@@ -373,7 +373,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   while (r != 0 && loop->stop_flag == 0) {
     /* TODO Testing: This should allow the threadpool to complete all of its pending work -> deterministic behavior.
     sleep(1); */
-    mylog(LOG_MAIN, 1, "uv_run: loop begins\n");
+    mylog(LOG_MAIN, 1, "uv_run: loop begins (%i CBs run, %i remaining, next %s)\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
     uv__update_time(loop);
     mylog(LOG_MAIN, 1, "uv_run: uv__run_timers\n");

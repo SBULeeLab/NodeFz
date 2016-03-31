@@ -266,14 +266,10 @@ int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
   {
     assert(a->cb_type == CALLBACK_TYPE_INITIAL_STACK);
     assert(b->cb_type == CALLBACK_TYPE_INITIAL_STACK);
-    printf("lcbn_semantic_equals: MATCH\n");
     return 1;
   }
   if (!a_par || !b_par)
-  {
-    printf("lcbn_semantic_equals: MISMATCH\n");
     return 0;
-  }
 
   mylog(LOG_LCBN, 5, "lcbn_semantic_equals: a %p type %s == b %p type %s? %i\n", a, callback_type_to_string(a->cb_type), b, callback_type_to_string(b->cb_type), a->cb_type == b->cb_type);
   mylog(LOG_LCBN, 5, "lcbn_semantic_equals: a child num %i == b child num %i? %i\n", tree_get_child_num(&a->tree_node), tree_get_child_num(&b->tree_node), tree_get_child_num(&a->tree_node) == tree_get_child_num(&b->tree_node));
