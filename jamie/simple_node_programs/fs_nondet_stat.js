@@ -1,6 +1,6 @@
 /*
-  Let's watch the inheritance graph when an async callback
-  launches an async callback.
+  Simple non-deterministic application.
+  Non-determinism is due to threadpool.
 */
 
 var fs = require("fs");
