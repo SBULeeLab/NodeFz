@@ -381,6 +381,12 @@ void uv__work_done(uv_async_t* handle) {
     mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is UV_AFTER_WORK_CB? %i\n", (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB));
   } while (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB);
 
+  /* Ensure it's always possible to come back here. 
+     In RECORD mode, a race between worker and looper can cause us to come here
+     with no pending done items, which is unlikely in REPLAY mode without
+     this. */
+  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    uv_async_send(&loop->wq_async);
 }
 
 static void uv__queue_work(struct uv__work* w) {
