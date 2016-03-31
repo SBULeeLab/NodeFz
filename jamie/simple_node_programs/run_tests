@@ -1,0 +1,280 @@
+#!/usr/bin/env perl
+#Author: Jamie Davis <davisjam@vt.edu>
+#Description: Use to test the node record/replay system
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+
+#Globals
+my @requested_tests;
+my $niter = 5;
+my $redirect = 0;
+
+#arg processing
+if (not @ARGV or not GetOptions(
+  "niter=i" => \$niter,
+  "redirect" => \$redirect,
+  ))
+{
+  &usage();
+  exit 1;
+}
+@requested_tests = @ARGV; #remaining items in @ARGV are the requested tests
+&assert((@requested_tests), "Error, you must request at least one test");
+
+for my $t (@requested_tests) {
+  &assert((-f $t), "Error, no file '$t' found");
+}
+
+my @passed_tests;
+my @failed_tests;
+for my $test (@requested_tests) {
+  my $rc = &run_test($test);
+  if ($rc == 0) {
+    push @passed_tests, $test;
+  }
+  else {
+    push @failed_tests, $test;
+  }
+}
+
+my $rc = 0;
+my $exitMsg = "";
+if (@failed_tests) {
+  $rc = 1;
+  $exitMsg = "Error, the following tests failed: <@failed_tests>";
+}
+else {
+  $rc = 0;
+  $exitMsg = "Success, all tests passed";
+}
+
+&log($exitMsg);
+exit $rc;
+
+####################################
+# Application functions
+####################################
+
+#input: ($test)
+#output: ($rc)
+#returns 0 on success, non-zero on failure
+#uses globals: $niter, $redirect
+sub run_test
+{
+  my ($test) = @_;
+  &assert((-f $test), "run_test: Error, no such file '$test'");
+
+  my $sched_file = "/tmp/schedule_file.sched";
+
+  my ($cmd, $cpid, $nodePid, $exists);
+  my (@allProcesses, @nodeProcesses);
+  my $nodeProcess;
+
+  my (@origCoreFiles, @newCoreFiles);
+
+  @origCoreFiles = glob 'core.node.*';
+  for (my $i = 0; $i < $niter; $i++) {
+    &log("run_test: test '$test' iter $i");
+    
+    unlink $sched_file;
+
+    #Record
+    $cmd = "UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$sched_file node $test";
+    if ($redirect) {
+      $cmd .= " > /tmp/record_out";
+    }
+    &log("run_test: test '$test': Record child cmd\n  $cmd");
+
+    {
+      $cpid = fork;
+      &assert((defined $cpid), "run_test: Error, record fork failed: $!");
+      if ($cpid) {
+        last;
+      }
+      exec $cmd;
+    }
+    sleep 3;
+
+    #Identify node process
+    @allProcesses = &ps();
+    @nodeProcesses = grep { $_->{CMD} eq "node $test" } @allProcesses;
+    &assert(scalar(@nodeProcesses) == 1);
+    $nodeProcess = shift @nodeProcesses;
+    &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
+
+    #Signal process dump its schedule and exit
+    $nodePid = $nodeProcess->{PID};
+    $exists = kill 0, $nodePid;
+    &assert(($exists), "run_test: Error, record node child (pid $nodePid) does not exist");
+    &log("Sending INT to $nodePid");
+    kill 'INT', $nodePid;
+    sleep 1;
+
+    sleep 1;
+    &assert((-f $sched_file and -s $sched_file > 0), "Error, after record, sched_file <$sched_file> does not exist or is empty");
+
+    @newCoreFiles = glob 'core.node.*';
+    &assert((scalar(@origCoreFiles) <= scalar(@newCoreFiles)), "Error, some core files disappeared? before <@origCoreFiles> after <@newCoreFiles>");
+    if (scalar(@origCoreFiles) < scalar(@newCoreFiles)) {
+      my @new = grep { not &in($_, \@origCoreFiles) } @newCoreFiles;
+      &log("run_test: test '$test' iter $i: Record: Error, new core file(s) have been generated: <@new>. Something has gone wrong!");
+      return 1;
+    }
+
+    #Replay
+    $cmd = "UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$sched_file node $test";
+    if ($redirect) {
+      $cmd .= " > /tmp/replay_out";
+    }
+    &log("run_test: test '$test': Replay child cmd\n  $cmd");
+
+    {
+      $cpid = fork;
+      &assert((defined $cpid), "run_test: Error, replay fork failed: $!");
+      if ($cpid) {
+        last;
+      }
+      exec $cmd;
+    }
+    sleep 3;
+
+    #Identify node process
+    @allProcesses = &ps();
+    @nodeProcesses = grep { $_->{CMD} eq "node $test" } @allProcesses;
+    &assert(scalar(@nodeProcesses) <= 1);
+    if (scalar(@nodeProcesses)) {
+      #If replay is still running, it hasn't exited by itself
+      $nodeProcess = shift @nodeProcesses;
+      &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
+
+      $nodePid = $nodeProcess->{PPID};
+      kill 'KILL', $nodePid;
+
+      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself");
+      return 1;
+    }
+
+    @newCoreFiles = glob 'core.node.*';
+    &assert((scalar(@origCoreFiles) <= scalar(@newCoreFiles)), "Error, some core files disappeared? before <@origCoreFiles> after <@newCoreFiles>");
+    if (scalar(@origCoreFiles) < scalar(@newCoreFiles)) {
+      my @new = grep { not &in($_, \@origCoreFiles) } @newCoreFiles;
+      &log("run_test: test '$test' iter $i: Replay: Error, new core file(s) have been generated: <@new>. Something has gone wrong!");
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+sub usage
+{
+  print "Description: Use to test the node record/replay system
+Usage: $0 [--niter X] [--redirect] t1 t2 ...
+  --niter: Run this many iterations of each test. Default is 5.
+  --redirect: Send output to a file instead of stdout.
+  t1 t2 ...: List of tests (Node.js apps) you wish to run.
+Example: $0 --niter 5 fs_several.js fs_several_stat.js
+";
+}
+
+####################################
+# Helper routines
+####################################
+
+#input: ($cmd)
+#output: ($out)
+# asserts on rc != 0
+sub chkcmd
+{
+  my ($cmd) = @_;
+  my ($rc, $out) = &runcmd($cmd);
+  &assert(($rc eq 0), "chkcmd: error, <$cmd> gave rc $rc out\n\n$out");
+
+  return $out;
+}
+
+#input: ($cmd)
+#output: ($rc, $out)
+sub runcmd
+{
+  my ($cmd) = @_;
+  chomp $cmd;
+
+  $cmd .= " 2>&1";
+  print "$cmd\n";
+
+  my $out = `$cmd`;
+  my $rc = ($? >> 8);
+  return ($rc, $out);
+}
+  
+#input: ($cond, $msg)
+sub assert
+{
+  my ($cond, $msg) = @_;
+  if (not $cond)
+  {
+    print "$msg\n";
+    exit 1;
+  }
+}
+
+#input: ($msg)
+sub log
+{
+  my ($msg) = @_;
+  print localtime . ": $msg\n";
+}
+
+#input: ($msg)
+#log $msg and then exit 1
+sub halt
+{
+  my ($msg) = @_;
+  &log($msg);
+  exit(1);
+}
+
+#input: ($elt, \@list)
+#output: 1 if $elt is in \@list, else 0
+sub in
+{
+  my ($elt, $list) = @_;
+  my @list = @$list;
+  for my $e (@list)
+  {
+    return 1 if ($e eq $elt);
+  }
+  return 0;
+}
+
+#input: ()
+#output: (@processes)
+#  list of hashrefs with keys: UID PID PPID C STIME TTY TIME CMD
+sub ps
+{
+  my @out = `ps -ef`;
+  chomp @out;
+
+  my $labels = shift @out;
+  my @labels = split(" ", $labels);
+  #last one is open-ended
+  &assert($labels[-1] eq "CMD");
+
+  my @processes;
+  for my $line (@out) {
+    my %process;
+    my @fields = split(" ", $line);
+    &assert((scalar(@labels) <= scalar(@fields)), "Error, unexpected line <$line> (fields <@fields>) does not have enough content for labels <@labels>");
+    for (my $i = 0; $i < scalar(@labels)-1; $i++) {
+      $process{$labels[$i]} = shift @fields;
+    }
+    $process{$labels[-1]} = join(" ", @fields);
+    push @processes, \%process;
+  }
+
+  return @processes;
+}
