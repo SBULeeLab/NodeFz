@@ -2650,8 +2650,8 @@ void Isolate::RunMicrotasks() {
 
     for (int i = 0; i < num_tasks; i++) {
       printf("Isolate::RunMicrotasks: Running task %i/%i\n", i+1, num_tasks);
-      /* JD: Any microtasks are fatal for now -- not included in scheduler. Have not yet considered how to deal with them. */
-      assert(0 == 1);
+      /* JD: Any microtasks are fatal for now -- not included in record/replay system. Have not yet considered how to deal with them. */
+      assert(!"Isolate::RunMicrotasks: Not yet supported");
       HandleScope scope(this);
       Handle<Object> microtask(queue->get(i), this);
       if (microtask->IsJSFunction()) {
