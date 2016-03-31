@@ -262,19 +262,19 @@ void uv__work_submit(uv_loop_t* loop,
 
 
 static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
-  int cancelled;
+  int can_cancel;
 
   uv_mutex_lock(&mutex);
   uv_mutex_lock(&w->loop->wq_mutex);
 
-  cancelled = !QUEUE_EMPTY(&w->wq) && w->work != NULL;
-  if (cancelled)
+  can_cancel = !QUEUE_EMPTY(&w->wq) && w->work != NULL;
+  if (can_cancel)
     QUEUE_REMOVE(&w->wq);
 
   uv_mutex_unlock(&w->loop->wq_mutex);
   uv_mutex_unlock(&mutex);
 
-  if (!cancelled)
+  if (!can_cancel)
     return UV_EBUSY;
 
   w->work = uv__cancelled;
@@ -293,14 +293,14 @@ void uv__work_done(uv_async_t* handle) {
   uv_loop_t* loop = NULL;
   uv_work_t *req = NULL;
   QUEUE* q = NULL;
-  QUEUE wq;
+  QUEUE wq_buf;
   int err;
 
   struct list *pending_done = NULL;
   sched_context_t *sched_context = NULL;
 
   loop = container_of(handle, uv_loop_t, wq_async);
-  QUEUE_INIT(&wq);
+  QUEUE_INIT(&wq_buf);
 
   /* Go once through the loop every time.
      If we get to the end of the loop and the next LCBN is a (not-yet-present) done item,
@@ -311,13 +311,13 @@ void uv__work_done(uv_async_t* handle) {
     uv_mutex_lock(&loop->wq_mutex);
     if (!QUEUE_EMPTY(&loop->wq)) {
       q = QUEUE_HEAD(&loop->wq);
-      QUEUE_SPLIT(&loop->wq, q, &wq);
+      QUEUE_SPLIT(&loop->wq, q, &wq_buf);
     }
     uv_mutex_unlock(&loop->wq_mutex);
 
-    /* Interpret wq as list of uv__work contexts. */
+    /* Interpret wq_buf as list of uv__work contexts. */
     pending_done = list_create();
-    QUEUE_FOREACH(q, &wq) {
+    QUEUE_FOREACH(q, &wq_buf) {
       w = QUEUE_DATA(q, struct uv__work, wq);
       req = container_of(w, uv_work_t, work_req);
       assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
@@ -342,7 +342,7 @@ void uv__work_done(uv_async_t* handle) {
         assert(w);
         sched_context_destroy(sched_context);
 
-        /* Remove from wq. */
+        /* Remove from wq_buf. */
         q = &w->wq;
         QUEUE_REMOVE(q);
         QUEUE_INIT(q);
@@ -359,8 +359,8 @@ void uv__work_done(uv_async_t* handle) {
     /* Repair: add any work we didn't run back onto the front of loop's wq. */
     mylog(LOG_THREADPOOL, 3, "uv__work_done: deferred %i 'done' items\n", list_size(pending_done));
     uv_mutex_lock(&loop->wq_mutex);
-    while (!QUEUE_EMPTY(&wq)) {
-      q = QUEUE_HEAD(&wq);
+    while (!QUEUE_EMPTY(&wq_buf)) {
+      q = QUEUE_HEAD(&wq_buf);
       QUEUE_REMOVE(q);
       QUEUE_INIT(q);
       QUEUE_INSERT_HEAD(&loop->wq, q);
