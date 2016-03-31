@@ -94,6 +94,7 @@ enum schedule_mode
 /* Record mode: SCHEDULE_FILE is where to send output.
    Replay mode: SCHEDULE_FILE is where to find schedule. */
 void scheduler_init (enum schedule_mode mode, char *schedule_file);
+enum schedule_mode scheduler_get_mode (void);
 
 /* Record. */
 
@@ -144,8 +145,9 @@ int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
    LCBN is allowed to complete before a new (non-nested) LCBN is invoked. */
 void scheduler_advance (void);
 
-/* How many LCBNs remain to be scheduled? 
-   If in RECORD mode, returns -1. */
+/* How many LCBNs have already been/remain to be scheduled? 
+   remaining: If in RECORD mode, returns -1. */
+int scheduler_already_run (void);
 int scheduler_remaining (void);
 
 /* Each type of handle and req should declare a function of this type in internal.h

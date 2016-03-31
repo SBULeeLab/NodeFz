@@ -13,25 +13,23 @@
 
 #define SCHEDULER_MAGIC 8675309 /* Jenny. */
 
-struct scheduler_s
+/* Globals. */
+struct
 {
+  /* RECORD, REPLAY modes. */
   enum schedule_mode mode;
   char schedule_file[256];
+  int magic;
 
   struct list *recorded_schedule; /* List of the registered sched_lcbn_t's; in registration order. */
+  struct list *executed_schedule; /* List of the executed sched_lcbn_t's, in order of execution. */
 
   /* REPLAY mode. */
   lcbn_t *shadow_root; /* Root of the "shadow tree" -- the registration tree described in the input file. */
   struct map *name_to_lcbn; /* Used to map hash(name) to lcbn. Allows us to re-build the tree. */
   struct list *desired_schedule; /* A tree_as_list list (rooted at shadow_root) of sched_lcbn_t's, expressing desired execution order, first to last. We discard internal nodes (e.g. initial stack node). We left-shift as we execute nodes. */
   int n_executed;
-
-  int magic;
-};
-typedef struct scheduler_s scheduler_t;
-
-/* Globals. */
-scheduler_t scheduler;
+} scheduler;
 
 /* Private API declarations. */
 static int scheduler_initialized (void);
@@ -78,8 +76,8 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
   assert(next_lcbn);
 
   equal = lcbn_semantic_equals(next_lcbn, ready_lcbn->lcbn);
-  verbosity = equal ? 3 : 5;
-  mylog(LOG_SCHEDULER, verbosity, "sched_lcbn_is_next: exec_id %i next_lcbn %p (name %s) ready_lcbn %p equal? %i\n", next_lcbn->global_exec_id, next_lcbn, next_lcbn->name, ready_lcbn->lcbn, equal);
+  verbosity = equal ? 5 : 7;
+  mylog(LOG_SCHEDULER, verbosity, "sched_lcbn_is_next: exec_id %i next_lcbn %p (name %s) ready_lcbn %p type %s equal? %i\n", next_lcbn->global_exec_id, next_lcbn, next_lcbn->name, ready_lcbn->lcbn, callback_type_to_string(ready_lcbn->lcbn->cb_type), equal);
   return equal;
 }
 
@@ -142,7 +140,7 @@ static int scheduler_initialized (void)
 /* TODO DEBUGGING. */
 static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 {
-  lcbn_t *lcbn;
+  lcbn_t *lcbn = NULL;
   char buf[2048];
 
   assert(e);
@@ -182,6 +180,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   scheduler.magic = SCHEDULER_MAGIC;
   scheduler.recorded_schedule = list_create();
   scheduler.desired_schedule = NULL;
+  scheduler.executed_schedule = list_create();
   scheduler.n_executed = 1; /* Skip initial stack. */
 
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
@@ -249,6 +248,12 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   }
 
   uv__free(line);
+}
+
+enum schedule_mode scheduler_get_mode (void)
+{
+  assert(scheduler_initialized());
+  return scheduler.mode;
 }
 
 void scheduler_record (sched_lcbn_t *sched_lcbn)
@@ -467,25 +472,29 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 /* Must be called with mutex held. */
 void scheduler_advance (void)
 {
-  lcbn_t *lcbn;
+  lcbn_t *lcbn = NULL;
   assert(scheduler_initialized());
-  if (scheduler.mode != SCHEDULE_MODE_REPLAY)
-    return;
 
-  assert(!list_empty(scheduler.desired_schedule));
+  if (scheduler.mode == SCHEDULE_MODE_REPLAY)
+  {
+    assert(!list_empty(scheduler.desired_schedule));
 
-  lcbn = tree_entry(list_entry(list_pop_front(scheduler.desired_schedule),
-                               tree_node_t, tree_as_list_elem),
-                    lcbn_t, tree_node);
-  /* Make sure we're executing the right one! 
-     If not, this is probably a sign that the input schedule has been
-     modified incorrectly. */
-  assert(lcbn->global_exec_id == scheduler.n_executed);
+    lcbn = tree_entry(list_entry(list_pop_front(scheduler.desired_schedule),
+                                 tree_node_t, tree_as_list_elem),
+                      lcbn_t, tree_node);
+    /* Make sure we're executing the right one! 
+       If not, this is probably a sign that the input schedule has been
+       modified incorrectly. */
+    assert(lcbn);
+    assert(lcbn->global_exec_id == scheduler.n_executed);
+    mylog(LOG_SCHEDULER, 1, "schedule_advance: discarding lcbn %p (exec_id %i type %s)\n",
+      lcbn, lcbn->global_exec_id, callback_type_to_string(lcbn->cb_type));
+    fflush(NULL);
+
+    list_push_back(scheduler.executed_schedule, &sched_lcbn_create(lcbn)->elem);
+  }
+
   scheduler.n_executed++;
-  mylog(LOG_SCHEDULER, 1, "schedule_advance: discarding lcbn %p (exec_id %i type %s)\n",
-    lcbn, lcbn->global_exec_id, callback_type_to_string(lcbn->cb_type));
-  fflush(NULL);
-  lcbn = NULL;
 }
 
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
@@ -511,6 +520,12 @@ struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context
 
   ret = (*func)(handle, context);
   return ret;
+}
+
+int scheduler_already_run (void)
+{
+  assert(scheduler_initialized());
+  return scheduler.n_executed;
 }
 
 int scheduler_remaining (void)
