@@ -67,7 +67,7 @@ int uv_fs_poll_start(uv_fs_poll_t* handle,
     return 0;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, cb, UV_FS_POLL_CB);
+  uv__register_callback(handle, (any_func) cb, UV_FS_POLL_CB);
 #endif
 
   loop = handle->loop;
@@ -145,7 +145,7 @@ struct list * uv__ready_fs_poll_lcbns(void *h, enum execution_context exec_conte
   {
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       list_push_back(ready_fs_poll_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;
     default:
@@ -214,7 +214,7 @@ static void poll_cb(uv_fs_t* req) {
   if (req->result != 0) {
     if (ctx->busy_polling != req->result) {
 #ifdef UNIFIED_CALLBACK
-      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, ctx->poll_cb, (long int) ctx->parent_handle, (long int) req->result, (long int) &ctx->statbuf, (long int) &zero_statbuf);
+      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, (any_func) ctx->poll_cb, (long int) ctx->parent_handle, (long int) req->result, (long int) &ctx->statbuf, (long int) &zero_statbuf);
 #else
       ctx->poll_cb(ctx->parent_handle, req->result, &ctx->statbuf, &zero_statbuf);
 #endif
@@ -229,7 +229,7 @@ static void poll_cb(uv_fs_t* req) {
     if (ctx->busy_polling < 0 || !statbuf_eq(&ctx->statbuf, statbuf))
     {
 #ifdef UNIFIED_CALLBACK
-      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, ctx->poll_cb, (long int) ctx->parent_handle, 0, (long int) &ctx->statbuf, (long int) statbuf);
+      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, (any_func) ctx->poll_cb, (long int) ctx->parent_handle, 0, (long int) &ctx->statbuf, (long int) statbuf);
 #else
       ctx->poll_cb(ctx->parent_handle, 0, &ctx->statbuf, statbuf);
 #endif

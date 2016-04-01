@@ -345,8 +345,8 @@ int uv_udp_recv_start(uv_udp_t* handle,
   else
   {
 #ifdef UNIFIED_CALLBACK
-    uv__register_callback(handle, (void *) alloc_cb, UV_ALLOC_CB);
-    uv__register_callback(handle, (void *) recv_cb, UV_UDP_RECV_CB);
+    uv__register_callback(handle, (any_func) alloc_cb, UV_ALLOC_CB);
+    uv__register_callback(handle, (any_func) recv_cb, UV_UDP_RECV_CB);
     /* ALLOC -> UDP_RECV. */
     lcbn_add_dependency(lcbn_get(handle->cb_type_to_lcbn, UV_ALLOC_CB),
                         lcbn_get(handle->cb_type_to_lcbn, UV_UDP_RECV_CB));
@@ -379,7 +379,7 @@ void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
     h = QUEUE_DATA(q, uv_handle_t, handle_queue);
     if (h->flags & UV__HANDLE_INTERNAL) continue;
 #ifdef UNIFIED_CALLBACK
-    INVOKE_CALLBACK_2 (UV_WALK_CB, walk_cb, (long) h, (long) arg); 
+    INVOKE_CALLBACK_2 (UV_WALK_CB, (any_func) walk_cb, (long) h, (long) arg); 
 #else
     walk_cb(h, arg);
 #endif
@@ -1141,7 +1141,7 @@ static int cbn_is_active_pending_cb (const struct callback_node *cbn)
   assert(cbn->info != NULL);
 
   return (uv__uv__run_pending_active() && 
-          (void *) cbn->info->cb == uv__uv__run_pending_get_active_cb());
+          cbn->info->cb == uv__uv__run_pending_get_active_cb());
 }
 
 /* Returns non-zero if CBN is active, zero else. */
@@ -1636,11 +1636,11 @@ void unified_callback_init (void)
     return;
 
   init_log();
-  set_verbosity(LOG_MAIN, 3);
-  set_verbosity(LOG_LCBN, 3);
-  set_verbosity(LOG_SCHEDULER, 3);
-  set_verbosity(LOG_THREADPOOL, 3);
-  set_verbosity(LOG_STREAM, 3);
+  set_verbosity(LOG_MAIN, 5);
+  set_verbosity(LOG_LCBN, 1);
+  set_verbosity(LOG_SCHEDULER, 5);
+  set_verbosity(LOG_THREADPOOL, 5);
+  set_verbosity(LOG_STREAM, 1);
 
   mylog(LOG_MAIN, 9, "DEBUG: Testing list\n");
   list_UT();
@@ -1778,7 +1778,6 @@ int sync_cb_thread_initialized = 0;
    Returns the CBN allocated for the callback. */
 struct callback_node * invoke_callback (struct callback_info *cbi)
 {
-  char buf[1024];
   struct callback_node *cbn = NULL;
   int is_threadpool_CB;
 
@@ -2366,7 +2365,7 @@ static void calc_relative_time (struct timespec *start, struct timespec *res)
    Use callback_type_to_context and callback_type_to_behavior to deal with it. 
    If CONTEXT is a uv_req_t *, it must have been uv_req_init'd already. 
    */
-void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
+void uv__register_callback (void *context, any_func cb, enum callback_type cb_type)
 {
   struct callback_node *cbn;
   struct callback_origin *co;
@@ -2487,7 +2486,7 @@ void uv__register_callback (void *context, void *cb, enum callback_type cb_type)
       uv__signal_event      -> WAS_UV__SIGNAL_EVENT 
       uv__work_done         -> WAS_UV__WORK_DONE 
 */
-struct callback_origin * uv__callback_origin (void *cb)
+struct callback_origin * uv__callback_origin (any_func cb)
 {
   struct callback_origin *co;
   int key;
@@ -2531,7 +2530,7 @@ struct callback_origin * uv__callback_origin (void *cb)
 
     else if (cb == uv_uv__signal_event_ptr())
       return (void *) WAS_UV__SIGNAL_EVENT;
-    else if (cb == uv__work_done)
+    else if (cb == (any_func) uv__work_done)
       return (void *) WAS_UV__WORK_DONE;
 
     else
@@ -2631,7 +2630,7 @@ int uv__uv_run_active (void)
 
 /* Tracking whether or not we're in uv__run_pending. */
 int uv__run_pending_active = 0;
-void * uv__run_pending_active_cb = NULL;
+any_func uv__run_pending_active_cb = NULL;
 /* Note that we've entered libuv's uv__run_pending loop. */
 void uv__mark_uv__run_pending_begin (void)
 {
@@ -2658,12 +2657,12 @@ int uv__uv__run_pending_active (void)
 }
 
 /* Set and get the active CB in uv__run_pending. */
-void * uv__uv__run_pending_get_active_cb (void)
+any_func uv__uv__run_pending_get_active_cb (void)
 {
   return uv__run_pending_active_cb;
 }
 
-void uv__uv__run_pending_set_active_cb (void *cb)
+void uv__uv__run_pending_set_active_cb (any_func cb)
 {
   uv__run_pending_active_cb = cb;
 }
@@ -3058,7 +3057,7 @@ static unsigned lcbn_next_reg_id (void)
 }
 
 /* TODO varargs */
-struct callback_info * cbi_create_0 (enum callback_type type, void *cb)
+struct callback_info * cbi_create_0 (enum callback_type type, any_func cb)
 {
   struct callback_info *cbi = uv__malloc(sizeof *cbi);
   assert(cbi);
@@ -3071,77 +3070,77 @@ struct callback_info * cbi_create_0 (enum callback_type type, void *cb)
   return cbi;
 }
 
-struct callback_info * cbi_create_1 (enum callback_type type, void *cb, long arg0)
+struct callback_info * cbi_create_1 (enum callback_type type, any_func cb, long arg0)
 {
   struct callback_info *cbi = cbi_create_0(type, cb);
   cbi->args[0] = arg0;
   return cbi;
 }
 
-struct callback_info * cbi_create_2 (enum callback_type type, void *cb, long arg0, long arg1)
+struct callback_info * cbi_create_2 (enum callback_type type, any_func cb, long arg0, long arg1)
 {
   struct callback_info *cbi = cbi_create_1(type, cb, arg0);
   cbi->args[1] = arg1;
   return cbi;
 }
 
-struct callback_info * cbi_create_3 (enum callback_type type, void *cb, long arg0, long arg1, long arg2)
+struct callback_info * cbi_create_3 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2)
 {
   struct callback_info *cbi = cbi_create_2(type, cb, arg0, arg1);
   cbi->args[2] = arg2;
   return cbi;
 }
 
-struct callback_info * cbi_create_4 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3)
+struct callback_info * cbi_create_4 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3)
 {
   struct callback_info *cbi = cbi_create_3(type, cb, arg0, arg1, arg2);
   cbi->args[3] = arg3;
   return cbi;
 }
 
-struct callback_info * cbi_create_5 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3, long arg4)
+struct callback_info * cbi_create_5 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3, long arg4)
 {
   struct callback_info *cbi = cbi_create_4(type, cb, arg0, arg1, arg2, arg3);
   cbi->args[4] = arg4;
   return cbi;
 }
 
-struct callback_node * INVOKE_CALLBACK_0 (enum callback_type type, void *cb)
+struct callback_node * INVOKE_CALLBACK_0 (enum callback_type type, any_func cb)
 {
   struct callback_info *cbi = cbi_create_0(type, cb); 
   mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_0: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
   return invoke_callback(cbi);
 }
 
-struct callback_node * INVOKE_CALLBACK_1 (enum callback_type type, void *cb, long arg0)
+struct callback_node * INVOKE_CALLBACK_1 (enum callback_type type, any_func cb, long arg0)
 {
   struct callback_info *cbi = cbi_create_1(type, cb, arg0); 
   mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_1: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
   return invoke_callback(cbi);
 }
 
-struct callback_node * INVOKE_CALLBACK_2 (enum callback_type type, void *cb, long arg0, long arg1)
+struct callback_node * INVOKE_CALLBACK_2 (enum callback_type type, any_func cb, long arg0, long arg1)
 {
   struct callback_info *cbi = cbi_create_2(type, cb, arg0, arg1); 
   mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_2: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
   return invoke_callback(cbi);
 }
 
-struct callback_node * INVOKE_CALLBACK_3 (enum callback_type type, void *cb, long arg0, long arg1, long arg2)
+struct callback_node * INVOKE_CALLBACK_3 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2)
 {
   struct callback_info *cbi = cbi_create_3(type, cb, arg0, arg1, arg2); 
   mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_3: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
   return invoke_callback(cbi);
 }
 
-struct callback_node * INVOKE_CALLBACK_4 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3)
+struct callback_node * INVOKE_CALLBACK_4 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3)
 {
   struct callback_info *cbi = cbi_create_4(type, cb, arg0, arg1, arg2, arg3); 
   mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_4: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
   return invoke_callback(cbi);
 }
 
-struct callback_node * INVOKE_CALLBACK_5 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3, long arg4)
+struct callback_node * INVOKE_CALLBACK_5 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3, long arg4)
 {
   struct callback_info *cbi = cbi_create_5(type, cb, arg0, arg1, arg2, arg3, arg4);
   mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_5: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));

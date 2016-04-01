@@ -1,6 +1,7 @@
 #ifndef UV_LOGICAL_CALLBACK_NODE_H_
 #define UV_LOGICAL_CALLBACK_NODE_H_
 
+#include "misc-decls.h"
 #include "unified-callback-enums.h"
 #include "list.h"
 #include "mytree.h"
@@ -23,7 +24,7 @@ struct lcbn_s
   char parent_name[32];
 
   void *context; /* Request or handle with which this LCBN is associated. */
-  void *cb;
+  any_func cb;
   enum callback_context cb_context;
   enum callback_type cb_type; 
   enum callback_behavior cb_behavior;
@@ -46,7 +47,7 @@ struct lcbn_s
   pthread_t executing_thread; /* Which thread executes us? */
 };
 
-lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type);
+lcbn_t * lcbn_create (void *context, any_func cb, enum callback_type cb_type);
 void lcbn_add_child (lcbn_t *parent, lcbn_t *child);
 void lcbn_destroy (lcbn_t *lcbn);
 
@@ -60,7 +61,7 @@ lcbn_t * lcbn_from_string (char *buf);
 void lcbn_tree_list_print_f (struct list_elem *e, void *fd);
 
 void * lcbn_get_context (lcbn_t *lcbn);
-void * lcbn_get_cb (lcbn_t *lcbn);
+any_func lcbn_get_cb (lcbn_t *lcbn);
 enum callback_type lcbn_get_cb_type (lcbn_t *lcbn);
 
 /* Add PRED to SUCC's list of dependencies. */

@@ -365,12 +365,13 @@ unsigned list_size (struct list *list)
 /* Return 1 if empty, 0 else. */
 int list_empty (struct list *list)
 {
+  int empty = 0;
   assert(list != NULL);
 
   list__lock(list);
   assert(list_looks_valid(list));
 
-  int empty = (list->head.next == &list->tail);
+  empty = (list->head.next == &list->tail);
   if (empty)
     assert(0 == list->n_elts);
   else
@@ -501,10 +502,10 @@ void list_UT (void)
 /* Apply F to each element in LIST. */
 void list_apply (struct list *list, list_apply_func f, void *aux)
 {
+  struct list_elem *e = NULL;
   assert(list);
   assert(list_looks_valid(list));
 
-  struct list_elem *e;
   if (f)
   {
     for (e = list_begin (list); e != list_end (list); e = list_next (e))

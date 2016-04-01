@@ -182,7 +182,7 @@ int uv__tcp_connect(uv_connect_t* req,
   QUEUE_INIT(&req->queue);
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, (void *) cb, UV_CONNECT_CB);
+  uv__register_callback(req, (any_func)  cb, UV_CONNECT_CB);
 #endif
 
   handle->connect_req = req;
@@ -424,7 +424,7 @@ struct list * uv__ready_tcp_lcbns(void *h, enum execution_context exec_context)
       list_concat(ready_tcp_lcbns, uv__ready_stream_lcbns(handle, exec_context));
 
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_tcp_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

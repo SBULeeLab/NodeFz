@@ -54,9 +54,9 @@ RB_GENERATE_STATIC(uv__signal_tree_s,
                    uv_signal_s, tree_entry,
                    uv__signal_compare)
 
-void * uv_uv__signal_event_ptr (void)
+any_func uv_uv__signal_event_ptr (void)
 {
-  return (void *) uv__signal_event;
+  return (any_func) uv__signal_event;
 }
 
 
@@ -304,7 +304,7 @@ int uv_signal_start(uv_signal_t* handle, uv_signal_cb signal_cb, int signum) {
     return -EINVAL;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, signal_cb, UV_SIGNAL_CB);
+  uv__register_callback(handle, (any_func) signal_cb, UV_SIGNAL_CB);
 #endif
 
   /* Short circuit: if the signal watcher is already watching {signum} don't
@@ -392,7 +392,7 @@ static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events) 
       if (msg->signum == handle->signum) {
         assert(!(handle->flags & UV_CLOSING));
 #ifdef UNIFIED_CALLBACK
-        INVOKE_CALLBACK_2(UV_SIGNAL_CB, handle->signal_cb, (long) handle, (long) handle->signum);
+        INVOKE_CALLBACK_2(UV_SIGNAL_CB, (any_func) handle->signal_cb, (long) handle, (long) handle->signum);
 #else
         handle->signal_cb(handle, handle->signum);
 #endif
@@ -492,7 +492,7 @@ struct list * uv__ready_signal_lcbns(void *h, enum execution_context exec_contex
   {
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_signal_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

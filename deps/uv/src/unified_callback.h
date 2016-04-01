@@ -21,7 +21,7 @@ struct callback_origin
 {
   enum callback_origin_type origin;
   enum callback_type type;
-  void (*cb)();
+  any_func cb;
 };
 
 /* Description of an instance of a callback. */
@@ -29,7 +29,7 @@ struct callback_info
 {
   enum callback_type type;
   enum callback_origin_type origin;
-  void (*cb)();
+  any_func cb;
   long args[MAX_CALLBACK_NARGS]; /* Must be wide enough for the widest arg type. Seems to be 8 bytes. */
 };
 
@@ -90,19 +90,19 @@ struct callback_node * get_init_stack_callback_node (void);
 lcbn_t * get_init_stack_lcbn (void);
 struct callback_node * invoke_callback (struct callback_info *);
 
-struct callback_info * cbi_create_0 (enum callback_type type, void *cb);
-struct callback_info * cbi_create_1 (enum callback_type type, void *cb, long arg0);
-struct callback_info * cbi_create_2 (enum callback_type type, void *cb, long arg0, long arg1);
-struct callback_info * cbi_create_3 (enum callback_type type, void *cb, long arg0, long arg1, long arg2);
-struct callback_info * cbi_create_4 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3);
-struct callback_info * cbi_create_5 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3, long arg4);
+struct callback_info * cbi_create_0 (enum callback_type type, any_func cb);
+struct callback_info * cbi_create_1 (enum callback_type type, any_func cb, long arg0);
+struct callback_info * cbi_create_2 (enum callback_type type, any_func cb, long arg0, long arg1);
+struct callback_info * cbi_create_3 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2);
+struct callback_info * cbi_create_4 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3);
+struct callback_info * cbi_create_5 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3, long arg4);
 
-struct callback_node * INVOKE_CALLBACK_0 (enum callback_type type, void *cb);
-struct callback_node * INVOKE_CALLBACK_1 (enum callback_type type, void *cb, long arg0);
-struct callback_node * INVOKE_CALLBACK_2 (enum callback_type type, void *cb, long arg0, long arg1);
-struct callback_node * INVOKE_CALLBACK_3 (enum callback_type type, void *cb, long arg0, long arg1, long arg2);
-struct callback_node * INVOKE_CALLBACK_4 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3);
-struct callback_node * INVOKE_CALLBACK_5 (enum callback_type type, void *cb, long arg0, long arg1, long arg2, long arg3, long arg4);
+struct callback_node * INVOKE_CALLBACK_0 (enum callback_type type, any_func cb);
+struct callback_node * INVOKE_CALLBACK_1 (enum callback_type type, any_func cb, long arg0);
+struct callback_node * INVOKE_CALLBACK_2 (enum callback_type type, any_func cb, long arg0, long arg1);
+struct callback_node * INVOKE_CALLBACK_3 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2);
+struct callback_node * INVOKE_CALLBACK_4 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3);
+struct callback_node * INVOKE_CALLBACK_5 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3, long arg4);
 
 time_t get_relative_time (void);
 

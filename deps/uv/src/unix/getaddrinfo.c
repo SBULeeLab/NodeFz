@@ -106,17 +106,17 @@ static void uv__getaddrinfo_work_wrapper (uv_work_t *req)
 {
   uv_getaddrinfo_t *addr_req;
   addr_req = (uv_getaddrinfo_t *) req->data;
-  INVOKE_CALLBACK_1(UV_GETADDRINFO_WORK_CB, uv__getaddrinfo_work, (long) &addr_req->work_req);
+  INVOKE_CALLBACK_1(UV_GETADDRINFO_WORK_CB, (any_func) uv__getaddrinfo_work, (long) &addr_req->work_req);
 }
 
-void * uv_uv__getaddrinfo_work_wrapper_ptr (void)
+any_func uv_uv__getaddrinfo_work_wrapper_ptr (void)
 {
-  return (void *) uv__getaddrinfo_work_wrapper;
+  return (any_func) uv__getaddrinfo_work_wrapper;
 }
 
-void * uv_uv__getaddrinfo_work_ptr (void)
+any_func uv_uv__getaddrinfo_work_ptr (void)
 {
-  return (void *) uv__getaddrinfo_work;
+  return (any_func) uv__getaddrinfo_work;
 }
 
 static void uv__getaddrinfo_done(struct uv__work* w, int status) {
@@ -147,7 +147,7 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   if (req->cb)
   {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV_GETADDRINFO_CB, req->cb, (long) req, (long) req->retcode, (long) req->addrinfo);
+    INVOKE_CALLBACK_3(UV_GETADDRINFO_CB, (any_func) req->cb, (long) req, (long) req->retcode, (long) req->addrinfo);
 #else
     req->cb(req, req->retcode, req->addrinfo);
 #endif
@@ -164,9 +164,9 @@ static void uv__getaddrinfo_done_wrapper (uv_work_t *req, int status)
     uv__free(req); */
 }
 
-void * uv_uv__getaddrinfo_done_ptr (void)
+any_func uv_uv__getaddrinfo_done_ptr (void)
 {
-  return (void *) uv__getaddrinfo_done;
+  return (any_func) uv__getaddrinfo_done;
 }
 
 
@@ -221,8 +221,8 @@ int uv_getaddrinfo(uv_loop_t* loop,
 
   if (cb) {
 #ifdef UNIFIED_CALLBACK
-    uv__register_callback(req, uv__getaddrinfo_work_wrapper, UV_GETADDRINFO_WORK_CB);
-    uv__register_callback(req, cb, UV_GETADDRINFO_CB);
+    uv__register_callback(req, (any_func) uv__getaddrinfo_work_wrapper, UV_GETADDRINFO_WORK_CB);
+    uv__register_callback(req, (any_func) cb, UV_GETADDRINFO_CB);
     /* GETADDRINFO_WORK_CB -> GETADDRINFO_CB. */
     lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_GETADDRINFO_WORK_CB),
                         lcbn_get(req->cb_type_to_lcbn, UV_GETADDRINFO_CB));

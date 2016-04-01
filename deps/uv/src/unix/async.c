@@ -42,14 +42,14 @@ static void uv__async_io(uv_loop_t* loop,
                          uv__io_t* w,
                          unsigned int events);
 
-void * uv_uv__async_io_ptr (void)
+any_func uv_uv__async_io_ptr (void)
 {
-  return (void *) uv__async_io;
+  return (any_func) uv__async_io;
 }
 
-void * uv_uv__async_event_ptr (void)
+any_func uv_uv__async_event_ptr (void)
 {
-  return (void *) uv__async_event;
+  return (any_func) uv__async_event;
 }
 
 int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
@@ -63,7 +63,7 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   handle->async_cb = async_cb;
   handle->pending = 0;
 
-  uv__register_callback(handle, handle->async_cb, UV_ASYNC_CB);
+  uv__register_callback(handle, (any_func) handle->async_cb, UV_ASYNC_CB);
 
   QUEUE_INSERT_TAIL(&loop->async_handles, &handle->queue);
   uv__handle_start(handle);
@@ -146,7 +146,7 @@ static void uv__async_event(uv_loop_t* loop,
       assert(cmpxchgi(&handle->pending, 1, 0) == 1);
       if (handle->async_cb)
       {
-        INVOKE_CALLBACK_1 (UV_ASYNC_CB, handle->async_cb, (long) handle);
+        INVOKE_CALLBACK_1 (UV_ASYNC_CB, (any_func) handle->async_cb, (long) handle);
       }
     }
     else
@@ -204,7 +204,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     assert(n == sizeof(val));
     memcpy(&val, buf, sizeof(val));  /* Avoid alignment issues. */
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, (long) loop, (long) wa, (long) val);
+    INVOKE_CALLBACK_3(UV__ASYNC_CB, (any_func) wa->cb, (long) loop, (long) wa, (long) val);
 #else
     wa->cb(loop, wa, val);
 #endif
@@ -213,7 +213,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 #endif
 
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_3(UV__ASYNC_CB, wa->cb, (long) loop, (long) wa, (long) n);
+  INVOKE_CALLBACK_3(UV__ASYNC_CB, (any_func) wa->cb, (long) loop, (long) wa, (long) n);
 #else
   wa->cb(loop, wa, n);
 #endif
@@ -402,13 +402,13 @@ struct list * uv__ready_async_lcbns(void *h, enum execution_context exec_context
   {
     case EXEC_CONTEXT_UV__IO_POLL:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_ASYNC_CB);
-      assert(lcbn && lcbn->cb == handle->async_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->async_cb);
       if (lcbn->cb)
         list_push_back(ready_async_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_async_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

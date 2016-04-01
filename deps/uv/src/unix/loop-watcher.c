@@ -36,7 +36,7 @@
   int uv_##_name##_start(uv_##_name##_t* handle, uv_##_name##_cb cb) {           \
     if (uv__is_active(handle)) return 0;                                      \
     if (cb == NULL) return -EINVAL;                                           \
-    uv__register_callback(handle, cb, UV_##_type##_CB);                        \
+    uv__register_callback(handle, (any_func) cb, UV_##_type##_CB);                        \
     /* JD: anti-FIFO order, not sure why */                                   \
     QUEUE_INSERT_HEAD(&handle->loop->_name##_handles, &handle->queue);         \
     handle->_name##_cb = cb;                                                   \
@@ -94,13 +94,13 @@
     {                                                                         \
       case EXEC_CONTEXT_UV__RUN_##_type:                                      \
         lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_##_type##_CB);            \
-        assert(lcbn && lcbn->cb == handle->_name##_cb);                       \
+        assert(lcbn && lcbn->cb == (any_func) handle->_name##_cb);            \
         assert(lcbn->cb);                                                     \
         list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);          \
         break;                                                                \
       case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:                              \
         lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);                \
-        assert(lcbn && lcbn->cb == handle->close_cb);                         \
+        assert(lcbn && lcbn->cb == (any_func) handle->close_cb);              \
         if (lcbn->cb)                                                         \
           list_push_back(ready_lcbns, &sched_lcbn_create(lcbn)->elem);        \
         break;                                                                \
@@ -136,14 +136,14 @@
                                                                               \
       assert(next_sched_lcbn->lcbn == lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB)); \
                                                                               \
-      INVOKE_CALLBACK_1(UV_##_type##_CB, next_handle->_name##_cb, (long) next_handle); \
+      INVOKE_CALLBACK_1(UV_##_type##_CB, (any_func) next_handle->_name##_cb, (long) next_handle); \
                                                                               \
       /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. \
           TODO Don't we do this in invoke_callback for such handles? */       \
       tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB);          \
       assert(tmp != NULL);                                                    \
       lcbn_current_set(tmp);                                                  \
-      uv__register_callback(next_handle, next_handle->_name##_cb, UV_##_type##_CB); \
+      uv__register_callback(next_handle, (any_func) next_handle->_name##_cb, UV_##_type##_CB); \
                                                                               \
       /* Each handle is a candidate once per loop iter. */                    \
       list_remove (ready_handles, &next_sched_context->elem);                 \

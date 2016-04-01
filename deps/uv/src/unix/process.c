@@ -108,7 +108,7 @@ static void uv__chld(uv_signal_t* handle, int signum) {
       term_signal = WTERMSIG(process->status);
 
 #ifdef UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3 (UV_EXIT_CB, process->exit_cb, (long) process, (long) exit_status, (long) term_signal);
+    INVOKE_CALLBACK_3 (UV_EXIT_CB, (any_func) process->exit_cb, (long) process, (long) exit_status, (long) term_signal);
 #else
     process->exit_cb(process, exit_status, term_signal);
 #endif
@@ -516,7 +516,7 @@ int uv_spawn(uv_loop_t* loop,
   process->exit_cb = options->exit_cb;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(process, process->exit_cb, UV_EXIT_CB);
+  uv__register_callback(process, (any_func) process->exit_cb, UV_EXIT_CB);
 #endif
 
   uv__free(pipes);
@@ -576,7 +576,7 @@ struct list * uv__ready_process_lcbns(void *h, enum execution_context exec_conte
   {
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_process_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

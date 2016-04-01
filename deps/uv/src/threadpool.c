@@ -73,8 +73,6 @@ static void worker(void* arg) {
   struct list *pending_work;
   sched_context_t *sched_context;
 
-  int tmp_queue_size = 0;
-
   (void) arg;
 
   for (;;) {
@@ -133,7 +131,7 @@ static void worker(void* arg) {
                            executing. */
 
         /* Run the work item. */
-        INVOKE_CALLBACK_1(UV__WORK_WORK, w->work, (long int) w);
+        INVOKE_CALLBACK_1(UV__WORK_WORK, (any_func) w->work, (long int) w);
 
         /* Throw it onto the looper thread's queue. */
         uv_mutex_lock(&w->loop->wq_mutex);
@@ -350,7 +348,7 @@ void uv__work_done(uv_async_t* handle) {
         /* Run the done item. */
         err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
         mylog(LOG_THREADPOOL, 5, "uv__work_done: Next work item: w %p w->done %p\n", w, w->done);
-        INVOKE_CALLBACK_2(UV__WORK_DONE, w->done, (long int) w, (long int) err);
+        INVOKE_CALLBACK_2(UV__WORK_DONE, (any_func) w->done, (long int) w, (long int) err);
       }
       else
         break;
@@ -393,15 +391,15 @@ static void uv__queue_work(struct uv__work* w) {
   uv_work_t* req = container_of(w, uv_work_t, work_req);
 
 #ifdef UNIFIED_CALLBACK
-  INVOKE_CALLBACK_1(UV_WORK_CB, req->work_cb, (long) req);
+  INVOKE_CALLBACK_1(UV_WORK_CB, (any_func) req->work_cb, (long) req);
 #else
   req->work_cb(req);
 #endif
 }
 
-void * uv_uv__queue_work_ptr (void)
+any_func uv_uv__queue_work_ptr (void)
 {
-  return (void *) uv__queue_work;
+  return (any_func) uv__queue_work;
 }
 
 static void uv__queue_done(struct uv__work* w, int err) {
@@ -414,15 +412,15 @@ static void uv__queue_done(struct uv__work* w, int err) {
     return;
 
 #ifdef UNIFIED_CALLBACK
-  INVOKE_CALLBACK_2(UV_AFTER_WORK_CB, req->after_work_cb, (long int) req, (long int) err);
+  INVOKE_CALLBACK_2(UV_AFTER_WORK_CB, (any_func) req->after_work_cb, (long int) req, (long int) err);
 #else
   req->after_work_cb(req, err);
 #endif
 }
 
-void * uv_uv__queue_done_ptr (void)
+any_func uv_uv__queue_done_ptr (void)
 {
-  return (void *) uv__queue_done;
+  return (any_func) uv__queue_done;
 }
 
 /* Add extra LCBN dependencies if REQ is of one of the 'wrapped' paths
@@ -483,8 +481,8 @@ int uv_queue_work(uv_loop_t* loop,
   req->after_work_cb = after_work_cb;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, work_cb, UV_WORK_CB);
-  uv__register_callback(req, after_work_cb, UV_AFTER_WORK_CB);
+  uv__register_callback(req, (any_func) work_cb, UV_WORK_CB);
+  uv__register_callback(req, (any_func) after_work_cb, UV_AFTER_WORK_CB);
   /* WORK -> AFTER_WORK. */
   lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_WORK_CB),
                       lcbn_get(req->cb_type_to_lcbn, UV_AFTER_WORK_CB));
@@ -541,7 +539,7 @@ struct list * uv__ready_work_lcbns (void *wrapper, enum execution_context exec_c
       /* uv__queue_work
          (All work goes through uv_queue_work) */
       lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WORK_CB);
-      assert(lcbn && lcbn->cb == req->work_cb);
+      assert(lcbn && lcbn->cb == (any_func) req->work_cb);
       assert(lcbn->cb);
       list_push_back(ready_work_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;
@@ -549,7 +547,7 @@ struct list * uv__ready_work_lcbns (void *wrapper, enum execution_context exec_c
       /* uv__queue_done 
          (All work goes through uv_queue_work) */
       lcbn = lcbn_get(req->cb_type_to_lcbn, UV_AFTER_WORK_CB);
-      assert(lcbn && lcbn->cb == req->after_work_cb);
+      assert(lcbn && lcbn->cb == (any_func) req->after_work_cb);
       if (lcbn->cb)
         list_push_back(ready_work_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

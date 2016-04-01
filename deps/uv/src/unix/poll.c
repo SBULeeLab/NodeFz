@@ -38,7 +38,7 @@ static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     uv__io_stop(loop, w, UV__POLLIN | UV__POLLOUT);
     uv__handle_stop(handle);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3 (UV_POLL_CB, handle->poll_cb, (long) handle, (long) -EBADF, (long) 0);
+    INVOKE_CALLBACK_3 (UV_POLL_CB, (any_func) handle->poll_cb, (long) handle, (long) -EBADF, (long) 0);
 #else
     handle->poll_cb(handle, -EBADF, 0);
 #endif
@@ -52,15 +52,15 @@ static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     pevents |= UV_WRITABLE;
 
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_3 (UV_POLL_CB, handle->poll_cb, (long) handle, (long) 0, (long) pevents);
+  INVOKE_CALLBACK_3 (UV_POLL_CB, (any_func) handle->poll_cb, (long) handle, (long) 0, (long) pevents);
 #else
   handle->poll_cb(handle, 0, pevents);
 #endif
 }
 
-void * uv_uv__poll_io_ptr (void)
+any_func uv_uv__poll_io_ptr (void)
 {
-  return (void *) uv__poll_io;
+  return (any_func) uv__poll_io;
 }
 
 int uv_poll_init(uv_loop_t* loop, uv_poll_t* handle, int fd) {
@@ -108,7 +108,7 @@ int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
     return 0;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, poll_cb, UV_POLL_CB);
+  uv__register_callback(handle, (any_func) poll_cb, UV_POLL_CB);
 #endif
 
   events = 0;
@@ -146,13 +146,13 @@ struct list * uv__ready_poll_lcbns(void *h, enum execution_context exec_context)
       /* uv__poll_io 
          Either error or not error: invoke UV_POLL_CB appropriately, then return. */
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_POLL_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       assert(lcbn->cb);
       list_push_back(ready_poll_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_poll_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

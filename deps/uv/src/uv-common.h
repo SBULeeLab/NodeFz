@@ -31,6 +31,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#include "misc-decls.h"
 #include "unified_callback.h"
 #include "mylog.h"
 #include "map.h"
@@ -138,6 +139,7 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
   do {                                                                        \
     assert(uv__has_active_reqs(loop));                                        \
     QUEUE_REMOVE(&(req)->active_queue);                                       \
+    map_destroy((req)->cb_type_to_lcbn);                                      \
   }                                                                           \
   while (0)
 
@@ -253,10 +255,10 @@ int uv__uv_run_active (void);
 void uv__mark_uv__run_pending_begin (void);
 void uv__mark_uv__run_pending_end (void);
 int uv__uv__run_pending_active (void);
-void uv__uv__run_pending_set_active_cb (void *cb);
-void * uv__uv__run_pending_get_active_cb (void);
+void uv__uv__run_pending_set_active_cb (any_func cb);
+any_func uv__uv__run_pending_get_active_cb (void);
 
-void uv__register_callback (void *context, void *cb, enum callback_type);
-struct callback_origin * uv__callback_origin (void *cb);
+void uv__register_callback (void *context, any_func cb, enum callback_type);
+struct callback_origin * uv__callback_origin (any_func cb);
 
 #endif /* UV_COMMON_H_ */

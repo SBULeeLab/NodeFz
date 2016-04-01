@@ -89,6 +89,7 @@ void uv__udp_finish_close(uv_udp_t* handle) {
 static void uv__udp_run_completed(uv_udp_t* handle) {
   uv_udp_send_t* req;
   QUEUE* q;
+  int status = 0;
 
   assert(!(handle->flags & UV_UDP_PROCESSING));
   handle->flags |= UV_UDP_PROCESSING;
@@ -113,9 +114,9 @@ static void uv__udp_run_completed(uv_udp_t* handle) {
     /* req->status >= 0 == bytes written
      * req->status <  0 == errno
      */
-    int status = (req->status >= 0 ? 0 : req->status);
+    status = (req->status >= 0 ? 0 : req->status);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_2(UV_UDP_SEND_CB, req->send_cb, (long) req, (long) status);
+    INVOKE_CALLBACK_2(UV_UDP_SEND_CB, (any_func) req->send_cb, (long) req, (long) status);
 #else
     req->send_cb(req, status);
 #endif
@@ -148,9 +149,9 @@ static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
   }
 }
 
-void * uv_uv__udp_io_ptr (void)
+any_func uv_uv__udp_io_ptr (void)
 {
-  return (void *) uv__udp_io;
+  return (any_func) uv__udp_io;
 }
 
 
@@ -176,13 +177,13 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
 
   do {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV_ALLOC_CB, handle->alloc_cb, (long) (uv_handle_t*) handle, (long) 64 * 1024, (long) &buf);
+    INVOKE_CALLBACK_3(UV_ALLOC_CB, (any_func) handle->alloc_cb, (long) (uv_handle_t*) handle, (long) 64 * 1024, (long) &buf);
 #else
     handle->alloc_cb((uv_handle_t*) handle, 64 * 1024, &buf);
 #endif
     if (buf.len == 0) {
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, (long) handle, (long) UV_ENOBUFS, (long) &buf, (long) NULL, (long) 0);
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, (any_func) handle->recv_cb, (long) handle, (long) UV_ENOBUFS, (long) &buf, (long) NULL, (long) 0);
 #else
       handle->recv_cb(handle, UV_ENOBUFS, &buf, NULL, 0);
 #endif
@@ -206,7 +207,7 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
       else
         nread = -errno;
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) NULL, (long) 0);
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, (any_func) handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) NULL, (long) 0);
 #else
       handle->recv_cb(handle, nread, &buf, NULL, 0);
 #endif
@@ -223,7 +224,7 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
         flags |= UV_UDP_PARTIAL;
 
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) addr, (long) flags);
+      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, (any_func) handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) addr, (long) flags);
 #else
       handle->recv_cb(handle, nread, &buf, addr, flags);
 #endif
@@ -435,7 +436,7 @@ int uv__udp_send(uv_udp_send_t* req,
   req->nbufs = nbufs;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, (void *) send_cb, UV_UDP_SEND_CB);
+  uv__register_callback(req, (any_func) send_cb, UV_UDP_SEND_CB);
 #endif
 
   req->bufs = req->bufsml;
@@ -938,14 +939,14 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
       QUEUE_FOREACH(q, &handle->write_completed_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
-        assert(lcbn && lcbn->cb == req->send_cb);
+        assert(lcbn && lcbn->cb == (any_func) req->send_cb);
         if (lcbn->cb)
           list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       QUEUE_FOREACH(q, &handle->write_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
-        assert(lcbn && lcbn->cb == req->send_cb);
+        assert(lcbn && lcbn->cb == (any_func) req->send_cb);
         if (lcbn->cb)
           list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
@@ -957,20 +958,20 @@ struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
       QUEUE_FOREACH(q, &handle->write_completed_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
-        assert(lcbn && lcbn->cb == req->send_cb);
+        assert(lcbn && lcbn->cb == (any_func) req->send_cb);
         if (lcbn->cb)
           list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
       QUEUE_FOREACH(q, &handle->write_queue) {
         req = QUEUE_DATA(q, uv_udp_send_t, queue);
         lcbn = lcbn_get(req->cb_type_to_lcbn, UV_UDP_SEND_CB);
-        assert(lcbn && lcbn->cb == req->send_cb);
+        assert(lcbn && lcbn->cb == (any_func) req->send_cb);
         if (lcbn->cb)
           list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       }
 
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_udp_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

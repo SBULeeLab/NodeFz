@@ -109,8 +109,8 @@
 #define POST                                                                  \
   do {                                                                        \
     if (cb != NULL) {                                                         \
-      uv__register_callback(req, uv__fs_work_wrapper, UV_FS_WORK_CB);         \
-      uv__register_callback(req, cb, UV_FS_CB);                               \
+      uv__register_callback(req, (any_func) uv__fs_work_wrapper, UV_FS_WORK_CB);         \
+      uv__register_callback(req, (any_func) cb, UV_FS_CB);                               \
       /* FS_WORK_CB -> FS_CB. */                                              \
       lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_FS_WORK_CB),      \
                           lcbn_get(req->cb_type_to_lcbn, UV_FS_CB));          \
@@ -907,12 +907,12 @@ static void uv__fs_work(struct uv__work* w) {
 
 static void uv__fs_work_wrapper(uv_work_t *req) {
   uv_fs_t *fs_req = (uv_fs_t *) req->data;
-  INVOKE_CALLBACK_1(UV_FS_WORK_CB, uv__fs_work, (long) &fs_req->work_req);
+  INVOKE_CALLBACK_1(UV_FS_WORK_CB, (any_func) uv__fs_work, (long) &fs_req->work_req);
 }
 
-void * uv_uv__fs_work_wrapper_ptr (void)
+any_func uv_uv__fs_work_wrapper_ptr (void)
 {
-  return (void *) uv__fs_work_wrapper;
+  return (any_func) uv__fs_work_wrapper;
 }
 
 
@@ -928,7 +928,7 @@ static void uv__fs_done(struct uv__work* w, int status) {
   }
 
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_1 (UV_FS_CB, req->cb, (long) req);
+  INVOKE_CALLBACK_1 (UV_FS_CB, (any_func) req->cb, (long) req);
 #else
   req->cb(req);
 #endif
@@ -943,14 +943,14 @@ static void uv__fs_done_wrapper(uv_work_t *req, int status) {
     uv__free(req); */
 }
 
-void * uv_uv__fs_work_ptr (void)
+any_func uv_uv__fs_work_ptr (void)
 {
-  return (void *) uv__fs_work;
+  return (any_func) uv__fs_work;
 }
 
-void * uv_uv__fs_done_ptr (void)
+any_func uv_uv__fs_done_ptr (void)
 {
-  return (void *) uv__fs_done;
+  return (any_func) uv__fs_done;
 }
 
 

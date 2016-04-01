@@ -100,7 +100,7 @@ void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
   assert(!(handle->flags & (UV_CLOSING | UV_CLOSED)));
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, (void *) close_cb, UV_CLOSE_CB);
+  uv__register_callback(handle, (any_func) close_cb, UV_CLOSE_CB);
 #endif
 
   handle->flags |= UV_CLOSING;
@@ -265,7 +265,7 @@ static void uv__finish_close(uv_handle_t* handle) {
 
   if (handle->close_cb) {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_1 (UV_CLOSE_CB, handle->close_cb, (long) handle);
+    INVOKE_CALLBACK_1 (UV_CLOSE_CB, (any_func) handle->close_cb, (long) handle);
     /* We no longer need to remember the peer, since it was already used
        in invoke_callback. */
     handle->peer_info = NULL;
@@ -820,9 +820,9 @@ static int uv__run_pending(uv_loop_t* loop) {
   QUEUE_FOREACH(q, &pq) {
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
     w->iocb_events = UV__POLLOUT;
-    if (w->cb == uv_uv__stream_io_ptr())
+    if ((any_func) w->cb == uv_uv__stream_io_ptr())
       handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
-    else if (w->cb == uv_uv__udp_io_ptr())
+    else if ((any_func) w->cb == uv_uv__udp_io_ptr())
       handle = (uv_handle_t *) container_of(w, uv_udp_t, io_watcher);
     else
       assert(!"uv__run_pending: unexpected cb");
@@ -854,9 +854,9 @@ static int uv__run_pending(uv_loop_t* loop) {
 
       /* Run the handle. */
       mylog(LOG_MAIN, 7, "<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
-      uv__uv__run_pending_set_active_cb(w->cb);
+      uv__uv__run_pending_set_active_cb((any_func) w->cb);
       w->iocb_events = UV__POLLOUT;
-      INVOKE_CALLBACK_3(UV__IO_CB, w->cb, (long) loop, (long) w, (long) UV__POLLOUT);
+      INVOKE_CALLBACK_3(UV__IO_CB, (any_func) w->cb, (long) loop, (long) w, (long) UV__POLLOUT);
       uv__uv__run_pending_set_active_cb(NULL);
     }
     else

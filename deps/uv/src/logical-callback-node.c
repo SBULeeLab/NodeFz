@@ -26,7 +26,7 @@ static lcbn_t * lcbn_create_raw (void)
   assert(lcbn != NULL);
   memset(lcbn, 0, sizeof *lcbn);
 
-  sprintf(lcbn->name, "%p", lcbn);
+  sprintf(lcbn->name, "%p", (void *) lcbn);
   sprintf(lcbn->parent_name, "NULL");
   tree_init(&lcbn->tree_node);
   lcbn->dependencies = list_create();
@@ -57,7 +57,7 @@ static void str_peel_carats (char *str)
    id=-1, peer_info is allocated, {orig,true}_client_id=ID_UNKNOWN. 
    registration time is set.
    All other fields are NULL or 0. */
-lcbn_t * lcbn_create (void *context, void *cb, enum callback_type cb_type)
+lcbn_t * lcbn_create (void *context, any_func cb, enum callback_type cb_type)
 {
   lcbn_t *lcbn;
 
@@ -86,7 +86,7 @@ void lcbn_add_child (lcbn_t *parent, lcbn_t *child)
 
   tree_add_child(&parent->tree_node, &child->tree_node);
   mylog(LOG_LCBN, 3, "lcbn_add_child: parent %p type %s child %p type %s child level %i child childnum %i\n", parent, callback_type_to_string(parent->cb_type), child, callback_type_to_string(child->cb_type), tree_depth(&child->tree_node), tree_get_child_num(&child->tree_node));
-  sprintf(child->parent_name, "%p", parent);
+  sprintf(child->parent_name, "%p", (void *) parent);
 }
 
 /* Destroy LCBN returned by lcbn_create or lcbn_init. */
@@ -141,7 +141,7 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   {
     dep = list_entry(e, lcbn_dependency_t, elem);
     assert(dep != NULL);
-    snprintf(dependency_buf + strlen(dependency_buf), size, "%p ", dep->dependency);
+    snprintf(dependency_buf + strlen(dependency_buf), size, "%p ", (void *) dep->dependency);
   }
   /* Remove trailing space. */
   if (!list_empty(lcbn->dependencies))
@@ -150,10 +150,10 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
   snprintf(buf, size, "<name> <%s> | <context> <%p> | <context_type> <%s> | <cb> <%p> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%s> | <registration_time> <%is %lins> | <start_time> <%is %lins> | <end_time> <%is %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
     lcbn->name, 
     lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
-    lcbn->cb, callback_type_to_string(lcbn->cb_type), 
+    (void *) (long) lcbn->cb, callback_type_to_string(lcbn->cb_type), 
     callback_behavior_to_string(callback_type_to_behavior(lcbn->cb_type)), 
     0, tree_depth(&lcbn->tree_node), tree_get_child_num(&lcbn->tree_node), lcbn->global_exec_id, lcbn->global_reg_id,
-    lcbn->info, tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node), lcbn->parent_name,
+    (void *) lcbn->info, (void *) tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node), lcbn->parent_name,
     (int) lcbn->registration_time.tv_sec, lcbn->registration_time.tv_nsec, (int) lcbn->start_time.tv_sec, lcbn->start_time.tv_nsec, (int) lcbn->end_time.tv_sec, lcbn->end_time.tv_nsec, 
     (long) lcbn->executing_thread, lcbn->active, lcbn->finished,
     dependency_buf);
@@ -230,7 +230,7 @@ void * lcbn_get_context (lcbn_t *lcbn)
   return lcbn->context;
 }
 
-void * lcbn_get_cb (lcbn_t *lcbn)
+any_func lcbn_get_cb (lcbn_t *lcbn)
 {
   assert(lcbn != NULL);
   return lcbn->cb;
@@ -283,7 +283,10 @@ int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
 
 /* TODO These should really be defined where they are used -- in scheduler.c.
    However, at the moment we also use them in uv-common.c. */
-/* list_sort_func, for use with a tree_as_list list of lcbn_t's. */
+/* list_sort_func, for use with a tree_as_list list of lcbn_t's. 
+
+   AUX is an int* indicating the offset in an LCBN at which we can find
+   an integer on which to sort. */
 int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux)
 {
   unsigned offset;
@@ -302,8 +305,8 @@ int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux)
   void_lcbn_b = (void *) lcbn_b;
   offset = *(unsigned *) aux;
 
-  a_val = *(int *) (void_lcbn_a + offset);
-  b_val = *(int *) (void_lcbn_b + offset);
+  a_val = *(int *) ((char *) void_lcbn_a + offset);
+  b_val = *(int *) ((char *) void_lcbn_b + offset);
 
   if (a_val < b_val)
     return -1;

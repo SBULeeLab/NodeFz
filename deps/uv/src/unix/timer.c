@@ -133,7 +133,7 @@ int uv_timer_start(uv_timer_t* handle,
   handle->start_id = handle->loop->timer_counter++;
 
 #ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, cb, UV_TIMER_CB);
+  uv__register_callback(handle, (any_func) cb, UV_TIMER_CB);
 #endif
 
   heap_insert((struct heap*) &handle->loop->timer_heap,
@@ -254,7 +254,7 @@ void uv__run_timers(uv_loop_t* loop) {
     uv_timer_stop(next_timer_handle);
     uv_timer_again(next_timer_handle);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_1(UV_TIMER_CB, next_timer_handle->timer_cb, (long) next_timer_handle);
+    INVOKE_CALLBACK_1(UV_TIMER_CB, (any_func) next_timer_handle->timer_cb, (long) next_timer_handle);
 #else
     handle->timer_cb(next_timer_handle);
 #endif
@@ -281,13 +281,13 @@ struct list * uv__ready_timer_lcbns(void *h, enum execution_context exec_context
   {
     case EXEC_CONTEXT_UV__RUN_TIMERS:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_TIMER_CB);
-      assert(lcbn && lcbn->cb == handle->timer_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->timer_cb);
       assert(lcbn->cb);
       list_push_back(ready_timer_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_timer_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;

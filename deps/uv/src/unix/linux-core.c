@@ -349,32 +349,32 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (io_events != 0) 
       {
         w->iocb_events = io_events;
-        if (w->cb == uv_uv__async_io_ptr())
+        if ((any_func) w->cb == uv_uv__async_io_ptr())
         {
           io_loop = loop;
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_ASYNC, io_loop)->elem);
         }
-        else if (w->cb == uv_uv__inotify_read_ptr())
+        else if ((any_func) w->cb == uv_uv__inotify_read_ptr())
         {
           io_loop = loop;
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_INOTIFY_READ, io_loop)->elem);
         }
-        else if (w->cb == uv_uv__signal_event_ptr())
+        else if ((any_func) w->cb == uv_uv__signal_event_ptr())
         {
           io_loop = loop;
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_SIGNAL_EVENT, io_loop)->elem);
         }
-        else if (w->cb == uv_uv__poll_io_ptr())
+        else if ((any_func) w->cb == uv_uv__poll_io_ptr())
         {
           io_handle = (uv_handle_t *) container_of(w, uv_poll_t, io_watcher);
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
         }
-        else if (w->cb == uv_uv__stream_io_ptr())
+        else if ((any_func) w->cb == uv_uv__stream_io_ptr())
         {
           io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
         }
-        else if (w->cb == uv_uv__server_io_ptr())
+        else if ((any_func) w->cb == uv_uv__server_io_ptr())
         {
           io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
           list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
@@ -420,7 +420,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
         /* Run w. */
         mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: w->cb %p\n", w->cb);
-        INVOKE_CALLBACK_3(UV__IO_CB, w->cb, (long) loop, (long) w, (long) w->iocb_events);
+        INVOKE_CALLBACK_3(UV__IO_CB, (any_func) w->cb, (long) loop, (long) w, (long) w->iocb_events);
         mylog(LOG_MAIN, 7, "uv__io_poll: Done with work item\n");
         nevents++;
       }

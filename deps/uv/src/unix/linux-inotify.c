@@ -163,7 +163,7 @@ static void uv__inotify_read(uv_loop_t* loop,
       QUEUE_FOREACH(q, &w->watchers) {
         h = QUEUE_DATA(q, uv_fs_event_t, watchers);
 #if UNIFIED_CALLBACK
-        INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, h->cb, (long) h, (long) path, (long) events, (long) 0);
+        INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, (any_func) h->cb, (long) h, (long) path, (long) events, (long) 0);
 #else
         h->cb(h, path, events, 0);
 #endif
@@ -172,9 +172,9 @@ static void uv__inotify_read(uv_loop_t* loop,
   }
 }
 
-void * uv_uv__inotify_read_ptr (void)
+any_func uv_uv__inotify_read_ptr (void)
 {
-  return (void *) uv__inotify_read;
+  return (any_func) uv__inotify_read;
 }
 
 int uv_fs_event_init(uv_loop_t* loop, uv_fs_event_t* handle) {
@@ -281,7 +281,7 @@ struct list * uv__ready_fs_event_lcbns(void *h, enum execution_context exec_cont
   {
     case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
       lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == handle->close_cb);
+      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
       if (lcbn->cb)
         list_push_back(ready_fs_event_lcbns, &sched_lcbn_create(lcbn)->elem);
       break;
