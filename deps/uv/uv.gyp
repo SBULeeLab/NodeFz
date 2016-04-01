@@ -128,6 +128,8 @@
             '-pedantic',
             '-Wall',
             '-Wextra',
+            '-Werror',
+            '-fstack-protector-all',
             '-Wno-unused-parameter',
           ],
           'sources': [

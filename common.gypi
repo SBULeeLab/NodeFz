@@ -89,7 +89,7 @@
         'variables': {
           'v8_enable_handle_zapping': 0,
         },
-        'cflags': [ '-O3', '-ffunction-sections', '-fdata-sections', '-fstack-protector-all'],
+        'cflags': [ '-O3', '-ffunction-sections', '-fdata-sections', '-fstack-protector-all' ],
         'conditions': [
           ['target_arch=="x64"', {
             'msvs_configuration_platform': 'x64',
@@ -131,10 +131,6 @@
         },
       }
     },
-    # Forcibly disable -Werror.  We support a wide range of compilers, it's
-    # simply not feasible to squelch all warnings, never mind that the
-    # libraries in deps/ are not under our control.
-    'cflags!': ['-Werror'],
     'msvs_settings': {
       'VCCLCompilerTool': {
         'StringPooling': 'true', # pool string literals
