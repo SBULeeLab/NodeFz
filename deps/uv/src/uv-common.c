@@ -1804,6 +1804,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     if (cb_context == CALLBACK_CONTEXT_HANDLE)
     {
       context_handle = (uv_handle_t *) context;
+      assert(context_handle && context_handle->magic == UV_HANDLE_MAGIC);
       cb_type_to_lcbn = context_handle->cb_type_to_lcbn;
     }
     else if (cb_context == CALLBACK_CONTEXT_REQ)
@@ -1816,10 +1817,12 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
         context_req = (uv_req_t *) container_of(cbi->args[0], uv_getnameinfo_t, work_req);
       else
         context_req = (uv_req_t *) context;
+      assert(context_req && context_req->magic == UV_REQ_MAGIC);
       cb_type_to_lcbn = context_req->cb_type_to_lcbn;
     }
     else
       NOT_REACHED;
+    assert(cb_type_to_lcbn && map_looks_valid(cb_type_to_lcbn)); 
   }
 
   is_threadpool_CB = (cbi->type == UV__WORK_WORK || cbi->type == UV_WORK_CB || 
@@ -1906,8 +1909,8 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
 
-    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p context %p parent %p (parent type %s) cb %p type %s lcbn_orig %p\n",
-      lcbn_new, context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), cbi->cb, callback_type_to_string(cbi->type), lcbn_orig);
+    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (parent type %s) cb %p type %s lcbn_orig %p\n",
+      lcbn_new, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), cbi->cb, lcbn_orig);
     lcbn_mark_begin(lcbn_new);
 
     lcbn_new->global_exec_id = lcbn_next_exec_id();
@@ -1926,7 +1929,11 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
     /* Verify that this LCBN is next in the schedule. 
        If not, in REPLAY mode something has gone amiss in the input schedule. */
     sched_lcbn = sched_lcbn_create(lcbn_new);
-    assert(sched_lcbn_is_next(sched_lcbn));
+    if (!sched_lcbn_is_next(sched_lcbn))
+    {
+      mylog(LOG_MAIN, 1, "invoke_callback: Error, lcbn %p (type %s) is not the next scheduled LCBN. I have run %i callbacks.\n", lcbn_new, callback_type_to_string(lcbn_new->cb_type), scheduler_already_run());
+      assert(!"Error, the requested CB is not being scheduled appropriately");
+    }
     sched_lcbn_destroy(sched_lcbn);
 
     /* Advance the scheduler prior to invoking the CB. 
@@ -2398,6 +2405,7 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
   }
   else
     assert(!"uv__register_callback: Error, unexpected cb_context");
+  assert(cb_type_to_lcbn && map_looks_valid(cb_type_to_lcbn)); 
 
   /* Identify the origin of the callback. */
   lcbn_cur = lcbn_current_get();

@@ -139,7 +139,6 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
   do {                                                                        \
     assert(uv__has_active_reqs(loop));                                        \
     QUEUE_REMOVE(&(req)->active_queue);                                       \
-    map_destroy((req)->cb_type_to_lcbn);                                      \
   }                                                                           \
   while (0)
 
