@@ -33,32 +33,41 @@ struct
 
 /* Private API declarations. */
 static int scheduler_initialized (void);
-
 /* This extracts the type of handle H_OR_R and routes it to the appropriate handler,
    padding with an 'always execute' option if there is no user CB pending
    (e.g. in EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES). */
 struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context);
 
+/* Public APIs. */
+lcbn_t * scheduler_next_scheduled_lcbn (void)
+{
+  lcbn_t *next_lcbn = NULL;
+  assert(scheduler_initialized());
+
+  if (scheduler.mode != SCHEDULE_MODE_REPLAY)
+    return NULL;
+  if (!list_empty(scheduler.desired_schedule))
+    next_lcbn = tree_entry(list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem),
+                           lcbn_t, tree_node);
+  return next_lcbn;
+}
+
 enum callback_type scheduler_next_lcbn_type (void)
 {
-  lcbn_t *next_lcbn;
+  lcbn_t *next_lcbn = NULL;
   enum callback_type cb_type = CALLBACK_TYPE_ANY;
   assert(scheduler_initialized());
 
-  if (scheduler.mode == SCHEDULE_MODE_REPLAY && !list_empty(scheduler.desired_schedule))
-  {
-    next_lcbn = tree_entry(list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem),
-                         lcbn_t, tree_node);
+  next_lcbn = scheduler_next_scheduled_lcbn();
+  if (next_lcbn)
     cb_type = next_lcbn->cb_type;
-  }
-
   return cb_type;
 }
 
 /* Return non-zero if SCHED_LCBN is next, else zero. */
 int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
 {
-  lcbn_t *next_lcbn;
+  lcbn_t *next_lcbn = NULL;
   int equal, verbosity;
 
   assert(scheduler_initialized());
@@ -68,12 +77,14 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
     return 1;
 
-  assert(scheduler.mode == SCHEDULE_MODE_REPLAY);
-  assert(!list_empty(scheduler.desired_schedule));
-
-  next_lcbn = tree_entry(list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem),
-                         lcbn_t, tree_node);
-  assert(next_lcbn);
+  next_lcbn = scheduler_next_scheduled_lcbn();
+  /* If nothing left in the schedule, we can't run this. */
+  if (!next_lcbn)
+  {
+    /* TODO At the moment, I'm only testing replay-ability of a recorded schedule. Consequently this should only happen because we always leave the UV_ASYNC_CB for the threadpool done queue pending. */
+    assert(ready_lcbn->lcbn->cb_type == UV_ASYNC_CB);
+    return 0;
+  }
 
   equal = lcbn_semantic_equals(next_lcbn, ready_lcbn->lcbn);
   verbosity = equal ? 5 : 7;
@@ -81,7 +92,6 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
   return equal;
 }
 
-/* Public APIs. */
 sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn)
 {
   sched_lcbn_t *sched_lcbn;

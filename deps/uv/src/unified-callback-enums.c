@@ -179,3 +179,10 @@ enum callback_behavior callback_behavior_from_string (char *str)
   assert(!"callback_behavior_from_string: Error, invalid string");
   return 0;
 }
+
+int is_threadpool_cb (enum callback_type cbt)
+{
+  assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
+  return (cbt == UV__WORK_WORK || cbt == UV_WORK_CB || /* Obvious ones. */
+          cbt == UV_FS_WORK_CB || cbt == UV_GETADDRINFO_WORK_CB || cbt == UV_GETNAMEINFO_WORK_CB); /* Internal threadpool users. */
+}

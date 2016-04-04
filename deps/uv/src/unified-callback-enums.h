@@ -132,4 +132,6 @@ enum callback_context callback_context_from_string (char *str);
 char * callback_behavior_to_string (enum callback_behavior type);
 enum callback_behavior callback_behavior_from_string (char *str);
 
+int is_threadpool_cb (enum callback_type cb_type);
+
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */

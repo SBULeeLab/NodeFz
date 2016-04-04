@@ -39,6 +39,8 @@ static void uv__req_init(uv_loop_t* loop,
 
 #include <stdlib.h>
 #include "scheduler.h"
+#include "logical-callback-node.h"
+#include "unified-callback-enums.h"
 
 #define MAX_THREADPOOL_SIZE 1
 
@@ -81,9 +83,11 @@ static void worker(void* arg) {
 
     while (QUEUE_EMPTY(&wq)) {
       idle_threads += 1;
+      mylog(LOG_THREADPOOL, 1, "worker: No work, waiting. %i LCBs already run.\n", scheduler_already_run());
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
     }
+    mylog(LOG_THREADPOOL, 9, "worker: There's something in the queue\n");
 
     q = QUEUE_HEAD(&wq);
     if (q == &exit_message)
@@ -97,6 +101,7 @@ static void worker(void* arg) {
       break;
 
     /* Schedule all possible work in wq_buf. */
+    mylog(LOG_THREADPOOL, 1, "worker: There is some work to do\n");
 
     /* Interpret wq_buf as list of uv__work contexts. */
     pending_work = list_create();
@@ -114,6 +119,7 @@ static void worker(void* arg) {
     mylog(LOG_THREADPOOL, 5, "worker: %i ready 'work' items\n", list_size(pending_work));
     while (!list_empty(pending_work))
     {
+      mylog(LOG_THREADPOOL, 7, "worker: %i ready 'work' items\n", list_size(pending_work));
       sched_context = scheduler_next_context(pending_work);
       if (sched_context)
       {
@@ -169,7 +175,10 @@ static void post(QUEUE* q) {
   uv_mutex_lock(&mutex);
   QUEUE_INSERT_TAIL(&wq, q);
   if (idle_threads > 0)
+  {
+    mylog(LOG_THREADPOOL, 9, "Signal'ing the threadpool work cond\n");
     uv_cond_signal(&cond);
+  }
   uv_mutex_unlock(&mutex);
 }
 
@@ -293,6 +302,7 @@ void uv__work_done(uv_async_t* handle) {
   QUEUE* q = NULL;
   QUEUE wq_buf;
   int err;
+  enum callback_type next_lcbn_type = CALLBACK_TYPE_ANY;
 
   struct list *pending_done = NULL;
   sched_context_t *sched_context = NULL;
@@ -300,13 +310,31 @@ void uv__work_done(uv_async_t* handle) {
   loop = container_of(handle, uv_loop_t, wq_async);
   QUEUE_INIT(&wq_buf);
 
-  /* Go once through the loop every time.
-     If we get to the end of the loop and the next LCBN is a (not-yet-present) done item,
-     spin. If we don't spin, by returning we introduce an unexpected UV_ASYNC_CB into the schedule. */
+  /* If we get to the end of the loop and the next LCBN is a TP CB, spin.
+     The next non-threadpool CB might be us, and if we don't spin, returning introduces an unexpected UV_ASYNC_CB into the schedule
+      which is disastrous for REPLAY mode. */
   do
   {
     mylog(LOG_THREADPOOL, 5, "uv__work_done: Checking for done LCBNs\n");
+
     uv_mutex_lock(&loop->wq_mutex);
+    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    {
+      /* Spin until it is no longer worker's turn to go. 
+         TODO Adding a cond_wait for a worker signal is tricky because the worker may be waiting in invoke_callback for its turn as part of a nested LCBN. 
+         Anyway, spinning is an easy solution for now. */
+      next_lcbn_type = scheduler_next_lcbn_type();
+      if (is_threadpool_cb(next_lcbn_type))
+        mylog(LOG_THREADPOOL, 1, "uv__work_done: next lcbn is a threadpool CB (type %s). %i LCBs invoked so far. Spinning.\n", callback_type_to_string(next_lcbn_type), scheduler_already_run());
+      while (is_threadpool_cb(next_lcbn_type))
+      {
+        uv_mutex_unlock(&loop->wq_mutex);
+        pthread_yield();
+        uv_mutex_lock(&loop->wq_mutex);
+        next_lcbn_type = scheduler_next_lcbn_type();
+      }
+    }
+
     if (!QUEUE_EMPTY(&loop->wq)) {
       q = QUEUE_HEAD(&loop->wq);
       QUEUE_SPLIT(&loop->wq, q, &wq_buf);
@@ -375,14 +403,14 @@ void uv__work_done(uv_async_t* handle) {
     /* TODO */
     list_destroy_full(pending_done, sched_context_list_destroy_func, NULL); 
 #endif
-    /* TODO DEBUG */
-    mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is UV_AFTER_WORK_CB? %i\n", (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB));
-  } while (scheduler_next_lcbn_type() == UV_AFTER_WORK_CB);
+    /* Loop until it's not an AFTER_WORK and it's not a TP. */
+    next_lcbn_type = scheduler_next_lcbn_type();
+  } while (next_lcbn_type == UV_AFTER_WORK_CB || is_threadpool_cb(next_lcbn_type));
+    mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is %s (not a threadpool CB), so I need to fulfill it\n", callback_type_to_string(scheduler_next_lcbn_type()));
 
   /* Ensure it's always possible to come back here. 
      In RECORD mode, a race between worker and looper can cause us to come here
-     with no pending done items, which is unlikely in REPLAY mode without
-     this. */
+     with no pending done items, which is unlikely in REPLAY mode without artificially inducing it like this. */
   if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     uv_async_send(&loop->wq_async);
 }

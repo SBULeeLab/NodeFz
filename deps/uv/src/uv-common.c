@@ -744,7 +744,8 @@ struct list *global_order_list;
 unsigned lcbn_global_exec_counter = 0;
 unsigned lcbn_global_reg_counter = 0;
 
-pthread_mutex_t invoke_callback_lcbn_lock; /* Recursive. */
+pthread_mutex_t invoke_callback_lcbn_lock;
+pthread_cond_t invoke_callback_lcbn_not_my_turn;
 
 struct list *lcbn_global_reg_order_list;
 
@@ -766,7 +767,7 @@ static struct map *id_to_peer_info;
    Used by uv__register_callback and uv__callback_origin. */
 struct map *callback_to_origin_map;
 
-/* Maps pthread_t to struct callback_node *, accommodating callbacks
+/* Maps pthread_t to callback_node_t *, accommodating callbacks
      being executed by the threadpool and looper threads.
    The entry for a given pthread_t is the callback_node currently being executed
      by that thread.
@@ -1671,10 +1672,8 @@ void unified_callback_init (void)
 
   pthread_mutex_init(&metadata_lock, NULL);
 
-  pthread_mutexattr_init(&attr);
-  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-  pthread_mutex_init(&invoke_callback_lcbn_lock, &attr);
-  pthread_mutexattr_destroy(&attr);
+  pthread_mutex_init(&invoke_callback_lcbn_lock, NULL);
+  pthread_cond_init(&invoke_callback_lcbn_not_my_turn, NULL);
 
   global_order_list = list_create();
   root_list = list_create();
@@ -1837,8 +1836,7 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
     assert(cb_type_to_lcbn && map_looks_valid(cb_type_to_lcbn)); 
   }
 
-  is_threadpool_CB = (cbi->type == UV__WORK_WORK || cbi->type == UV_WORK_CB || 
-                      cbi->type == UV_FS_WORK_CB || cbi->type == UV_GETADDRINFO_WORK_CB || cbi->type == UV_GETNAMEINFO_WORK_CB);
+  is_threadpool_CB = is_threadpool_cb(cbi->type);
   if (sync_cb_thread == 0 && !is_threadpool_CB)
   {
     /* First non-threadpool CB: note the tid. 
@@ -1903,8 +1901,6 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
 #endif
   uv__metadata_unlock();
 
-  /* Run the callback. */
-
   /* If CB is a logical callback, retrieve and update the LCBN. */
   if (is_logical_cb)
   {
@@ -1921,8 +1917,8 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
 
-    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (parent type %s) cb %p type %s lcbn_orig %p\n",
-      lcbn_new, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), cbi->cb, lcbn_orig);
+    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (parent type %s) type %s lcbn_orig %p\n",
+      lcbn_new, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig);
     lcbn_mark_begin(lcbn_new);
 
     lcbn_new->global_exec_id = lcbn_next_exec_id();
@@ -1931,36 +1927,45 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
     {
       /* If this LCBN is a response, it may repeat. If so, the next response must come after this response,
          and is in some sense caused by this response. Consequently, register after setting LCBN so that it becomes a child of this LCBN. */
-      mylog(LOG_MAIN, 5, "invoke_callback: registering cb %p under context %p with type %s as child of LCBN %p\n",
-        lcbn_get_cb(lcbn_new), lcbn_get_context(lcbn_new), callback_type_to_string(lcbn_get_cb_type(lcbn_new)), lcbn_new);
+      mylog(LOG_MAIN, 5, "invoke_callback: registering cb under context %p with type %s as child of LCBN %p\n",
+        lcbn_get_context(lcbn_new), callback_type_to_string(lcbn_get_cb_type(lcbn_new)), lcbn_new);
       uv__register_callback(lcbn_get_context(lcbn_new), lcbn_get_cb(lcbn_new), lcbn_get_cb_type(lcbn_new));
     }
 
     lcbn_determine_executing_thread(lcbn_new);
 
-    /* Verify that this LCBN is next in the schedule. 
-       If not, in REPLAY mode something has gone amiss in the input schedule. */
-    sched_lcbn = sched_lcbn_create(lcbn_new);
-    if (!sched_lcbn_is_next(sched_lcbn))
+    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     {
-      mylog(LOG_MAIN, 1, "invoke_callback: Error, lcbn %p (type %s) is not the next scheduled LCBN. I have run %i callbacks.\n", lcbn_new, callback_type_to_string(lcbn_new->cb_type), scheduler_already_run());
-      assert(!"Error, the requested CB is not being scheduled appropriately");
+      lcbn_t *next_scheduled = scheduler_next_scheduled_lcbn();
+      sched_lcbn = sched_lcbn_create(lcbn_new);
+      /* Wait until this LCBN is next in the schedule. 
+         It might not be if 'the other' type of thread must go next (looper, TP). */ 
+      while (!sched_lcbn_is_next(sched_lcbn))
+      {
+        mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s) is not the next scheduled LCBN (scheduled lcbn %p type %s). %i LCBs have been run already. Waiting for my turn.\n", lcbn_new, callback_type_to_string(lcbn_new->cb_type), next_scheduled, callback_type_to_string(next_scheduled->cb_type), scheduler_already_run());
+        uv__invoke_callback_lcbn_cond_wait(&invoke_callback_lcbn_not_my_turn);
+      }
+      sched_lcbn_destroy(sched_lcbn);
     }
-    sched_lcbn_destroy(sched_lcbn);
-
     /* Advance the scheduler prior to invoking the CB. 
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
        the nested ones will perceive themselves as 'next'. */
     mylog(LOG_MAIN, 5, "invoke_callback: lcbn %p (type %s); advancing the scheduler\n", 
       lcbn_new, callback_type_to_string(lcbn_new->cb_type));
+    /* TODO By advancing the scheduler prior to invoking the CB, we open the possibility that
+       'the other' type of thread might go before we have completed our work.
+       To control this, set a 'currently-active thread'-type variable and include that.
+       Broadcast after the outermost thread CB finishes (test lcbn_orig). */ 
     scheduler_advance();
+
+    uv__invoke_callback_lcbn_cond_broadcast(&invoke_callback_lcbn_not_my_turn);
+    uv__invoke_callback_lcbn_unlock();
   }
 
+  /* Run the callback. */
   cbn_start(cbn);
-
   current_callback_node_set(cbn); /* Thread-safe. */
   cbn_execute_callback(cbn); 
-
   cbn_stop(cbn);
 
   mylog(LOG_MAIN, 7, "invoke_callback: Done invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
@@ -1976,10 +1981,9 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
     lcbn_mark_end(lcbn_new);
 
     lcbn_current_set(lcbn_orig);
-
-    uv__invoke_callback_lcbn_unlock();
   }
 
+  mylog(LOG_MAIN, 7, "invoke_callback: Done with cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
   return cbn;
 }
 

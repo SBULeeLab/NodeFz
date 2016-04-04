@@ -133,6 +133,11 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list);
    Call sched_lcbn_is_next in invoke_callback to confirm or reject this hypothesis. */
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
 
+/* REPLAY mode: Returns the next scheduled LCBN according to the scheduler. 
+                If nothing left to schedule, returns NULL.
+   Read-only please. */
+lcbn_t * scheduler_next_scheduled_lcbn (void);
+
 /* Returns the callback_type of the next scheduled LCBN. */
 enum callback_type scheduler_next_lcbn_type (void);
 
