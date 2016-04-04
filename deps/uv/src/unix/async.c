@@ -146,7 +146,7 @@ static void uv__async_event(uv_loop_t* loop,
       assert(cmpxchgi(&handle->pending, 1, 0) == 1);
       if (handle->async_cb)
       {
-        INVOKE_CALLBACK_1 (UV_ASYNC_CB, (any_func) handle->async_cb, (long) handle);
+        invoke_callback_wrap ((any_func) handle->async_cb, UV_ASYNC_CB, (long) handle);
       }
     }
     else
@@ -204,7 +204,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     assert(n == sizeof(val));
     memcpy(&val, buf, sizeof(val));  /* Avoid alignment issues. */
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV__ASYNC_CB, (any_func) wa->cb, (long) loop, (long) wa, (long) val);
+    invoke_callback_wrap((any_func) wa->cb, UV__ASYNC_CB, (long) loop, (long) wa, (long) val);
 #else
     wa->cb(loop, wa, val);
 #endif
@@ -213,7 +213,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 #endif
 
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_3(UV__ASYNC_CB, (any_func) wa->cb, (long) loop, (long) wa, (long) n);
+  invoke_callback_wrap((any_func) wa->cb, UV__ASYNC_CB, (long) loop, (long) wa, (long) n);
 #else
   wa->cb(loop, wa, n);
 #endif

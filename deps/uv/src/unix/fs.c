@@ -907,7 +907,7 @@ static void uv__fs_work(struct uv__work* w) {
 
 static void uv__fs_work_wrapper(uv_work_t *req) {
   uv_fs_t *fs_req = (uv_fs_t *) req->data;
-  INVOKE_CALLBACK_1(UV_FS_WORK_CB, (any_func) uv__fs_work, (long) &fs_req->work_req);
+  invoke_callback_wrap((any_func) uv__fs_work, UV_FS_WORK_CB, (long) &fs_req->work_req);
 }
 
 any_func uv_uv__fs_work_wrapper_ptr (void)
@@ -928,7 +928,7 @@ static void uv__fs_done(struct uv__work* w, int status) {
   }
 
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_1 (UV_FS_CB, (any_func) req->cb, (long) req);
+  invoke_callback_wrap ((any_func) req->cb, UV_FS_CB, (long) req);
 #else
   req->cb(req);
 #endif

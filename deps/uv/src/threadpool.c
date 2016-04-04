@@ -131,14 +131,14 @@ static void worker(void* arg) {
                            executing. */
 
         /* Run the work item. */
-        INVOKE_CALLBACK_1(UV__WORK_WORK, (any_func) w->work, (long int) w);
+        invoke_callback_wrap((any_func) w->work, UV__WORK_WORK, (long int) w);
 
         /* Throw it onto the looper thread's queue. */
         uv_mutex_lock(&w->loop->wq_mutex);
         w->work = NULL;  /* Signal uv_cancel() that the work req is done
                             executing. */
         QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
-        uv_async_send(&w->loop->wq_async); /* signal a pending done CB to be executed through uv__work_done. */
+        uv_async_send(&w->loop->wq_async); /* Signal a pending done CB to be executed through uv__work_done. */
         mylog(LOG_THREADPOOL, 1, "worker: signal'd a ready 'done' item (w %p w->done %p)\n", w, w->done);
         uv_mutex_unlock(&w->loop->wq_mutex);
       }
@@ -345,10 +345,10 @@ void uv__work_done(uv_async_t* handle) {
         QUEUE_REMOVE(q);
         QUEUE_INIT(q);
 
-        /* Run the done item. */
+        /* Run the done item. UV__WORK_DONE always turns into a UV_AFTER_WORK_CB. */
         err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
         mylog(LOG_THREADPOOL, 5, "uv__work_done: Next work item: w %p w->done %p\n", w, w->done);
-        INVOKE_CALLBACK_2(UV__WORK_DONE, (any_func) w->done, (long int) w, (long int) err);
+        invoke_callback_wrap((any_func) w->done, UV__WORK_DONE, (long int) w, (long int) err);
       }
       else
         break;
@@ -391,7 +391,7 @@ static void uv__queue_work(struct uv__work* w) {
   uv_work_t* req = container_of(w, uv_work_t, work_req);
 
 #ifdef UNIFIED_CALLBACK
-  INVOKE_CALLBACK_1(UV_WORK_CB, (any_func) req->work_cb, (long) req);
+  invoke_callback_wrap((any_func) req->work_cb, UV_WORK_CB, (long) req);
 #else
   req->work_cb(req);
 #endif
@@ -412,7 +412,7 @@ static void uv__queue_done(struct uv__work* w, int err) {
     return;
 
 #ifdef UNIFIED_CALLBACK
-  INVOKE_CALLBACK_2(UV_AFTER_WORK_CB, (any_func) req->after_work_cb, (long int) req, (long int) err);
+  invoke_callback_wrap((any_func) req->after_work_cb, UV_AFTER_WORK_CB, (long int) req, (long int) err);
 #else
   req->after_work_cb(req, err);
 #endif

@@ -112,12 +112,12 @@
   }                                                                           \
                                                                               \
   void uv__run_##_name(uv_loop_t* loop) {                                     \
-    struct list *ready_handles;                                               \
-    sched_context_t *next_sched_context;                                      \
-    sched_lcbn_t *next_sched_lcbn;                                            \
-    uv_##_name##_t *next_handle;                                              \
+    struct list *ready_handles = NULL;                                        \
+    sched_context_t *next_sched_context = NULL;                               \
+    sched_lcbn_t *next_sched_lcbn = NULL;                                     \
+    uv_##_name##_t *next_handle = NULL;                                       \
                                                                               \
-    lcbn_t *orig, *tmp;                                                       \
+    lcbn_t *orig = NULL, *tmp = NULL;                                         \
                                                                               \
     if (QUEUE_EMPTY(&loop->_name##_handles))                                  \
       return;                                                                 \
@@ -136,7 +136,7 @@
                                                                               \
       assert(next_sched_lcbn->lcbn == lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB)); \
                                                                               \
-      INVOKE_CALLBACK_1(UV_##_type##_CB, (any_func) next_handle->_name##_cb, (long) next_handle); \
+      invoke_callback_wrap((any_func) next_handle->_name##_cb, UV_##_type##_CB, (long) next_handle); \
                                                                               \
       /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. \
           TODO Don't we do this in invoke_callback for such handles? */       \

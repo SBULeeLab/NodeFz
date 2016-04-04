@@ -379,7 +379,7 @@ void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
     h = QUEUE_DATA(q, uv_handle_t, handle_queue);
     if (h->flags & UV__HANDLE_INTERNAL) continue;
 #ifdef UNIFIED_CALLBACK
-    INVOKE_CALLBACK_2 (UV_WALK_CB, (any_func) walk_cb, (long) h, (long) arg); 
+    invoke_callback_wrap ((any_func) walk_cb, UV_WALK_CB, (long) h, (long) arg); 
 #else
     walk_cb(h, arg);
 #endif
@@ -3075,93 +3075,54 @@ static unsigned lcbn_next_reg_id (void)
   return lcbn_global_reg_counter - 1;
 }
 
-/* TODO varargs */
-struct callback_info * cbi_create_0 (enum callback_type type, any_func cb)
+/* cf. cbn_execute_callback */
+int callback_type_to_nargs[] = 
 {
-  struct callback_info *cbi = uv__malloc(sizeof *cbi);
+  3 /* UV_ALLOC_CB */, 3 /* UV_READ_CB */,
+  2 /* UV_WRITE_CB */, 2 /* UV_CONNECT_CB */,
+  2 /* UV_SHUTDOWN_CB */, 2 /* UV_CONNECTION_CB */,
+  1 /* UV_CLOSE_CB */, 3 /* UV_POLL_CB */,
+  1 /* UV_TIMER_CB */, 1 /* UV_ASYNC_CB */,
+  1 /* UV_PREPARE_CB */, 1 /* UV_CHECK_CB */,
+  1 /* UV_IDLE_CB */, 3 /* UV_EXIT_CB */,
+  2 /* UV_WALK_CB */, 1 /* UV_FS_WORK_CB */,
+  1 /* UV_FS_CB */, 1 /* UV_WORK_CB */,
+  2 /* UV_AFTER_WORK_CB */, 1 /* UV_GETADDRINFO_WORK_CB */,
+  1 /* UV_GETADDRINFO_CB */, 3 /* UV_GETNAMEINFO_WORK_CB */,
+  4 /* UV_GETNAMEINFO_CB */, 4 /* UV_FS_EVENT_CB */,
+  4 /* UV_FS_POLL_CB */, 2 /* UV_SIGNAL_CB */,
+  2 /* UV_UDP_SEND_CB */, 5 /* UV_UDP_RECV_CB */,
+  1 /* UV_THREAD_CB */, 3 /* UV__IO_CB */,
+  3 /* UV__ASYNC_CB */, 1 /* UV__WORK_WORK */,
+  2 /* UV__WORK_DONE */
+};
+
+callback_node_t * invoke_callback_wrap (any_func cb, enum callback_type type, ...)
+{
+  int i, nargs;
+  va_list ap;
+  callback_info_t *cbi = NULL;
+  callback_node_t *cbn = NULL;
+
+  mylog(LOG_MAIN, 5, "invoke_callback_wrap: begin\n");
+
+  assert(UV_ALLOC_CB <= type && type <= UV__WORK_DONE);
+  nargs = callback_type_to_nargs[type];
+
+  /* Prep a CBI with args. */
+  cbi = (callback_info_t *) uv__malloc(sizeof *cbi);
   assert(cbi);
   memset(cbi, 0, sizeof(*cbi));                   
-
   cbi->type = type;                           
   cbi->cb = cb;                                    
 
-  mylog(LOG_MAIN, 5, "cbi_create_0: cbi %p type %s cb %p\n", cbi, callback_type_to_string(type), cb);
-  return cbi;
-}
+  va_start(ap, type);
+  for (i = 0; i < nargs; i++)
+    cbi->args[i] = va_arg(ap, long);
+  va_end(ap);
 
-struct callback_info * cbi_create_1 (enum callback_type type, any_func cb, long arg0)
-{
-  struct callback_info *cbi = cbi_create_0(type, cb);
-  cbi->args[0] = arg0;
-  return cbi;
-}
+  cbn = invoke_callback(cbi);
 
-struct callback_info * cbi_create_2 (enum callback_type type, any_func cb, long arg0, long arg1)
-{
-  struct callback_info *cbi = cbi_create_1(type, cb, arg0);
-  cbi->args[1] = arg1;
-  return cbi;
-}
-
-struct callback_info * cbi_create_3 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2)
-{
-  struct callback_info *cbi = cbi_create_2(type, cb, arg0, arg1);
-  cbi->args[2] = arg2;
-  return cbi;
-}
-
-struct callback_info * cbi_create_4 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3)
-{
-  struct callback_info *cbi = cbi_create_3(type, cb, arg0, arg1, arg2);
-  cbi->args[3] = arg3;
-  return cbi;
-}
-
-struct callback_info * cbi_create_5 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3, long arg4)
-{
-  struct callback_info *cbi = cbi_create_4(type, cb, arg0, arg1, arg2, arg3);
-  cbi->args[4] = arg4;
-  return cbi;
-}
-
-struct callback_node * INVOKE_CALLBACK_0 (enum callback_type type, any_func cb)
-{
-  struct callback_info *cbi = cbi_create_0(type, cb); 
-  mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_0: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
-  return invoke_callback(cbi);
-}
-
-struct callback_node * INVOKE_CALLBACK_1 (enum callback_type type, any_func cb, long arg0)
-{
-  struct callback_info *cbi = cbi_create_1(type, cb, arg0); 
-  mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_1: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
-  return invoke_callback(cbi);
-}
-
-struct callback_node * INVOKE_CALLBACK_2 (enum callback_type type, any_func cb, long arg0, long arg1)
-{
-  struct callback_info *cbi = cbi_create_2(type, cb, arg0, arg1); 
-  mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_2: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
-  return invoke_callback(cbi);
-}
-
-struct callback_node * INVOKE_CALLBACK_3 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2)
-{
-  struct callback_info *cbi = cbi_create_3(type, cb, arg0, arg1, arg2); 
-  mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_3: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
-  return invoke_callback(cbi);
-}
-
-struct callback_node * INVOKE_CALLBACK_4 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3)
-{
-  struct callback_info *cbi = cbi_create_4(type, cb, arg0, arg1, arg2, arg3); 
-  mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_4: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
-  return invoke_callback(cbi);
-}
-
-struct callback_node * INVOKE_CALLBACK_5 (enum callback_type type, any_func cb, long arg0, long arg1, long arg2, long arg3, long arg4)
-{
-  struct callback_info *cbi = cbi_create_5(type, cb, arg0, arg1, arg2, arg3, arg4);
-  mylog(LOG_MAIN, 5, "INVOKE_CALLBACK_5: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
-  return invoke_callback(cbi);
+  mylog(LOG_MAIN, 5, "invoke_callback_wrap: returning %p\n", cbn);
+  return cbn;
 }

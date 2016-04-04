@@ -174,7 +174,7 @@ static void (*pFSEventStreamStop)(FSEventStreamRef);
       if (err != 0 && !uv__is_closing((handle)) && uv__is_active((handle)))   \
       {                                                                       \
         #if UNIFIED_CALLBACK                                                  \
-          INVOKE_CALLBACK_4(UV_FS_EVENT_CB, (any_func) (handle)->cb, (long) (handle), (long) NULL, (long) 0, (long) err); \
+          invoke_callback_wrap((any_func) (handle)->cb, UV_FS_EVENT_CB, (long) (handle), (long) NULL, (long) 0, (long) err); \
         #else                                                                 \
           (handle)->cb((handle), NULL, 0, err);                               \
         #endif                                                                \
@@ -190,7 +190,7 @@ static void uv__fsevents_cb(uv_async_t* cb) {
 
   UV__FSEVENTS_PROCESS(handle, {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, (any_func) handle->cb, (long) handle, (long) (event->path[0] ? event->path : NULL), (long) event->events, (long) 0);
+    invoke_callback_wrap ((any_func) handle->cb, UV_FS_EVENT_CB, (long) handle, (long) (event->path[0] ? event->path : NULL), (long) event->events, (long) 0);
 #else
     handle->cb(handle, event->path[0] ? event->path : NULL, event->events, 0);
 #endif

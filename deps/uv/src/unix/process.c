@@ -108,7 +108,7 @@ static void uv__chld(uv_signal_t* handle, int signum) {
       term_signal = WTERMSIG(process->status);
 
 #ifdef UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3 (UV_EXIT_CB, (any_func) process->exit_cb, (long) process, (long) exit_status, (long) term_signal);
+    invoke_callback_wrap ((any_func) process->exit_cb, UV_EXIT_CB, (long) process, (long) exit_status, (long) term_signal);
 #else
     process->exit_cb(process, exit_status, term_signal);
 #endif

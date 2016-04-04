@@ -116,7 +116,7 @@ static void uv__udp_run_completed(uv_udp_t* handle) {
      */
     status = (req->status >= 0 ? 0 : req->status);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_2(UV_UDP_SEND_CB, (any_func) req->send_cb, (long) req, (long) status);
+    invoke_callback_wrap((any_func) req->send_cb, UV_UDP_SEND_CB, (long) req, (long) status);
 #else
     req->send_cb(req, status);
 #endif
@@ -177,13 +177,13 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
 
   do {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV_ALLOC_CB, (any_func) handle->alloc_cb, (long) (uv_handle_t*) handle, (long) 64 * 1024, (long) &buf);
+    invoke_callback_wrap((any_func) handle->alloc_cb, UV_ALLOC_CB, (long) (uv_handle_t*) handle, (long) 64 * 1024, (long) &buf);
 #else
     handle->alloc_cb((uv_handle_t*) handle, 64 * 1024, &buf);
 #endif
     if (buf.len == 0) {
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, (any_func) handle->recv_cb, (long) handle, (long) UV_ENOBUFS, (long) &buf, (long) NULL, (long) 0);
+      invoke_callback_wrap((any_func) handle->recv_cb, UV_UDP_RECV_CB, (long) handle, (long) UV_ENOBUFS, (long) &buf, (long) NULL, (long) 0);
 #else
       handle->recv_cb(handle, UV_ENOBUFS, &buf, NULL, 0);
 #endif
@@ -207,7 +207,7 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
       else
         nread = -errno;
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, (any_func) handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) NULL, (long) 0);
+      invoke_callback_wrap((any_func) handle->recv_cb, UV_UDP_RECV_CB, (long) handle, (long) nread, (long) &buf, (long) NULL, (long) 0);
 #else
       handle->recv_cb(handle, nread, &buf, NULL, 0);
 #endif
@@ -224,7 +224,7 @@ static void uv__udp_recvmsg(uv_udp_t* handle) {
         flags |= UV_UDP_PARTIAL;
 
 #if UNIFIED_CALLBACK
-      INVOKE_CALLBACK_5(UV_UDP_RECV_CB, (any_func) handle->recv_cb, (long) handle, (long) nread, (long) &buf, (long) addr, (long) flags);
+      invoke_callback_wrap((any_func) handle->recv_cb, UV_UDP_RECV_CB, (long) handle, (long) nread, (long) &buf, (long) addr, (long) flags);
 #else
       handle->recv_cb(handle, nread, &buf, addr, flags);
 #endif

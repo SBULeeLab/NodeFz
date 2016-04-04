@@ -254,7 +254,7 @@ void uv__run_timers(uv_loop_t* loop) {
     uv_timer_stop(next_timer_handle);
     uv_timer_again(next_timer_handle);
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_1(UV_TIMER_CB, (any_func) next_timer_handle->timer_cb, (long) next_timer_handle);
+    invoke_callback_wrap((any_func) next_timer_handle->timer_cb, UV_TIMER_CB, (long) next_timer_handle);
 #else
     handle->timer_cb(next_timer_handle);
 #endif

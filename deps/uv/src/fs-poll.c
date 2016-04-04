@@ -214,7 +214,7 @@ static void poll_cb(uv_fs_t* req) {
   if (req->result != 0) {
     if (ctx->busy_polling != req->result) {
 #ifdef UNIFIED_CALLBACK
-      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, (any_func) ctx->poll_cb, (long int) ctx->parent_handle, (long int) req->result, (long int) &ctx->statbuf, (long int) &zero_statbuf);
+      invoke_callback_wrap((any_func) ctx->poll_cb, UV_FS_POLL_CB, (long int) ctx->parent_handle, (long int) req->result, (long int) &ctx->statbuf, (long int) &zero_statbuf);
 #else
       ctx->poll_cb(ctx->parent_handle, req->result, &ctx->statbuf, &zero_statbuf);
 #endif
@@ -229,7 +229,7 @@ static void poll_cb(uv_fs_t* req) {
     if (ctx->busy_polling < 0 || !statbuf_eq(&ctx->statbuf, statbuf))
     {
 #ifdef UNIFIED_CALLBACK
-      INVOKE_CALLBACK_4 (UV_FS_POLL_CB, (any_func) ctx->poll_cb, (long int) ctx->parent_handle, 0, (long int) &ctx->statbuf, (long int) statbuf);
+      invoke_callback_wrap ((any_func) ctx->poll_cb, UV_FS_POLL_CB, (long int) ctx->parent_handle, 0, (long int) &ctx->statbuf, (long int) statbuf);
 #else
       ctx->poll_cb(ctx->parent_handle, 0, &ctx->statbuf, statbuf);
 #endif

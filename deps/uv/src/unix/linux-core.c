@@ -419,8 +419,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         sched_context_destroy(sched_context);
 
         /* Run w. */
-        mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: w->cb %p\n", w->cb);
-        INVOKE_CALLBACK_3(UV__IO_CB, (any_func) w->cb, (long) loop, (long) w, (long) w->iocb_events);
+        mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: w %p\n", w);
+        invoke_callback_wrap((any_func) w->cb, UV__IO_CB, (long) loop, (long) w, (long) w->iocb_events);
         mylog(LOG_MAIN, 7, "uv__io_poll: Done with work item\n");
         nevents++;
       }

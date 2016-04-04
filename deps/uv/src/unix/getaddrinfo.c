@@ -106,7 +106,7 @@ static void uv__getaddrinfo_work_wrapper (uv_work_t *req)
 {
   uv_getaddrinfo_t *addr_req;
   addr_req = (uv_getaddrinfo_t *) req->data;
-  INVOKE_CALLBACK_1(UV_GETADDRINFO_WORK_CB, (any_func) uv__getaddrinfo_work, (long) &addr_req->work_req);
+  invoke_callback_wrap((any_func) uv__getaddrinfo_work, UV_GETADDRINFO_WORK_CB, (long) &addr_req->work_req);
 }
 
 any_func uv_uv__getaddrinfo_work_wrapper_ptr (void)
@@ -147,7 +147,7 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   if (req->cb)
   {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_3(UV_GETADDRINFO_CB, (any_func) req->cb, (long) req, (long) req->retcode, (long) req->addrinfo);
+    invoke_callback_wrap((any_func) req->cb, UV_GETADDRINFO_CB, (long) req, (long) req->retcode, (long) req->addrinfo);
 #else
     req->cb(req, req->retcode, req->addrinfo);
 #endif

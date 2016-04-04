@@ -204,7 +204,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         assert(w->events == UV__POLLIN);
         assert(w->pevents == UV__POLLIN);
 #if UNIFIED_CALLBACK
-        INVOKE_CALLBACK_3(UV_FS_EVENT_CB, w->cb, loop, w, ev->fflags);
+        invoke_callback_wrap(w->cb, UV_FS_EVENT_CB, loop, w, ev->fflags);
 #else
         w->cb(loop, w, ev->fflags); /* XXX always uv__fs_event() */
 #endif
@@ -250,7 +250,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
 #if UNIFIED_CALLBACK
       w->iocb_events = revents;
-      INVOKE_CALLBACK_3(UV__IO_CB, w->cb, loop, w, revents);
+      invoke_callback_wrap(w->cb, UV__IO_CB, loop, w, revents);
 #else
       w->cb(loop, w, revents);
 #endif
@@ -332,7 +332,7 @@ static void uv__fs_event(uv_loop_t* loop, uv__io_t* w, unsigned int fflags) {
     path = uv__basename_r(pathbuf);
 #endif
 #if UNIFIED_CALLBACK
-  INVOKE_CALLBACK_4 (UV_FS_EVENT_CB, handle->cb, handle, path, events, 0);
+  invoke_callback_wrap (handle->cb, UV_FS_EVENT_CB, handle, path, events, 0);
 #else
   handle->cb(handle, path, events, 0);
 #endif

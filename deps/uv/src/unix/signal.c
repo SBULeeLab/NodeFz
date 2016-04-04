@@ -392,7 +392,7 @@ static void uv__signal_event(uv_loop_t* loop, uv__io_t* w, unsigned int events) 
       if (msg->signum == handle->signum) {
         assert(!(handle->flags & UV_CLOSING));
 #ifdef UNIFIED_CALLBACK
-        INVOKE_CALLBACK_2(UV_SIGNAL_CB, (any_func) handle->signal_cb, (long) handle, (long) handle->signum);
+        invoke_callback_wrap((any_func) handle->signal_cb, UV_SIGNAL_CB, (long) handle, (long) handle->signum);
 #else
         handle->signal_cb(handle, handle->signum);
 #endif

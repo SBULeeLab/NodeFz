@@ -265,7 +265,7 @@ static void uv__finish_close(uv_handle_t* handle) {
 
   if (handle->close_cb) {
 #if UNIFIED_CALLBACK
-    INVOKE_CALLBACK_1 (UV_CLOSE_CB, (any_func) handle->close_cb, (long) handle);
+    invoke_callback_wrap ((any_func) handle->close_cb, UV_CLOSE_CB, (long) handle);
     /* We no longer need to remember the peer, since it was already used
        in invoke_callback. */
     handle->peer_info = NULL;
@@ -853,10 +853,10 @@ static int uv__run_pending(uv_loop_t* loop) {
       QUEUE_INIT(q);
 
       /* Run the handle. */
-      mylog(LOG_MAIN, 7, "<Loop> <%p> <iter> <%i> <uv__io_t> <%p>\n", loop, loop->niter, w);
+      mylog(LOG_MAIN, 7, "Loop %p iter %i w %p\n", loop, loop->niter, w);
       uv__uv__run_pending_set_active_cb((any_func) w->cb);
       w->iocb_events = UV__POLLOUT;
-      INVOKE_CALLBACK_3(UV__IO_CB, (any_func) w->cb, (long) loop, (long) w, (long) UV__POLLOUT);
+      invoke_callback_wrap((any_func) w->cb, UV__IO_CB, (long) loop, (long) w, (long) UV__POLLOUT);
       uv__uv__run_pending_set_active_cb(NULL);
     }
     else
