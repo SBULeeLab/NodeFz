@@ -322,6 +322,10 @@ typedef void (*uv_getnameinfo_cb)(uv_getnameinfo_t* req,
                                   const char* hostname,
                                   const char* service);
 
+typedef void (*uv__work_work_cb)(struct uv__work *w);
+typedef void (*uv__work_done_cb)(struct uv__work *w, int status);
+typedef void (*uv_internal_work_cb)(struct uv__work *w);
+
 typedef struct {
   long tv_sec;
   long tv_nsec;

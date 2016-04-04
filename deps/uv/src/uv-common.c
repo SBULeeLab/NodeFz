@@ -2753,125 +2753,124 @@ static int cbn_discover_id (callback_node_t *cbn)
 #endif
 
 /* Execute the callback described by CBN based on CBN->info. */
-static void cbn_execute_callback (struct callback_node *cbn)
+static void cbn_execute_callback (callback_node_t *cbn)
 {
-  struct callback_info *info;
+  callback_info_t *info = NULL;
   assert(cbn != NULL);
   assert(cbn->info != NULL);
 
   info = cbn->info;
   assert(info->cb);
 
-  mylog(LOG_MAIN, 3, "Executing cb %p\n", info->cb);
+  mylog(LOG_MAIN, 3, "Executing cb\n");
 
   /* Invoke the callback. */
   switch (info->type)
   {
     /* include/uv.h */
     case UV_ALLOC_CB:
-      info->cb ((uv_handle_t *) info->args[0], (size_t) info->args[1], (uv_buf_t *) info->args[2]); /* uv_handle_t */
+      ((uv_alloc_cb) info->cb)((uv_handle_t *) info->args[0], (size_t) info->args[1], (uv_buf_t *) info->args[2]);
       break;
     case UV_READ_CB:
-      info->cb ((uv_stream_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2]); /* uv_handle_t */
+      ((uv_read_cb) info->cb)((uv_stream_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2]);
       break;
     case UV_WRITE_CB:
-      /* Pointer to the stream where this write request is running. */
-      info->cb ((uv_write_t *) info->args[0], (int) info->args[1]); /* uv_write_t, has pointer to two uv_stream_t's (uv_handle_t)  */
+      ((uv_write_cb) info->cb)((uv_write_t *) info->args[0], (int) info->args[1]);
       break;
     case UV_CONNECT_CB:
-      info->cb ((uv_connect_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
+      ((uv_connect_cb) info->cb)((uv_connect_t *) info->args[0], (int) info->args[1]);
       break;
     case UV_SHUTDOWN_CB:
-      info->cb ((uv_shutdown_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_stream_t (uv_handle_t) */
+      ((uv_shutdown_cb) info->cb)((uv_shutdown_t *) info->args[0], (int) info->args[1]);
       break;
     case UV_CONNECTION_CB:
-      info->cb ((uv_stream_t *) info->args[0], (int) info->args[1]); /* uv_handle_t */
+      ((uv_connection_cb) info->cb)((uv_stream_t *) info->args[0], (int) info->args[1]);
       break;
     case UV_CLOSE_CB:
-      info->cb ((uv_handle_t *) info->args[0]); /* uv_handle_t */
+      ((uv_close_cb) info->cb)((uv_handle_t *) info->args[0]);
       break;
     case UV_POLL_CB:
-      info->cb ((uv_poll_t *) info->args[0], (int) info->args[1], (int) info->args[2]); /* uv_handle_t */
+      ((uv_poll_cb) info->cb)((uv_poll_t *) info->args[0], (int) info->args[1], (int) info->args[2]);
       break;
     case UV_TIMER_CB:
-      info->cb ((uv_timer_t *) info->args[0]); /* uv_handle_t */
+      ((uv_timer_cb) info->cb)((uv_timer_t *) info->args[0]);
       break;
     case UV_ASYNC_CB:
-      info->cb ((uv_async_t *) info->args[0]); /* uv_handle_t */
+      ((uv_async_cb) info->cb)((uv_async_t *) info->args[0]);
       break;
     case UV_PREPARE_CB:
-      info->cb ((uv_prepare_t *) info->args[0]); /* uv_handle_t */
+      ((uv_prepare_cb) info->cb)((uv_prepare_t *) info->args[0]);
       break;
     case UV_CHECK_CB:
-      info->cb ((uv_check_t *) info->args[0]); /* uv_handle_t */
+      ((uv_check_cb) info->cb)((uv_check_t *) info->args[0]);
       break;
     case UV_IDLE_CB:
-      info->cb ((uv_idle_t *) info->args[0]); /* uv_handle_t */
+      ((uv_idle_cb) info->cb)((uv_idle_t *) info->args[0]);
       break;
     case UV_EXIT_CB:
-      info->cb ((uv_process_t *) info->args[0], (int64_t) info->args[1], (int) info->args[2]); /* uv_handle_t */
+      ((uv_exit_cb) info->cb)((uv_process_t *) info->args[0], (int64_t) info->args[1], (int) info->args[2]);
       break;
     case UV_WALK_CB:
-      info->cb ((uv_handle_t *) info->args[0], (void *) info->args[1]); /* uv_handle_t */
+      ((uv_walk_cb) info->cb)((uv_handle_t *) info->args[0], (void *) info->args[1]);
       break;
     case UV_FS_WORK_CB:
-      info->cb ((struct uv__work *) info->args[0]); /* JD: Added by me. */
+      ((uv_internal_work_cb) info->cb)((struct uv__work *) info->args[0]);
       break;
     case UV_FS_CB:
-      info->cb ((uv_fs_t *) info->args[0]); /* uv_req_t, no information about *handle or parent */
+      ((uv_fs_cb) info->cb)((uv_fs_t *) info->args[0]);
       break;
     case UV_WORK_CB:
-      info->cb ((uv_work_t *) info->args[0]); /* uv_req_t, no information about *handle or parent */
+      ((uv_work_cb) info->cb)((uv_work_t *) info->args[0]);
       break;
     case UV_AFTER_WORK_CB:
-      info->cb ((uv_work_t *) info->args[0], (int) info->args[1]); /* uv_req_t, no information about *handle or parent */
+      ((uv_after_work_cb) info->cb)((uv_work_t *) info->args[0], (int) info->args[1]);
       break;
     case UV_GETADDRINFO_WORK_CB:
-      info->cb ((struct uv__work *) info->args[0]); /* JD: Added by me. */
+      ((uv_internal_work_cb) info->cb)((struct uv__work *) info->args[0]);
       break;
     case UV_GETNAMEINFO_WORK_CB:
-      info->cb ((struct uv__work *) info->args[0]); /* JD: Added by me. */
+      ((uv_internal_work_cb) info->cb)((struct uv__work *) info->args[0]);
       break;
     case UV_GETADDRINFO_CB:
-      info->cb ((uv_getaddrinfo_t *) info->args[0], (int) info->args[1], (struct addrinfo *) info->args[2]); /* uv_req_t, no information about *handle or parent */
+      ((uv_getaddrinfo_cb) info->cb)((uv_getaddrinfo_t *) info->args[0], (int) info->args[1], (struct addrinfo *) info->args[2]);
       break;
     case UV_GETNAMEINFO_CB:
-      info->cb ((uv_getnameinfo_t *) info->args[0], (int) info->args[1], (const char *) info->args[2], (const char *) info->args[3]); /* uv_req_t, no information about *handle or parent */
+      ((uv_getnameinfo_cb) info->cb)((uv_getnameinfo_t *) info->args[0], (int) info->args[1], (const char *) info->args[2], (const char *) info->args[3]);
       break;
     case UV_FS_EVENT_CB:
-      info->cb ((uv_fs_event_t *) info->args[0], (const char *) info->args[1], (int) info->args[2], (int) info->args[3]); /* uv_handle_t */
+      ((uv_fs_event_cb) info->cb)((uv_fs_event_t *) info->args[0], (const char *) info->args[1], (int) info->args[2], (int) info->args[3]);
       break;
     case UV_FS_POLL_CB:
-      info->cb ((uv_fs_poll_t *) info->args[0], (int) info->args[1], (const uv_stat_t *) info->args[2], (const uv_stat_t *) info->args[3]); /* uv_handle_t */
+      ((uv_fs_poll_cb) info->cb)((uv_fs_poll_t *) info->args[0], (int) info->args[1], (const uv_stat_t *) info->args[2], (const uv_stat_t *) info->args[3]);
       break;
     case UV_SIGNAL_CB:
-      info->cb ((uv_signal_t *) info->args[0], (int) info->args[1]); /* uv_handle_t */
+      ((uv_signal_cb) info->cb)((uv_signal_t *) info->args[0], (int) info->args[1]);
       break;
     case UV_UDP_SEND_CB:
-      info->cb ((uv_udp_send_t *) info->args[0], (int) info->args[1]); /* uv_req_t, has pointer to uv_udp_t (uv_handle_t) */
+      ((uv_udp_send_cb) info->cb)((uv_udp_send_t *) info->args[0], (int) info->args[1]);
       break;
     case UV_UDP_RECV_CB:
       /* Peer info is in the sockaddr_storage of info->args[3]. */
-      info->cb ((uv_udp_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2], (const struct sockaddr *) info->args[3], (unsigned) info->args[4]); /* uv_handle_t */
+      ((uv_udp_recv_cb) info->cb)((uv_udp_t *) info->args[0], (ssize_t) info->args[1], (const uv_buf_t *) info->args[2], (const struct sockaddr *) info->args[3], (unsigned) info->args[4]);
       break;
     case UV_THREAD_CB:
-      info->cb ((void *) info->args[0]); /* ?? */
+      ((uv_thread_cb) info->cb)((void *) info->args[0]);
       break;
 
     /* include/uv-unix.h */
     case UV__IO_CB:
-      info->cb ((struct uv_loop_s *) info->args[0], (struct uv__io_s *) info->args[1], (unsigned int) info->args[2]); /* Global loop */
+      ((uv__io_cb) info->cb)((struct uv_loop_s *) info->args[0], (struct uv__io_s *) info->args[1], (unsigned int) info->args[2]);
       break;
     case UV__ASYNC_CB:
-      info->cb ((struct uv_loop_s *) info->args[0], (struct uv__async *) info->args[1], (unsigned int) info->args[2]); /* Global loop */
+      ((uv__async_cb) info->cb)((struct uv_loop_s *) info->args[0], (struct uv__async *) info->args[1], (unsigned int) info->args[2]);
       break;
 
     /* include/uv-threadpool.h */
     case UV__WORK_WORK:
-      info->cb ((struct uv__work *) info->args[0]); /* Knows parent. */
+      ((uv__work_work_cb) info->cb)((struct uv__work *) info->args[0]);
       break;
     case UV__WORK_DONE:
-      info->cb ((struct uv__work *) info->args[0], (int) info->args[1]); /* Knows parent. */
+      ((uv__work_done_cb) info->cb)((struct uv__work *) info->args[0], (int) info->args[1]);
       break;
 
     default:
