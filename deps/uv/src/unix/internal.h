@@ -318,6 +318,7 @@ UV_UNUSED(static void uv__req_init(uv_loop_t* loop,
   req->type = type;
 
   req->magic = UV_REQ_MAGIC;
+  /* TODO Memory leak. Need a matching uv__req_destroy. */ 
   req->cb_type_to_lcbn = map_create();
   assert(req->cb_type_to_lcbn != NULL);
 

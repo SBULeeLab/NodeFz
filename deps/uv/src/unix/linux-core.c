@@ -250,7 +250,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     else
       mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
-    mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing\n");
+    mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing (timeout %i)\n", timeout);
     if (no_epoll_wait != 0 || (sigmask != 0 && no_epoll_pwait == 0)) {
       nfds = uv__epoll_pwait(loop->backend_fd,
                              events,
@@ -284,8 +284,12 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
       timeout = real_timeout - timeout;
       if (timeout > 0)
+      {
+        mylog(LOG_MAIN, 5, "uv__io_poll: False timeout, epoll'ing again\n");
         continue;
+      }
 
+      mylog(LOG_MAIN, 5, "uv__io_poll: Real timeout, returning\n");
       return;
     }
 
@@ -339,6 +343,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         uv__epoll_ctl(loop->backend_fd, UV__EPOLL_CTL_DEL, fd, pe);
         continue;
       }
+      mylog(LOG_MAIN, 7, "uv__io_poll: fd %i (w %p) is ready\n", fd, w);
 
       /* The pending events determine whether or not we'll actually invoke w's CB. */
       io_events = pe->events;
@@ -348,6 +353,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
       if (io_events != 0) 
       {
+        mylog(LOG_MAIN, 7, "uv__io_poll: Relevant events for fd %i, adding it to the list of candidates\n", fd);
         w->iocb_events = io_events;
         if ((any_func) w->cb == uv_uv__async_io_ptr())
         {
@@ -382,11 +388,14 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         else
           assert(!"uv__io_poll: Error, unexpected w->cb");
       }
+      else
+        mylog(LOG_MAIN, 7, "uv__io_poll: No relevant events for fd %i\n", fd);
     }
 
     while (!list_empty(pending_wrappers))
     {
       /* Find, remove, and execute the w next in the schedule. */
+      mylog(LOG_MAIN, 7, "uv__io_poll: %u pending wrappers\n", list_size(pending_wrappers));
       sched_context = scheduler_next_context(pending_wrappers);
       if (sched_context)
       {
@@ -432,7 +441,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
        executed. */
     list_destroy_full(pending_wrappers, sched_context_list_destroy_func, NULL); 
 
-    mylog(LOG_MAIN, 7, "uv__io_poll: %i fds, %i scheduled executed events\n", nfds, nevents);
+    mylog(LOG_MAIN, 7, "uv__io_poll: %i fds, ran (nevents) %i\n", nfds, nevents);
 
     loop->watchers[loop->nwatchers] = NULL;
     loop->watchers[loop->nwatchers + 1] = NULL;

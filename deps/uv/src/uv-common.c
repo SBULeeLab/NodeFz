@@ -1643,7 +1643,6 @@ void unified_callback_init (void)
   char *schedule_modeP, *schedule_fileP;
   enum schedule_mode schedule_mode;
   static int initialized = 0;
-  pthread_mutexattr_t attr;
 
   if (initialized)
     return;
@@ -2443,8 +2442,8 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
   lcbn_new->global_reg_id = lcbn_next_reg_id();
   scheduler_record(sched_lcbn_create(lcbn_new));
 
-  mylog(LOG_MAIN, 5, "uv__register_callback: lcbn %p cb %p context %p type %s registrar %p\n",
-    lcbn_new, cb, context, callback_type_to_string(cb_type), lcbn_cur);
+  mylog(LOG_MAIN, 5, "uv__register_callback: lcbn %p context %p type %s registrar %p\n",
+    lcbn_new, context, callback_type_to_string(cb_type), lcbn_cur);
 
   /* OLD CODE FOLLOWS. */
 
@@ -2481,8 +2480,8 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
   co->origin = origin;
   key = (int) (long) cb;
   map_insert(callback_to_origin_map, key, co);
-  mylog(LOG_MAIN, 5, "uv__register_callback: registered cb %p as key %i type %s origin %i\n",
-    co->cb, key, callback_type_to_string(co->type), co->origin);
+  mylog(LOG_MAIN, 5, "uv__register_callback: registered cb as key %i type %s origin %i\n",
+    key, callback_type_to_string(co->type), co->origin);
 }
 
 /* Returns the origin of CB.
@@ -2520,7 +2519,7 @@ struct callback_origin * uv__callback_origin (any_func cb)
   found = 0;
   
   key = (int) (long) cb;
-  mylog(LOG_MAIN, 9, "uv__callback_origin: looking up origin of cb %p\n", cb);
+  mylog(LOG_MAIN, 9, "uv__callback_origin: looking up origin of cb\n");
 
   co = (struct callback_origin *) map_lookup(callback_to_origin_map, key, &found);
   if (!found)
@@ -2707,7 +2706,6 @@ static int cbn_discover_id (callback_node_t *cbn)
   assert(!cbn_have_peer_info(cbn));
   assert(!cbn->discovered_client_id);
 
-  mylog(LOG_MAIN, 9, "cbn_discover_id: Looking for the ID associated with CBN %p (cb %p)\n", cbn, cbn->info->cb);
   got_peer_info = look_for_peer_info(cbn->info, cbn, &uvht);
   if (got_peer_info)
   {
