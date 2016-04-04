@@ -17,9 +17,12 @@ struct lcbn_dependency_s
 };
 typedef struct lcbn_dependency_s lcbn_dependency_t;
 
+#define LCBN_MAGIC 33229988
+
 /* Nodes that comprise a logical callback tree. */
 struct lcbn_s
 {
+  int magic;
   char name[32];
   char parent_name[32];
 
