@@ -17,6 +17,11 @@
 #define NOT_REACHED assert (0 == 1);
 #endif
 
+struct callback_info_s;
+struct callback_node_s;
+typedef struct callback_info_s callback_info_t;
+typedef struct callback_node_s callback_node_t;
+
 struct callback_origin
 {
   enum callback_origin_type origin;
@@ -25,7 +30,7 @@ struct callback_origin
 };
 
 /* Description of an instance of a callback. */
-struct callback_info
+struct callback_info_s
 {
   enum callback_type type;
   enum callback_origin_type origin;
@@ -34,13 +39,13 @@ struct callback_info
 };
 
 /* Nodes that comprise a callback tree. */
-struct callback_node
+struct callback_node_s
 {
-  struct callback_info *info; /* Description of this callback. */
+  callback_info_t *info; /* Description of this callback. */
   int physical_level; /* What level in the physical callback tree is it? For root nodes this is 0. */
   int logical_level; /* What level in the logical callback tree is it? For root nodes this is 0. */
-  struct callback_node *physical_parent; /* What callback ACTUALLY started us? For root nodes this is NULL. */
-  struct callback_node *logical_parent; /* What callback was LOGICALLY responsible for starting us? NULL means that physical parent is also logical parent. */
+  callback_node_t *physical_parent; /* What callback ACTUALLY started us? For root nodes this is NULL. */
+  callback_node_t *logical_parent; /* What callback was LOGICALLY responsible for starting us? NULL means that physical parent is also logical parent. */
 
   /* These fields are to track our internal ID of the client incurring this CB. 
      The first client has ID 0, the second ID 1, ... -1 == unknown. -2 == originating from the initial stack. 

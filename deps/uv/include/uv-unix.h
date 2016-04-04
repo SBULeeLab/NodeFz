@@ -90,7 +90,7 @@ struct uv__io_s {
   unsigned int iocb_events; /* JD: Events accompanying this w into its uv__io_cb. */
   int fd;
   UV_IO_PRIVATE_PLATFORM_FIELDS
-  struct callback_node *logical_parent; /* The current CBN at the time of uv__io_feed. That parent always completes before CB is executed. */
+  callback_node_t *logical_parent; /* The current CBN at the time of uv__io_feed. That parent always completes before CB is executed. */
 };
 
 typedef void (*uv__async_cb)(struct uv_loop_s* loop,

@@ -681,33 +681,33 @@ struct uv_nameinfo
 };
 
 /* Callback nodes. */
-static struct callback_node * cbn_create (void);
-static void cbn_start (struct callback_node *cbn);
-static void cbn_stop (struct callback_node *cbn);
-static void cbn_determine_executing_thread (struct callback_node *cbn);
-static int cbn_have_peer_info (const struct callback_node *cbn);
+static callback_node_t * cbn_create (void);
+static void cbn_start (callback_node_t *cbn);
+static void cbn_stop (callback_node_t *cbn);
+static void cbn_determine_executing_thread (callback_node_t *cbn);
+static int cbn_have_peer_info (const callback_node_t *cbn);
 
 #if 0
-static struct callback_node * cbn_climb_to_type (struct callback_node *cbn, enum callback_type type);
-static int cbn_is_descendant (struct callback_node *cbn, struct callback_node *maybe_ancestor);
-static void cbn_color_tree (struct callback_node *cbn, int client_id);
+static callback_node_t * cbn_climb_to_type (callback_node_t *cbn, enum callback_type type);
+static int cbn_is_descendant (callback_node_t *cbn, callback_node_t *maybe_ancestor);
+static void cbn_color_tree (callback_node_t *cbn, int client_id);
 #endif
 
-static int cbn_have_peer_info (const struct callback_node *cbn);
-static int cbn_is_active_pending_cb (const struct callback_node *cbn);
-static int cbn_is_active (const struct callback_node *cbn);
-static void cbn_execute_callback (struct callback_node *cbn);
+static int cbn_have_peer_info (const callback_node_t *cbn);
+static int cbn_is_active_pending_cb (const callback_node_t *cbn);
+static int cbn_is_active (const callback_node_t *cbn);
+static void cbn_execute_callback (callback_node_t *cbn);
 
-static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_type, void (*f)(struct callback_node *, void *), void *aux);
+static void cbn_walk (callback_node_t *cbn, enum callback_tree_type tree_type, void (*f)(callback_node_t *, void *), void *aux);
 
 /* Functions for cbn_walk. */
-static void cbn_print_logical_parentage_gv (struct callback_node *cbn, void *fdP);
+static void cbn_print_logical_parentage_gv (callback_node_t *cbn, void *fdP);
 #if 0
-static void cbn_update_level (struct callback_node *cbn, void *aux);
+static void cbn_update_level (callback_node_t *cbn, void *aux);
 #endif
 
-static int cbn_got_client_input (struct callback_node *cbn);
-static int cbn_sent_client_output (struct callback_node *cbn);
+static int cbn_got_client_input (callback_node_t *cbn);
+static int cbn_sent_client_output (callback_node_t *cbn);
 
 static void addr_getnameinfo (struct sockaddr_storage *addr, struct uv_nameinfo *nameinfo);
 
@@ -724,16 +724,16 @@ static void mark_global_start (void);
 static void calc_relative_time (struct timespec *start, struct timespec *res);
 
 /* Output. */
-static void dump_callback_node_gv (int fd, struct callback_node *cbn);
-static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix, int do_indent);
-static void dump_callback_tree_gv (int fd, struct callback_node *cbn);
+static void dump_callback_node_gv (int fd, callback_node_t *cbn);
+static void dump_callback_node (int fd, callback_node_t *cbn, char *prefix, int do_indent);
+static void dump_callback_tree_gv (int fd, callback_node_t *cbn);
 
 /* NB these are not thread safe. Use a mutex to ensure that exec_id actually matches exec order, and so on. */
 static unsigned lcbn_next_exec_id (void);
 static unsigned lcbn_next_reg_id (void);
 
 #if 0
-static void dump_callback_tree (int fd, struct callback_node *cbn);
+static void dump_callback_tree (int fd, callback_node_t *cbn);
 #endif
 
 /* Variables for tracking the unified callback queue. */
@@ -816,11 +816,23 @@ static void uv__invoke_callback_lcbn_unlock (void)
   pthread_mutex_unlock(&invoke_callback_lcbn_lock);
 }
 
+static void uv__invoke_callback_lcbn_cond_wait (pthread_cond_t *cond)
+{
+  assert(cond);
+  assert(pthread_cond_wait(cond, &invoke_callback_lcbn_lock) == 0);
+}
+
+static void uv__invoke_callback_lcbn_cond_broadcast (pthread_cond_t *cond)
+{
+  assert(cond);
+  assert(pthread_cond_broadcast(cond) == 0);
+}
+
 /* Callback node APIs. */
 
 #if 0
 /* Returns 1 if CBN is a root node for a tree of TYPE, else 0. */
-static int cbn_is_root (const struct callback_node *cbn, enum callback_tree_type type)
+static int cbn_is_root (const callback_node_t *cbn, enum callback_tree_type type)
 {
   int is_root;
   assert(cbn != NULL);
@@ -842,7 +854,7 @@ static int cbn_is_root (const struct callback_node *cbn, enum callback_tree_type
 #endif
 
 /* Returns 1 if we know the peer info of CBN already, else 0. */
-static int cbn_have_peer_info (const struct callback_node *cbn)
+static int cbn_have_peer_info (const callback_node_t *cbn)
 {
   assert(cbn != NULL);
   assert(cbn->peer_info != NULL);
@@ -850,7 +862,7 @@ static int cbn_have_peer_info (const struct callback_node *cbn)
 }
 
 /* Mark CBN as active and update its start and relative_start fields. */
-static void cbn_start (struct callback_node *cbn)
+static void cbn_start (callback_node_t *cbn)
 {
   assert(cbn != NULL);
   assert(!cbn->active);
@@ -862,7 +874,7 @@ static void cbn_start (struct callback_node *cbn)
 }
 
 /* Mark CBN as inactive and set its stop and duration fields. */
-static void cbn_stop (struct callback_node *cbn)
+static void cbn_stop (callback_node_t *cbn)
 {
   assert(cbn != NULL);
   assert(cbn->active);
@@ -881,9 +893,9 @@ static void cbn_stop (struct callback_node *cbn)
    This function may modify the parent field of one of the args in CBN->info
      for use by a child in cbn_determine_parentage. 
     Returns non-zero if we changed anything, else 0. */
-static int cbn_embed_parentage (struct callback_node *cbn)
+static int cbn_embed_parentage (callback_node_t *cbn)
 {
-  struct callback_info *info;
+  callback_info_t *info;
   uv_handle_t *handle; /* Has parent field. */
   struct uv__work *work; /* Has parent field. */
   int did_something;
@@ -943,11 +955,11 @@ static int cbn_embed_parentage (struct callback_node *cbn)
    This function also does any inheritance required (e.g. physical_level).
 
    CBN should not yet be the current_callback_node. */
-static void cbn_determine_parentage (struct callback_node *cbn)
+static void cbn_determine_parentage (callback_node_t *cbn)
 {
   uv_handle_t *handle;
-  struct callback_info *info;
-  struct callback_node *parent_to_inherit_from;
+  callback_info_t *info;
+  callback_node_t *parent_to_inherit_from;
   uv__io_t *iot;
 
   assert(cbn != NULL);
@@ -1086,7 +1098,7 @@ static void cbn_determine_parentage (struct callback_node *cbn)
    async CB: the current_callback_node may not be its logical_parent.
    Examples: timers, uv__run_pending, threadpool.
    CBN->info must be initialized. */
-static int cbn_is_async_cb (const struct callback_node *cbn)
+static int cbn_is_async_cb (const callback_node_t *cbn)
 {
   assert(cbn != NULL);
   return (cbn_is_repeated_cb(cbn) 
@@ -1099,7 +1111,7 @@ static int cbn_is_async_cb (const struct callback_node *cbn)
 #if 0
 /* Return non-zero if CBN is a repeated CB, zero else.
    CBN->info must be initialized. */
-static int cbn_is_repeated_cb (const struct callback_node *cbn)
+static int cbn_is_repeated_cb (const callback_node_t *cbn)
 {
   enum callback_type type;
   int maybe_repeated;
@@ -1119,7 +1131,7 @@ static int cbn_is_repeated_cb (const struct callback_node *cbn)
 /* Return non-zero if CBN is an asynchronous CB from the threadpool, zero else.
    See cbn_is_async_cb for definition of asynchronous.
    CBN->info must be initialized. */
-static int cbn_is_async_threadpool_cb (const struct callback_node *cbn)
+static int cbn_is_async_threadpool_cb (const callback_node_t *cbn)
 {
   enum callback_type type;
   int is_async_threadpool;
@@ -1135,7 +1147,7 @@ static int cbn_is_async_threadpool_cb (const struct callback_node *cbn)
 
 /* Return non-zero if CBN is currently being executed by uv__run_pending, zero else.
    CBN->info must be initialized. */
-static int cbn_is_active_pending_cb (const struct callback_node *cbn)
+static int cbn_is_active_pending_cb (const callback_node_t *cbn)
 {
   assert(cbn != NULL);
   assert(cbn->info != NULL);
@@ -1145,7 +1157,7 @@ static int cbn_is_active_pending_cb (const struct callback_node *cbn)
 }
 
 /* Returns non-zero if CBN is active, zero else. */
-static int cbn_is_active (const struct callback_node *cbn)
+static int cbn_is_active (const callback_node_t *cbn)
 {
   assert(cbn != NULL);
   return cbn->active;
@@ -1153,7 +1165,7 @@ static int cbn_is_active (const struct callback_node *cbn)
 
 #if 0
 /* CBN inherits the appropriate fields from logical/physical parents. */
-static void cbn_inherit (struct callback_node *cbn)
+static void cbn_inherit (callback_node_t *cbn)
 {
   int original_peer_info;
   assert(cbn != NULL);
@@ -1212,9 +1224,9 @@ static void cbn_inherit (struct callback_node *cbn)
 
 #if 0
 /* Return the root of the callback-node tree containing CBN. */
-static struct callback_node * cbn_get_root (struct callback_node *cbn, enum callback_tree_type type)
+static callback_node_t * cbn_get_root (callback_node_t *cbn, enum callback_tree_type type)
 {
-  struct callback_node *parent;
+  callback_node_t *parent;
   char child_buf[1024], parent_buf[1024];
 
   assert(cbn != NULL);
@@ -1233,9 +1245,9 @@ static struct callback_node * cbn_get_root (struct callback_node *cbn, enum call
 
 #if 0
 /* Return the parent of CBN of the specified TYPE. */
-static struct callback_node * cbn_get_parent (struct callback_node *cbn, enum callback_tree_type type)
+static callback_node_t * cbn_get_parent (callback_node_t *cbn, enum callback_tree_type type)
 {
-  struct callback_node *parent;
+  callback_node_t *parent;
   assert(cbn != NULL);
 
   switch (type)
@@ -1257,7 +1269,7 @@ static struct callback_node * cbn_get_parent (struct callback_node *cbn, enum ca
 #if 0
 /* Return the closest ancestor of CBN of type TYPE.
    Returns one of the ancestors of CBN, or NULL if no matching ancestor is found. */
-static struct callback_node * cbn_climb_to_type (struct callback_node *cbn, enum callback_type type)
+static callback_node_t * cbn_climb_to_type (callback_node_t *cbn, enum callback_type type)
 {
   assert(cbn != NULL);
 
@@ -1285,7 +1297,7 @@ static struct callback_node * cbn_climb_to_type (struct callback_node *cbn, enum
 }
 
 /* Returns non-zero if MAYBE_ANCESTOR is one of the ancestors of CBN. Else zero. */
-static int cbn_is_descendant (struct callback_node *cbn, struct callback_node *maybe_ancestor)
+static int cbn_is_descendant (callback_node_t *cbn, callback_node_t *maybe_ancestor)
 {
   assert(cbn != NULL);
   assert(maybe_ancestor != NULL);
@@ -1305,9 +1317,9 @@ static int cbn_is_descendant (struct callback_node *cbn, struct callback_node *m
 
 /* The color (i.e. CLIENT_ID) of the tree rooted at CBN has been discovered.
    Color CBN and all of its descendants this color. */
-static void cbn_color_tree (struct callback_node *cbn, int client_id)
+static void cbn_color_tree (callback_node_t *cbn, int client_id)
 {
-  struct callback_node *child;
+  callback_node_t *child;
   struct list_elem *e;
   assert(cbn != NULL);
 
@@ -1322,7 +1334,7 @@ static void cbn_color_tree (struct callback_node *cbn, int client_id)
   /* TODO What does it mean to color logical vs. physical descendants? */
   for (e = list_begin(cbn->physical_children); e != list_end(cbn->physical_children); e = list_next(e))
   {
-    child = list_entry (e, struct callback_node, physical_child_elem);
+    child = list_entry (e, callback_node_t, physical_child_elem);
     cbn_color_tree(child, client_id);
   }
 }
@@ -1333,7 +1345,7 @@ static void cbn_color_tree (struct callback_node *cbn, int client_id)
 
 /* Sets the current callback node for this thread to CBN. 
    NULL signifies the end of a callback tree. */
-void current_callback_node_set (struct callback_node *cbn)
+void current_callback_node_set (callback_node_t *cbn)
 {
   /* My maps are thread safe. */
   map_insert(tid_to_current_cbn, (int) pthread_self(), (void *) cbn);
@@ -1345,13 +1357,13 @@ void current_callback_node_set (struct callback_node *cbn)
 
 /* Retrieves the current callback node for this thread, or NULL if no such node. 
    This function is thread safe. */
-struct callback_node *current_callback_node_get (void)
+callback_node_t *current_callback_node_get (void)
 {
   int found;
-  struct callback_node *ret;
+  callback_node_t *ret;
 
   /* My maps are thread safe. */
-  ret = (struct callback_node *) map_lookup(tid_to_current_cbn, (int) pthread_self(), &found);
+  ret = (callback_node_t *) map_lookup(tid_to_current_cbn, (int) pthread_self(), &found);
 
   if (!found)
     assert(ret == NULL);
@@ -1361,11 +1373,11 @@ struct callback_node *current_callback_node_get (void)
 /* Returns a new CBN. 
    id=-1, peer_info is allocated, {orig,true}_client_id=ID_UNKNOWN. 
    All other fields are NULL or 0. */
-static struct callback_node * cbn_create (void)
+static callback_node_t * cbn_create (void)
 {
-  struct callback_node *cbn;
+  callback_node_t *cbn;
 
-  cbn = (struct callback_node *) uv__malloc(sizeof *cbn);
+  cbn = (callback_node_t *) uv__malloc(sizeof *cbn);
   assert(cbn != NULL);
   memset(cbn, 0, sizeof *cbn);
 
@@ -1401,7 +1413,7 @@ static struct callback_node * cbn_create (void)
    Call in invoke_callback prior to execution.
 
    Thread safe. */
-static void cbn_determine_executing_thread (struct callback_node *cbn)
+static void cbn_determine_executing_thread (callback_node_t *cbn)
 {
   cbn->executing_thread = pthread_self_internal();
 }
@@ -1420,9 +1432,9 @@ void lcbn_determine_executing_thread (lcbn_t *lcbn)
 
 /* Returns the CBN associated with the initial stack.
    Not thread safe the first time it is called. */
-struct callback_node * get_init_stack_callback_node (void)
+callback_node_t * get_init_stack_callback_node (void)
 {
-  static struct callback_node *init_stack_cbn = NULL;
+  static callback_node_t *init_stack_cbn = NULL;
   if (!init_stack_cbn)
   {
     init_stack_cbn = cbn_create();
@@ -1714,7 +1726,7 @@ void unified_callback_init (void)
      WRITE
      CLOSE
    */
-static int look_for_peer_info (const struct callback_info *cbi, struct callback_node *cbn, uv_handle_t **uvhtPP)
+static int look_for_peer_info (const callback_info_t *cbi, callback_node_t *cbn, uv_handle_t **uvhtPP)
 {
   uv_handle_t *uvht;
 
@@ -1776,10 +1788,10 @@ int sync_cb_thread_initialized = 0;
 
 /* Invoke the callback described by CBI. 
    Returns the CBN allocated for the callback. */
-struct callback_node * invoke_callback (struct callback_info *cbi)
+callback_node_t * invoke_callback (callback_info_t *cbi)
 {
-  struct callback_node *cbn = NULL;
-  int is_threadpool_CB;
+  callback_node_t *cbn = NULL;
+  int is_threadpool_CB = 0;
 
   void *context = NULL;
   uv_handle_t *context_handle = NULL;
@@ -1975,7 +1987,7 @@ struct callback_node * invoke_callback (struct callback_info *cbi)
    The caller must have prepared the outer graph declaration; we just
    print node/edge info in graphviz format. 
    TODO Increase the amount of information embedded here? */
-static void dump_callback_node_gv (int fd, struct callback_node *cbn)
+static void dump_callback_node_gv (int fd, callback_node_t *cbn)
 {
   char client_info[256], shape[16], penwidth[16];
   struct uv_nameinfo nameinfo;
@@ -2022,7 +2034,7 @@ static void dump_callback_node_gv (int fd, struct callback_node *cbn)
 
 /* Prints callback node CBN to FD.
    If INDENT, we indent it according to its level. */
-static void dump_callback_node (int fd, struct callback_node *cbn, char *prefix, int do_indent)
+static void dump_callback_node (int fd, callback_node_t *cbn, char *prefix, int do_indent)
 {
   char spaces[512];
   int i, n_spaces;
@@ -2049,7 +2061,7 @@ void dump_callback_globalorder (void)
   char prefix[64];
   int fd;
   char out_file[128];
-  struct callback_node *cbn;
+  callback_node_t *cbn;
 
   snprintf(out_file, 128, "/tmp/callback_global_order_%i_%i.txt", (int) time(NULL), getpid());
   printf("Dumping all %i callbacks in their global order to %s\n", list_size(global_order_list), out_file);
@@ -2069,7 +2081,7 @@ void dump_callback_globalorder (void)
   for (e = list_begin(global_order_list); e != list_end(global_order_list); e = list_next(e))
   {
     assert(e != NULL);
-    cbn = list_entry(e, struct callback_node, global_order_elem);
+    cbn = list_entry(e, callback_node_t, global_order_elem);
     /* Don't emit the "fake" initial stack callback node. */
     if (cbn == get_init_stack_callback_node())
       continue;
@@ -2132,18 +2144,18 @@ void dump_lcbn_globalorder(void)
 
 #if 0
 /* Dumps the callback tree rooted at CBN to FD. */
-static void dump_callback_tree (int fd, struct callback_node *cbn)
+static void dump_callback_tree (int fd, callback_node_t *cbn)
 {
   int child_num;
   struct list_elem *e;
-  struct callback_node *node;
+  callback_node_t *node;
   assert (cbn != NULL);
 
   dump_callback_node (fd, cbn, "", 1);
   child_num = 0;
   for (e = list_begin(cbn->children); e != list_end(cbn->children); e = list_next(e))
   {
-    node = list_entry (e, struct callback_node, child_elem);
+    node = list_entry (e, callback_node_t, child_elem);
     /* printf("Parent cbn %p child %i: %p\n", cbn, child_num, node); */
     dump_callback_tree (fd, node);
     child_num++;
@@ -2154,18 +2166,18 @@ static void dump_callback_tree (int fd, struct callback_node *cbn)
 /* Dump the callback tree rooted at CBN to FD in graphviz format.
    The caller must have prepared the outer graph declaration; we just
    print node/edge info in graphviz format. */
-static void dump_callback_tree_gv (int fd, struct callback_node *cbn)
+static void dump_callback_tree_gv (int fd, callback_node_t *cbn)
 {
   int child_num;
   struct list_elem *e;
-  struct callback_node *child;
+  callback_node_t *child;
   assert (cbn != NULL);
 
   dump_callback_node_gv (fd, cbn);
   child_num = 0;
   for (e = list_begin(cbn->physical_children); e != list_end(cbn->physical_children); e = list_next(e))
   {
-    child = list_entry(e, struct callback_node, physical_child_elem);
+    child = list_entry(e, callback_node_t, physical_child_elem);
     /* Print the relationship between parent and child. */
     dprintf(fd, "    %i -> %i;\n", cbn->id, child->id); 
     dump_callback_tree_gv (fd, child);
@@ -2174,18 +2186,18 @@ static void dump_callback_tree_gv (int fd, struct callback_node *cbn)
 }
 
 /* Returns the size of the tree rooted at CBN (i.e. # callback_nodes). */
-int callback_tree_size (struct callback_node *root)
+int callback_tree_size (callback_node_t *root)
 {
   int size; 
   struct list_elem *e;
-  struct callback_node *node;
+  callback_node_t *node;
 
   assert(root != NULL);
 
   size = 1;
   for (e = list_begin(root->physical_children); e != list_end(root->physical_children); e = list_next(e))
   {
-    node = list_entry(e, struct callback_node, physical_child_elem);
+    node = list_entry(e, callback_node_t, physical_child_elem);
     size += callback_tree_size (node);
   }
 
@@ -2213,7 +2225,7 @@ void dump_callback_trees (void)
   tree_num = 0;
   for (e = list_begin(root_list); e != list_end(root_list); e = list_next(e))
   {
-    struct callback_node *root = list_entry(e, struct callback_node, root_elem);
+    callback_node_t *root = list_entry(e, callback_node_t, root_elem);
 #if GRAPHVIZ
     tree_size = callback_tree_size (root);
     meta_size += tree_size;
@@ -2244,7 +2256,7 @@ void dump_callback_trees (void)
   tree_num = 0;
   for (e = list_begin(root_list); e != list_end(root_list); e = list_next(e))
   {
-    struct callback_node *root = list_entry(e, struct callback_node, root_elem);
+    callback_node_t *root = list_entry(e, callback_node_t, root_elem);
     assert (0 <= fd);
     tree_size = callback_tree_size (root);
     dprintf(fd, "  subgraph %i {\n    /* size %i */\n", tree_num, tree_size);
@@ -2258,7 +2270,7 @@ void dump_callback_trees (void)
       must be done separately. */
   for (e = list_begin(root_list); e != list_end(root_list); e = list_next(e))
   {
-    struct callback_node *root = list_entry(e, struct callback_node, root_elem);
+    callback_node_t *root = list_entry(e, callback_node_t, root_elem);
     cbn_walk(root, CALLBACK_TREE_PHYSICAL, cbn_print_logical_parentage_gv, (void *) &fd);
   }
 
@@ -2272,7 +2284,7 @@ void dump_callback_trees (void)
 }
 
 /* Print the logical parentage of CBN to FDP in graphviz style. */
-static void cbn_print_logical_parentage_gv (struct callback_node *cbn, void *fdP)
+static void cbn_print_logical_parentage_gv (callback_node_t *cbn, void *fdP)
 {
   int *fd = (int *) fdP;
   assert(cbn);
@@ -2288,7 +2300,7 @@ static void cbn_print_logical_parentage_gv (struct callback_node *cbn, void *fdP
 }
 
 /* Returns non-zero if this CBN received input from a client, else 0. */
-static int cbn_got_client_input (struct callback_node *cbn)
+static int cbn_got_client_input (callback_node_t *cbn)
 {
   int could_be_input;
   assert(cbn != NULL);
@@ -2304,7 +2316,7 @@ static int cbn_got_client_input (struct callback_node *cbn)
 }
 
 /* Returns non-zero if this CBN sent output to a client, else 0. */
-static int cbn_sent_client_output (struct callback_node *cbn)
+static int cbn_sent_client_output (callback_node_t *cbn)
 {
   int could_be_output;
   assert(cbn != NULL);
@@ -2374,7 +2386,7 @@ static void calc_relative_time (struct timespec *start, struct timespec *res)
    */
 void uv__register_callback (void *context, any_func cb, enum callback_type cb_type)
 {
-  struct callback_node *cbn;
+  callback_node_t *cbn;
   struct callback_origin *co;
   enum callback_origin_type origin;
   int key;
@@ -2561,7 +2573,7 @@ struct callback_origin * uv__callback_origin (any_func cb)
      appropriately. */
 void uv__mark_init_stack_begin (void)
 {
-  struct callback_node *init_stack_cbn;
+  callback_node_t *init_stack_cbn;
   lcbn_t *init_stack_lcbn;
 
   /* Call at most once. */
@@ -2587,7 +2599,7 @@ void uv__mark_init_stack_begin (void)
    Pair with uv__mark_init_stack_begin. */
 void uv__mark_init_stack_end (void)
 {
-  struct callback_node *init_stack_cbn;
+  callback_node_t *init_stack_cbn;
   lcbn_t *init_stack_lcbn;
 
   assert(uv__init_stack_active()); 
@@ -2679,7 +2691,7 @@ void uv__uv__run_pending_set_active_cb (any_func cb)
 /* Attempt to discover the client ID of CBN.
    CBN->id must be ID_UNKNOWN. 
    Returns non-zero if discovered, else zero. */
-static int cbn_discover_id (struct callback_node *cbn)
+static int cbn_discover_id (callback_node_t *cbn)
 {
   uv_handle_t *uvht;
   int got_peer_info;
@@ -2869,7 +2881,7 @@ static void cbn_execute_callback (struct callback_node *cbn)
 
 #if 0
 /* Debugging routine. To combat the annoying <optimized out> in gdb. */
-static char * cbn_to_string (struct callback_node *cbn, char *buf, int size)
+static char * cbn_to_string (callback_node_t *cbn, char *buf, int size)
 {
   assert(buf != NULL);
 
@@ -2892,7 +2904,7 @@ static char * cbn_to_string (struct callback_node *cbn, char *buf, int size)
 
 #if 0
 /* Debugging routine. To combat the annoying <optimized out> in gdb. */
-static void cbn_print (struct callback_node *cbn)
+static void cbn_print (callback_node_t *cbn)
 {
   char buf[1024];
   mylog(LOG_MAIN, 1, cbn_to_string(cbn, buf, 1024));
@@ -2901,10 +2913,10 @@ static void cbn_print (struct callback_node *cbn)
 
 #if 0
 /* Print CBN and all of its ancestors. */
-static void cbn_print_ancestry (struct callback_node *cbn)
+static void cbn_print_ancestry (callback_node_t *cbn)
 {
   char buf[1024];
-  struct callback_node *parent;
+  callback_node_t *parent;
 
   mylog(LOG_MAIN, 9, "cbn_print_ancestory: node %s\n", cbn_to_string(cbn, buf, 1024));
 
@@ -2926,11 +2938,11 @@ static void cbn_print_ancestry (struct callback_node *cbn)
 
 /* Walk the CBN tree rooted at CBN, applying F to each node with args (node, AUX). 
    F is applied to parents before children. */
-static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_type, void (*f)(struct callback_node *, void *), void *aux)
+static void cbn_walk (callback_node_t *cbn, enum callback_tree_type tree_type, void (*f)(callback_node_t *, void *), void *aux)
 {
   struct list *children;
   struct list_elem *e;
-  struct callback_node *child;
+  callback_node_t *child;
 
   assert(cbn != NULL);
 
@@ -2942,8 +2954,8 @@ static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_ty
   for (e = list_begin(children); e != list_end(children); e = list_next(e))
   {
     child = (tree_type == CALLBACK_TREE_PHYSICAL ?
-             list_entry(e, struct callback_node, physical_child_elem) :
-             list_entry(e, struct callback_node, logical_child_elem)
+             list_entry(e, callback_node_t, physical_child_elem) :
+             list_entry(e, callback_node_t, logical_child_elem)
             );
     cbn_walk(child, tree_type, f, aux);
   }
@@ -2952,7 +2964,7 @@ static void cbn_walk (struct callback_node *cbn, enum callback_tree_type tree_ty
 #if 0
 /* Function for cbn_walk. Set the level of each node to parent's level + 1. 
    CBN and all of its children must have their PARENT field set. */
-static void cbn_update_level (struct callback_node *cbn, void *aux)
+static void cbn_update_level (callback_node_t *cbn, void *aux)
 {
   assert(cbn != NULL);
   assert(cbn->parent != NULL);

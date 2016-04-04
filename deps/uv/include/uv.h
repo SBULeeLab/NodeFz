@@ -422,7 +422,7 @@ struct uv_shutdown_s {
   UV_HANDLE_PRIVATE_FIELDS                                                    \
   struct map *cb_type_to_lcbn;                                                \
   int magic;                                                                  \
-  struct callback_node *logical_parent;                                       \
+  callback_node_t *logical_parent;                                            \
   struct sockaddr_storage *peer_info;                                         \
   int self_parent; /* For timer and loop-watcher. */                          \
 

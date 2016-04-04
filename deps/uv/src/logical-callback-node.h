@@ -6,7 +6,7 @@
 #include "list.h"
 #include "mytree.h"
 
-struct callback_info;
+struct callback_info_s;
 struct lcbn_s;
 typedef struct lcbn_s lcbn_t;
 
@@ -35,7 +35,7 @@ struct lcbn_s
   int global_exec_id; /* The order in which it was executed relative to all other LCBNs */
   int global_reg_id; /* The order in which it was registered relative to all other LCBNs */
 
-  struct callback_info *info; /* Set at invoke_callback time. */
+  struct callback_info_s *info; /* Set at invoke_callback time. */
 
   struct timespec registration_time;
   struct timespec start_time;
