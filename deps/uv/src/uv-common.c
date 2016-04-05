@@ -86,7 +86,11 @@ char* uv__strndup(const char* s, size_t n) {
 }
 
 void* uv__malloc(size_t size) {
-  return uv__allocator.local_malloc(size);
+  void *ret = uv__allocator.local_malloc(size);
+#ifdef JD_DEBUG
+  memset(ret, 'c', size);
+#endif
+  return ret;
 }
 
 void uv__free(void* ptr) {
@@ -1353,7 +1357,7 @@ void current_callback_node_set (callback_node_t *cbn)
   if (cbn == NULL)
     mylog(LOG_MAIN, 9, "current_callback_node_set: Next callback will be a root\n");
   else
-    mylog(LOG_MAIN, 9, "current_callback_node_set: Current CBN is %p\n", (void *) cbn);
+    mylog(LOG_MAIN, 9, "current_callback_node_set: Current CBN is %p\n", cbn);
 }
 
 /* Retrieves the current callback node for this thread, or NULL if no such node. 
@@ -1802,7 +1806,7 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
 
   assert(cbi);
 
-  mylog(LOG_MAIN, 7, "invoke_callback: cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
+  mylog(LOG_MAIN, 7, "invoke_callback: cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
 
   /* Determine the context. */
   cb_context = callback_type_to_context(cbi->type);
@@ -1916,7 +1920,7 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
     lcbn_orig = lcbn_current_get();
     lcbn_current_set(lcbn_new);
 
-    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (parent type %s) type %s lcbn_orig %p\n",
+    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (parent type %s) lcbn_orig %p\n",
       lcbn_new, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig);
     lcbn_mark_begin(lcbn_new);
 
@@ -1982,7 +1986,7 @@ callback_node_t * invoke_callback (callback_info_t *cbi)
     lcbn_current_set(lcbn_orig);
   }
 
-  mylog(LOG_MAIN, 7, "invoke_callback: Done with cbi %p type %s\n", cbi, callback_type_to_string(cbi->type));
+  mylog(LOG_MAIN, 7, "invoke_callback: Done with cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
   return cbn;
 }
 
@@ -3028,7 +3032,7 @@ void lcbn_current_set (lcbn_t *lcbn)
   if (lcbn == NULL)
     mylog(LOG_MAIN, 5, "lcbn_current_set: Next callback will be a root\n");
   else
-    mylog(LOG_MAIN, 5, "lcbn_current_set: Current LCBN is %p (type %s)\n", (void *) lcbn, callback_type_to_string(lcbn->cb_type));
+    mylog(LOG_MAIN, 5, "lcbn_current_set: Current LCBN is %p (type %s)\n", lcbn, callback_type_to_string(lcbn->cb_type));
   map_unlock(tid_to_current_lcbn);
 }
 

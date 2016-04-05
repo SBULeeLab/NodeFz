@@ -145,7 +145,7 @@ static void worker(void* arg) {
                             executing. */
         QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
         uv_async_send(&w->loop->wq_async); /* Signal a pending done CB to be executed through uv__work_done. */
-        mylog(LOG_THREADPOOL, 1, "worker: signal'd a ready 'done' item (w %p w->done %p)\n", w, w->done);
+        mylog(LOG_THREADPOOL, 1, "worker: signal'd a ready 'done' item (w %p)\n", w);
         uv_mutex_unlock(&w->loop->wq_mutex);
       }
       else
@@ -288,7 +288,7 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
   uv_mutex_lock(&loop->wq_mutex);
   QUEUE_INSERT_TAIL(&loop->wq, &w->wq);
   uv_async_send(&loop->wq_async);
-  mylog(LOG_THREADPOOL, 1, "uv__work_cancel: signal'd a cancelled 'done' item (w %p w->done %p)\n", w, w->done);
+  mylog(LOG_THREADPOOL, 1, "uv__work_cancel: signal'd a cancelled 'done' item (w %p)\n", w);
   uv_mutex_unlock(&loop->wq_mutex);
 
   return 0;
@@ -375,7 +375,7 @@ void uv__work_done(uv_async_t* handle) {
 
         /* Run the done item. UV__WORK_DONE always turns into a UV_AFTER_WORK_CB. */
         err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
-        mylog(LOG_THREADPOOL, 5, "uv__work_done: Next work item: w %p w->done %p\n", w, w->done);
+        mylog(LOG_THREADPOOL, 5, "uv__work_done: Next work item: w %p\n", w);
         invoke_callback_wrap((any_func) w->done, UV__WORK_DONE, (long int) w, (long int) err);
       }
       else
@@ -395,7 +395,7 @@ void uv__work_done(uv_async_t* handle) {
          async_send to ensure we come back through this loop. */
       w = QUEUE_DATA(q, struct uv__work, wq);
       uv_async_send(&w->loop->wq_async);
-      mylog(LOG_THREADPOOL, 1, "uv__work_done: signal'd a ready 'done' item (w %p w->done %p)\n", w, w->done);
+      mylog(LOG_THREADPOOL, 1, "uv__work_done: signal'd a ready 'done' item (w %p)\n", w);
     }
     uv_mutex_unlock(&loop->wq_mutex);
 
