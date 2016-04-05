@@ -40,8 +40,10 @@
 */
 
 /* Record: Indicate the LCBN whose CB we will invoke next. */
+#define SCHED_LCBN_MAGIC 19283746
 struct sched_lcbn_s
 {
+  int magic;
   lcbn_t *lcbn;
 
   struct list_elem elem;
@@ -69,8 +71,11 @@ enum execution_context
   EXEC_CONTEXT_THREADPOOL_DONE
 };
 
+#define SCHED_CONTEXT_MAGIC 55443322
+
 struct sched_context_s
 {
+  int magic;
   enum execution_context exec_context;
 
   enum callback_context cb_context;

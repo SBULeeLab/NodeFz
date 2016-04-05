@@ -38,6 +38,24 @@ static int scheduler_initialized (void);
    (e.g. in EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES). */
 struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context);
 
+static int sched_lcbn_looks_valid (sched_lcbn_t *sched_lcbn)
+{
+  if (!sched_lcbn)
+    return 0;
+  if (sched_lcbn->magic != SCHED_LCBN_MAGIC)
+    return 0;
+  return 1;
+}
+
+static int sched_context_looks_valid (sched_context_t *sched_context)
+{
+  if (!sched_context)
+    return 0;
+  if (sched_context->magic != SCHED_CONTEXT_MAGIC)
+    return 0;
+  return 1;
+}
+
 /* Public APIs. */
 lcbn_t * scheduler_next_scheduled_lcbn (void)
 {
@@ -47,8 +65,11 @@ lcbn_t * scheduler_next_scheduled_lcbn (void)
   if (scheduler.mode != SCHEDULE_MODE_REPLAY)
     return NULL;
   if (!list_empty(scheduler.desired_schedule))
+  {
     next_lcbn = tree_entry(list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem),
                            lcbn_t, tree_node);
+    assert(lcbn_looks_valid(next_lcbn));
+  }
   return next_lcbn;
 }
 
@@ -71,7 +92,7 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_lcbn)
   int equal, verbosity;
 
   assert(scheduler_initialized());
-  assert(ready_lcbn);
+  assert(sched_lcbn_looks_valid(ready_lcbn));
 
   /* RECORD mode: Every queried sched_lcbn is "next". */
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
@@ -101,15 +122,20 @@ sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn)
   assert(sched_lcbn != NULL);
   memset(sched_lcbn, 0, sizeof *sched_lcbn);
 
+  sched_lcbn->magic = SCHED_LCBN_MAGIC;
   sched_lcbn->lcbn = lcbn;
+
+  assert(sched_lcbn_looks_valid(sched_lcbn));
 
   return sched_lcbn;
 } 
 
 void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn)
 {
-  assert(sched_lcbn);
+  assert(sched_lcbn_looks_valid(sched_lcbn));
+#ifdef JD_DEBUG
   memset(sched_lcbn, 'c', sizeof *sched_lcbn);
+#endif
   uv__free(sched_lcbn);
 }
 
@@ -122,23 +148,30 @@ sched_context_t *sched_context_create (enum execution_context exec_context, enum
   assert(sched_context != NULL);
   memset(sched_context, 0, sizeof *sched_context);
 
+  sched_context->magic = SCHED_CONTEXT_MAGIC;
   sched_context->exec_context = exec_context;
   sched_context->cb_context = cb_context;
   sched_context->wrapper = wrapper;
 
+  assert(sched_context_looks_valid(sched_context));
   return sched_context;
 }
 
 void sched_context_destroy (sched_context_t *sched_context)
 {
-  assert(sched_context);
+  assert(sched_context_looks_valid(sched_context));
+#ifdef JD_DEBUG
+  memset(sched_context, 'c', sizeof *sched_context);
+#endif
   uv__free(sched_context);
 }
 
 void sched_context_list_destroy_func (struct list_elem *e, void *aux){
-  sched_context_t *sched_context;
+  sched_context_t *sched_context = NULL;
+
   assert(e);
   sched_context = list_entry(e, sched_context_t, elem);
+  assert(sched_context_looks_valid(sched_context));
   sched_context_destroy(sched_context);
 }
 
@@ -157,7 +190,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 
   lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem), 
                     lcbn_t, tree_node);
-  assert(lcbn);
+  assert(lcbn_looks_valid(lcbn));
 
   lcbn_to_string(lcbn, buf, sizeof buf);
   printf("%p: %s\n", (void *) lcbn, buf);
@@ -165,13 +198,13 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 
 void scheduler_init (enum schedule_mode mode, char *schedule_file)
 {
-  FILE *f;
-  char *line;
+  FILE *f = NULL;
+  char *line = NULL;
   size_t line_len;
-  sched_lcbn_t *sched_lcbn;
-  lcbn_t *parent;
+  sched_lcbn_t *sched_lcbn = NULL;
+  lcbn_t *parent = NULL;
   int found;
-  struct list *filtered_nodes;
+  struct list *filtered_nodes = NULL;
 
   assert(schedule_file != NULL);
   assert(!scheduler_initialized());
@@ -269,16 +302,16 @@ enum schedule_mode scheduler_get_mode (void)
 void scheduler_record (sched_lcbn_t *sched_lcbn)
 {
   assert(scheduler_initialized());
-  assert(sched_lcbn != NULL);
+  assert(sched_lcbn_looks_valid(sched_lcbn));
 
   list_push_back(scheduler.recorded_schedule, &sched_lcbn->elem);
 }
 
 void scheduler_emit (void)
 {
-  FILE *f;
-  sched_lcbn_t *sched_lcbn;
-  struct list_elem *e;
+  FILE *f = NULL;
+  sched_lcbn_t *sched_lcbn = NULL;
+  struct list_elem *e = NULL;
   char lcbn_str_buf[1024];
 
   assert(scheduler_initialized());
@@ -302,8 +335,8 @@ void scheduler_emit (void)
 
 sched_context_t * scheduler_next_context (struct list *sched_context_list)
 {
-  struct list_elem *e;
-  sched_context_t *next_sched_context, *sched_context;
+  struct list_elem *e = NULL;
+  sched_context_t *next_sched_context = NULL, *sched_context = NULL;
 
   assert(scheduler_initialized());
   assert(sched_context_list);
@@ -314,13 +347,17 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
   next_sched_context = NULL;
   /* RECORD mode: execute the first context in the list. */
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
+  {
     next_sched_context = list_entry(list_begin(sched_context_list), sched_context_t, elem);
+    assert(sched_context_looks_valid(next_sched_context));
+  }
   /* REPLAY mode: if any context has the next_lcbn in it, return that context. */
   else if (scheduler.mode == SCHEDULE_MODE_REPLAY)
   {
     for (e = list_begin(sched_context_list); e != list_end(sched_context_list); e = list_next(e))
     {
       sched_context = list_entry(e, sched_context_t, elem);
+      assert(sched_context_looks_valid(sched_context));
       if (scheduler_next_lcbn(sched_context))
       {
         next_sched_context = sched_context;
@@ -331,6 +368,8 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
   else
     NOT_REACHED;
 
+  if (next_sched_context)
+    assert(sched_context_looks_valid(next_sched_context));
   return next_sched_context;
 }
 
@@ -374,16 +413,16 @@ ready_lcbns_func req_lcbn_funcs[UV_REQ_TYPE_MAX] = {
 #define SILENT_CONTEXT 0x1
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 {
-  uv_handle_t *handle;
-  uv_req_t *req;
+  uv_handle_t *handle = NULL;
+  uv_req_t *req = NULL;
   uv_req_type req_type;
 
-  struct list *ready_lcbns;
+  struct list *ready_lcbns = NULL;
   ready_lcbns_func lcbns_func;
-  void *wrapper;
+  void *wrapper = NULL;
 
-  struct list_elem *e;
-  sched_lcbn_t *sched_lcbn, *next_lcbn;
+  struct list_elem *e = NULL;
+  sched_lcbn_t *sched_lcbn = NULL, *next_sched_lcbn = NULL;
 
   assert(scheduler_initialized());
   assert(sched_context);
@@ -411,13 +450,13 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
       lcbns_func = uv__ready_async_event_lcbns;
       break;
     case CALLBACK_CONTEXT_IO_INOTIFY_READ:
-      assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_INOTIFY_READ not yet handled");
+      assert(!"scheduler_next_sched_lcbn: CALLBACK_CONTEXT_IO_INOTIFY_READ not yet handled");
       break;
     case CALLBACK_CONTEXT_IO_SIGNAL_EVENT:
-      assert(!"scheduler_next_lcbn: CALLBACK_CONTEXT_IO_SIGNAL_EVENT not yet handled");
+      assert(!"scheduler_next_sched_lcbn: CALLBACK_CONTEXT_IO_SIGNAL_EVENT not yet handled");
       break;
     default:
-      assert(!"scheduler_next_lcbn: Error, unexpected cb_context");
+      assert(!"scheduler_next_sched_lcbn: Error, unexpected cb_context");
   }
 
   assert(wrapper);
@@ -448,35 +487,40 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
      */
   if (list_empty(ready_lcbns))
   {
-    mylog(LOG_SCHEDULER, 1, "scheduler_next_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", wrapper);
-    next_lcbn = (sched_lcbn_t *) SILENT_CONTEXT;
+    mylog(LOG_SCHEDULER, 1, "scheduler_next_sched_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", wrapper);
+    next_sched_lcbn = (sched_lcbn_t *) SILENT_CONTEXT;
     goto CLEANUP;
   }
 
-  next_lcbn = NULL;
+  next_sched_lcbn = NULL;
   for (e = list_begin(ready_lcbns); e != list_end(ready_lcbns); e = list_next(e))
   {
     sched_lcbn = list_entry(e, sched_lcbn_t, elem);
+    assert(sched_lcbn_looks_valid(sched_lcbn));
     if (sched_lcbn_is_next(sched_lcbn))
     {
-      next_lcbn = sched_lcbn;
+      next_sched_lcbn = sched_lcbn;
       break;
     }
   }
-  if (next_lcbn)
+  if (next_sched_lcbn)
+  {
     /* Make a copy so we can clean up ready_lcbns. */
-    next_lcbn = sched_lcbn_create(next_lcbn->lcbn);
+    assert(sched_lcbn_looks_valid(next_sched_lcbn));
+    next_sched_lcbn = sched_lcbn_create(next_sched_lcbn->lcbn);
+    assert(sched_lcbn_looks_valid(next_sched_lcbn));
+  }
 
   CLEANUP:
     /* If being called from scheduler_next_context, there may not be a match.
        Either way, clean up. */
     list_destroy_full(ready_lcbns, sched_lcbn_list_destroy_func, NULL);
 
-    /* RECORD: next_lcbn must be defined.
+    /* RECORD: next_sched_lcbn must be defined.
        REPLAY: we may not have found it. */
-    assert(next_lcbn || scheduler.mode == SCHEDULE_MODE_REPLAY);
+    assert(next_sched_lcbn || scheduler.mode == SCHEDULE_MODE_REPLAY);
 
-    return next_lcbn;
+    return next_sched_lcbn;
 }
 
 /* Must be called with mutex held. */
@@ -495,7 +539,7 @@ void scheduler_advance (void)
     /* Make sure we're executing the right one! 
        If not, this is probably a sign that the input schedule has been
        modified incorrectly. */
-    assert(lcbn);
+    assert(lcbn_looks_valid(lcbn));
     assert(lcbn->global_exec_id == scheduler.n_executed);
     mylog(LOG_SCHEDULER, 1, "schedule_advance: discarding lcbn %p (exec_id %i type %s)\n",
       lcbn, lcbn->global_exec_id, callback_type_to_string(lcbn->cb_type));
@@ -509,16 +553,18 @@ void scheduler_advance (void)
 
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
 {
-  sched_lcbn_t *sched_lcbn;
+  sched_lcbn_t *sched_lcbn = NULL;
+
   assert(e);
   sched_lcbn = list_entry(e, sched_lcbn_t, elem);
+  assert(sched_lcbn_looks_valid(sched_lcbn));
   sched_lcbn_destroy(sched_lcbn);
 }
 
 struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context)
 {
-  struct list *ret;
-  uv_handle_t *handle;
+  struct list *ret = NULL;
+  uv_handle_t *handle = NULL;
   ready_lcbns_func func;
 
   assert(wrapper);
@@ -529,6 +575,7 @@ struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context
   assert(func);
 
   ret = (*func)(handle, context);
+  assert(list_looks_valid(ret));
   return ret;
 }
 
