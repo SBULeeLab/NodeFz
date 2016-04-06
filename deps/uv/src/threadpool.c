@@ -329,7 +329,7 @@ void uv__work_done(uv_async_t* handle) {
       while (is_threadpool_cb(next_lcbn_type))
       {
         uv_mutex_unlock(&loop->wq_mutex);
-        pthread_yield();
+        uv_thread_yield();
         uv_mutex_lock(&loop->wq_mutex);
         next_lcbn_type = scheduler_next_lcbn_type();
       }

@@ -250,6 +250,13 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     else
       mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
+    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY && is_threadpool_cb(scheduler_next_lcbn_type()))
+    {
+      mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s, waiting for a non-threadpool CB to be next\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
+      while (is_threadpool_cb(scheduler_next_lcbn_type()))
+        uv_thread_yield();
+    }
+
     mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing (timeout %i)\n", timeout);
     if (no_epoll_wait != 0 || (sigmask != 0 && no_epoll_pwait == 0)) {
       nfds = uv__epoll_pwait(loop->backend_fd,

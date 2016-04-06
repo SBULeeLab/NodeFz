@@ -71,6 +71,9 @@ int uv_thread_create(uv_thread_t *tid, void (*entry)(void *arg), void *arg) {
   return -err;
 }
 
+int uv_thread_yield(void) {
+  return pthread_yield();
+}
 
 uv_thread_t uv_thread_self(void) {
   return pthread_self();
