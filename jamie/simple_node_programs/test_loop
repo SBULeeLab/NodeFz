@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+
+# ps -ef | grep fs_se | grep -v  grep | head -1 | awk '{print $2}' | xargs kill -s INT
+# For visualization:
+# export SCHED='httpserver_complex_schedule'; rm $SCHED.gv $SCHED.sched; scpdown /tmp/$SCHED.sched .; ./cbGraphVis --onlyExecuted --execOrder $SCHED.sched $SCHED.gv; xdot $SCHED.gv
+
+#fs_several_stat
+rm /tmp/record_*
+rm /tmp/replay_*
+export PREF='fs_several_stat'
+export PROG="$PREF.js"
+export SCHED_FILE="/tmp/$PREF.sched"
+lines
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/record_redirect_$i; 
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/replay_redirect_$i; 
+done
+
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+done
+
+#fs_several
+rm /tmp/record_*
+rm /tmp/replay_*
+export PREF='fs_several'
+export PROG="$PREF.js"
+export SCHED_FILE="/tmp/$PREF.sched"
+lines
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/record_redirect_$i; 
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/replay_redirect_$i; 
+done
+
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+done
+
+#dns_lookup
+rm /tmp/record_*
+rm /tmp/replay_*
+export PREF='dns_lookup'
+export PROG="$PREF.js"
+export SCHED_FILE="/tmp/$PREF.sched"
+lines
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/record_redirect_$i; 
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/replay_redirect_$i; 
+done
+
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+done
+
+#fs_nondet
+rm /tmp/record_*
+rm /tmp/replay_*
+export PREF='fs_nondet'
+export PROG="$PREF.js"
+export SCHED_FILE="/tmp/$PREF.sched"
+lines
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/record_redirect_$i; 
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/replay_redirect_$i; 
+done
+
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+done
+
+#fs_nest
+rm /tmp/record_*
+rm /tmp/replay_*
+export PREF='fs_nest'
+export PROG="$PREF.js"
+export SCHED_FILE="/tmp/$PREF.sched"
+lines
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/record_redirect_$i; 
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/replay_redirect_$i; 
+done
+
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+done
+
+#timer_2trees
+rm /tmp/record_*
+rm /tmp/replay_*
+export PREF='timer_2trees'
+export PROG="$PREF.js"
+export SCHED_FILE="/tmp/$PREF.sched"
+lines
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/record_redirect_$i; 
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/replay_redirect_$i; 
+done
+
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+done
+
+#httpserver_complex_schedule
+rm /tmp/record_*
+rm /tmp/replay_*
+export PREF='httpserver_complex_schedule'
+export PROG="$PREF.js"
+export SCHED_FILE="/tmp/$PREF.sched"
+lines
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/record_redirect_$i; 
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG > /tmp/replay_redirect_$i; 
+done
+
+for i in `seq 1 10`; do 
+  echo "iter $i"
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+  UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$SCHED_FILE node $PROG
+done
