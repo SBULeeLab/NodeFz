@@ -6,6 +6,7 @@ use strict;
 use warnings;
 
 use Getopt::Long;
+use File::Basename;
 
 #Globals
 my @requested_tests;
@@ -31,24 +32,32 @@ for my $t (@requested_tests) {
 my @passed_tests;
 my @failed_tests;
 for my $test (@requested_tests) {
+  &log("Running test '$test'");
   my $rc = &run_test($test);
   if ($rc == 0) {
+    &log("Result: test '$test' passed");
     push @passed_tests, $test;
   }
   else {
+    &log("Result: test '$test' failed");
     push @failed_tests, $test;
   }
 }
 
 my $rc = 0;
 my $exitMsg = "";
-if (@failed_tests) {
+my $ntests = scalar(@requested_tests);
+my $nfailed = scalar(@failed_tests);
+if ($nfailed) {
   $rc = 1;
-  $exitMsg = "Error, the following tests failed: <@failed_tests>";
+  $exitMsg = "Error, $nfailed/$ntests failed
+  Failed: <@failed_tests>
+  Passed: <@passed_tests>
+";
 }
 else {
   $rc = 0;
-  $exitMsg = "Success, all tests passed";
+  $exitMsg = "Success, all $ntests tests passed";
 }
 
 &log($exitMsg);
@@ -67,7 +76,9 @@ sub run_test
   my ($test) = @_;
   &assert((-f $test), "run_test: Error, no such file '$test'");
 
-  my $sched_file = "/tmp/schedule_file.sched";
+  my $base = basename($test);
+
+  my $sched_file = "/tmp/$base\_schedule_file.sched";
 
   my ($cmd, $cpid, $nodePid, $exists);
   my (@allProcesses, @nodeProcesses);
@@ -84,7 +95,7 @@ sub run_test
     #Record
     $cmd = "UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$sched_file node $test";
     if ($redirect) {
-      $cmd .= " > /tmp/record_out";
+      $cmd .= " > /tmp/$base\_record_out";
     }
     &log("run_test: test '$test': Record child cmd\n  $cmd");
 
@@ -96,12 +107,12 @@ sub run_test
       }
       exec $cmd;
     }
-    sleep 3;
+    sleep 2;
 
     #Identify node process
     @allProcesses = &ps();
     @nodeProcesses = grep { $_->{CMD} eq "node $test" } @allProcesses;
-    &assert(scalar(@nodeProcesses) == 1);
+    &assert((scalar(@nodeProcesses) == 1), "run_test: Record: Error, did not find 1 node process. I found <@nodeProcesses>");
     $nodeProcess = shift @nodeProcesses;
     &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
 
@@ -113,7 +124,6 @@ sub run_test
     kill 'INT', $nodePid;
     sleep 1;
 
-    sleep 1;
     &assert((-f $sched_file and -s $sched_file > 0), "Error, after record, sched_file <$sched_file> does not exist or is empty");
 
     @newCoreFiles = glob 'core.node.*';
@@ -127,7 +137,7 @@ sub run_test
     #Replay
     $cmd = "UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$sched_file node $test";
     if ($redirect) {
-      $cmd .= " > /tmp/replay_out";
+      $cmd .= " > /tmp/$base\_replay_out";
     }
     &log("run_test: test '$test': Replay child cmd\n  $cmd");
 
@@ -139,21 +149,21 @@ sub run_test
       }
       exec $cmd;
     }
-    sleep 3;
+    sleep 5; #Implementation is not particularly efficient
 
     #Identify node process
     @allProcesses = &ps();
     @nodeProcesses = grep { $_->{CMD} eq "node $test" } @allProcesses;
-    &assert(scalar(@nodeProcesses) <= 1);
+    &assert((scalar(@nodeProcesses) <= 1), "run_test: Replay: Error, found too many node processes. I found <@nodeProcesses>, wanted 0 or 1.");
     if (scalar(@nodeProcesses)) {
       #If replay is still running, it hasn't exited by itself
       $nodeProcess = shift @nodeProcesses;
       &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
 
-      $nodePid = $nodeProcess->{PPID};
-      kill 'KILL', $nodePid;
+      kill 'KILL', $nodeProcess->{PID};
+      kill 'KILL', $nodeProcess->{PPID};
 
-      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself");
+      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself.");
       return 1;
     }
 
