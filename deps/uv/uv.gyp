@@ -130,6 +130,7 @@
             '-Wextra',
             '-Werror',
             '-fstack-protector-all',
+            '-fstack-protector-strong',
             '-Wno-unused-parameter',
           ],
           'sources': [
