@@ -879,11 +879,11 @@ static unsigned lcbn_next_reg_id (void);
 unsigned lcbn_global_exec_counter = 0;
 unsigned lcbn_global_reg_counter = 0;
 
-pthread_mutex_t invoke_callback_lcbn_lock;
-pthread_cond_t invoke_callback_lcbn_not_my_turn;
+uv_mutex_t invoke_callback_lcbn_lock;
+uv_cond_t invoke_callback_lcbn_not_my_turn;
 
 int is_active_lcbn = 0;
-pthread_cond_t active_lcbn;
+uv_cond_t no_active_lcbn;
 
 struct list *lcbn_global_reg_order_list = NULL;
 
@@ -909,28 +909,6 @@ enum reserved_id
   IO_NETWORK_INPUT,  /* CB received network input. */
   IO_NETWORK_OUTPUT  /* CB delivered network output. */
 };
-
-static void uv__invoke_callback_lcbn_lock (void)
-{
-  pthread_mutex_lock(&invoke_callback_lcbn_lock);
-}
-
-static void uv__invoke_callback_lcbn_unlock (void)
-{
-  pthread_mutex_unlock(&invoke_callback_lcbn_lock);
-}
-
-static void uv__invoke_callback_lcbn_cond_wait (pthread_cond_t *cond)
-{
-  assert(cond);
-  assert(pthread_cond_wait(cond, &invoke_callback_lcbn_lock) == 0);
-}
-
-static void uv__invoke_callback_lcbn_cond_broadcast (pthread_cond_t *cond)
-{
-  assert(cond);
-  assert(pthread_cond_broadcast(cond) == 0);
-}
 
 /* Code in support of tracking the initial stack. */
 
@@ -985,8 +963,9 @@ void unified_callback_init (void)
   schedule_mode = (strcmp(schedule_modeP, "RECORD") == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
   scheduler_init(schedule_mode, schedule_fileP);
 
-  pthread_mutex_init(&invoke_callback_lcbn_lock, NULL);
-  pthread_cond_init(&invoke_callback_lcbn_not_my_turn, NULL);
+  uv_mutex_init(&invoke_callback_lcbn_lock);
+  uv_cond_init(&invoke_callback_lcbn_not_my_turn);
+  uv_cond_init(&no_active_lcbn);
 
   tid_to_current_lcbn = map_create();
   assert(tid_to_current_lcbn != NULL);
@@ -999,8 +978,11 @@ void unified_callback_init (void)
   mark_global_start();
 }
 
-/* Invoke the callback described by CBI. 
-   Returns the CBN allocated for the callback. */
+/* Invoke the callback described by CBI.
+   Returns the CBN allocated for the callback.
+
+   A condition variable is used to prevent multiple threads from
+   invoking LCBNs concurrently. */
 void invoke_callback (callback_info_t *cbi)
 {
   void *context = NULL;
@@ -1008,11 +990,11 @@ void invoke_callback (callback_info_t *cbi)
   uv_req_t *context_req = NULL;
   struct map *cb_type_to_lcbn = NULL;
   enum callback_context cb_context;
-  int is_logical_cb;
   lcbn_t *lcbn_orig = NULL, /* The LCBN executing at the time of this call (i.e. this call is a nested CB). */
          *lcbn_cur = NULL,  /* The LCBN executed by this call. */
          *lcbn_par = NULL;  /* The LCBN that registered lcbn_cur. */
   tree_node_t *tree_par = NULL;
+  int is_logical_cb = 0, is_base_lcbn = 0;
 
   assert(cbi);
 
@@ -1023,9 +1005,11 @@ void invoke_callback (callback_info_t *cbi)
 
   if (is_logical_cb)
   {
-    uv__invoke_callback_lcbn_lock();
-
     lcbn_orig = lcbn_current_get();
+    is_base_lcbn = (lcbn_orig == NULL);
+
+    uv_mutex_lock(&invoke_callback_lcbn_lock);
+
     /* If we are invoking a user-provided callback, retrieve and update the lcbn. */
 
     /* Determine the context. */
@@ -1092,7 +1076,7 @@ void invoke_callback (callback_info_t *cbi)
       while (!sched_lcbn_is_next(sched_lcbn))
       {
         mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s) is not the next scheduled LCBN (scheduled lcbn %p type %s). %i LCBs have been run already. Waiting for my turn.\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), sched_lcbn->lcbn, callback_type_to_string(sched_lcbn->lcbn->cb_type), scheduler_already_run());
-        uv__invoke_callback_lcbn_cond_wait(&invoke_callback_lcbn_not_my_turn);
+        uv_cond_wait(&invoke_callback_lcbn_not_my_turn, &invoke_callback_lcbn_lock);
       }
       sched_lcbn_destroy(sched_lcbn);
     }
@@ -1102,14 +1086,18 @@ void invoke_callback (callback_info_t *cbi)
        the nested ones will perceive themselves as 'next'. */
     mylog(LOG_MAIN, 5, "invoke_callback: lcbn %p (type %s); advancing the scheduler\n", 
       lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
-    /* TODO By advancing the scheduler prior to invoking the CB, we open the possibility that
-       'the other' type of thread might go before we have completed our work.
-       To control this, set a 'currently-active thread'-type variable and include that.
-       Broadcast after the outermost thread CB finishes (test lcbn_orig). */ 
     scheduler_advance();
 
-    uv__invoke_callback_lcbn_cond_broadcast(&invoke_callback_lcbn_not_my_turn);
-    uv__invoke_callback_lcbn_unlock();
+    /* We only allow one (possibly nested) LCBN at a time. 
+       Wait for previous LCBN to finish. */
+    if (is_active_lcbn)
+      mylog(LOG_MAIN, 9, "invoke_callback: Waiting for exclusive LCBN execution\n");
+    while (is_active_lcbn && is_base_lcbn)
+      uv_cond_wait(&no_active_lcbn, &invoke_callback_lcbn_lock);
+    mylog(LOG_MAIN, 9, "invoke_callback: Done waiting for exclusive LCBN execution\n");
+    is_active_lcbn = 1;
+
+    uv_mutex_unlock(&invoke_callback_lcbn_lock);
   }
 
   /* Run the callback. */
@@ -1124,6 +1112,15 @@ void invoke_callback (callback_info_t *cbi)
     mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s)\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
     lcbn_mark_end(lcbn_cur);
     lcbn_current_set(lcbn_orig);
+
+    /* Wake up any waiting LCBNs. */
+    assert(is_active_lcbn);
+    if (is_base_lcbn)
+    {
+      uv_cond_broadcast(&invoke_callback_lcbn_not_my_turn);
+      is_active_lcbn = 0;
+      uv_cond_broadcast(&no_active_lcbn);
+    }
   }
 
   mylog(LOG_MAIN, 7, "invoke_callback: Done with cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
