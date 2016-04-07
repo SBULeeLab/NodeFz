@@ -87,7 +87,7 @@ static void worker(void* arg) {
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
     }
-    mylog(LOG_THREADPOOL, 9, "worker: There's something in the queue\n");
+    mylog(LOG_THREADPOOL, 9, "worker: There is something in the queue\n");
 
     q = QUEUE_HEAD(&wq);
     if (q == &exit_message)
@@ -258,15 +258,8 @@ void uv__work_submit(uv_loop_t* loop,
   w->work = work;
   w->done = done;
 
-#ifdef UNIFIED_CALLBACK
-  /* We are being registered. There must be an active CB registering us. */
-  w->logical_parent = current_callback_node_get();
-  assert (w->logical_parent != NULL);
-#endif
-
   post(&w->wq);
 }
-
 
 static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
   int can_cancel;

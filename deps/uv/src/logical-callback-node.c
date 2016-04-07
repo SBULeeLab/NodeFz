@@ -363,3 +363,9 @@ int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
 
   return (0 <= lcbn->global_exec_id);
 }
+
+int lcbn_is_active (lcbn_t *lcbn)
+{
+  assert(lcbn_looks_valid(lcbn));
+  return lcbn->active;
+}

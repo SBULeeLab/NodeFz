@@ -26,34 +26,28 @@
 #include "list.h"
 #include "scheduler.h"
 
-#define UV_LOOP_WATCHER_DEFINE(_name, _type)                                    \
-  int uv_##_name##_init(uv_loop_t* loop, uv_##_name##_t* handle) {              \
-    uv__handle_init(loop, (uv_handle_t*)handle, UV_##_type);                   \
-    handle->_name##_cb = NULL;                                                 \
+#define UV_LOOP_WATCHER_DEFINE(_name, _type)                                  \
+  int uv_##_name##_init(uv_loop_t* loop, uv_##_name##_t* handle) {            \
+    uv__handle_init(loop, (uv_handle_t*)handle, UV_##_type);                  \
+    handle->_name##_cb = NULL;                                                \
     return 0;                                                                 \
   }                                                                           \
                                                                               \
-  int uv_##_name##_start(uv_##_name##_t* handle, uv_##_name##_cb cb) {           \
+  int uv_##_name##_start(uv_##_name##_t* handle, uv_##_name##_cb cb) {        \
     if (uv__is_active(handle)) return 0;                                      \
     if (cb == NULL) return -EINVAL;                                           \
-    uv__register_callback(handle, (any_func) cb, UV_##_type##_CB);                        \
+    uv__register_callback(handle, (any_func) cb, UV_##_type##_CB);            \
     /* JD: anti-FIFO order, not sure why */                                   \
-    QUEUE_INSERT_HEAD(&handle->loop->_name##_handles, &handle->queue);         \
-    handle->_name##_cb = cb;                                                   \
+    QUEUE_INSERT_HEAD(&handle->loop->_name##_handles, &handle->queue);        \
+    handle->_name##_cb = cb;                                                  \
     uv__handle_start(handle);                                                 \
-    /*                                                                        \ 
-    if (handle->logical_parent == NULL)                                       \ 
-      handle->logical_parent = current_callback_node_get();                   \
-    assert(handle->logical_parent != NULL);                                   \
-    */                                                                        \
     handle->self_parent = 0;                                                  \
     return 0;                                                                 \
   }                                                                           \
                                                                               \
-  int uv_##_name##_stop(uv_##_name##_t* handle) {                               \
+  int uv_##_name##_stop(uv_##_name##_t* handle) {                             \
     if (!uv__is_active(handle)) return 0;                                     \
     QUEUE_REMOVE(&handle->queue);                                             \
-    handle->logical_parent = NULL;                                            \
     handle->self_parent = 0;                                                  \
     uv__handle_stop(handle);                                                  \
     return 0;                                                                 \

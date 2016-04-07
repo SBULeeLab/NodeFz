@@ -18,9 +18,7 @@
 #endif
 
 struct callback_info_s;
-struct callback_node_s;
 typedef struct callback_info_s callback_info_t;
-typedef struct callback_node_s callback_node_t;
 
 struct callback_origin
 {
@@ -38,73 +36,12 @@ struct callback_info_s
   long args[MAX_CALLBACK_NARGS]; /* Must be wide enough for the widest arg type. Seems to be 8 bytes. */
 };
 
-/* Nodes that comprise a callback tree. */
-struct callback_node_s
-{
-  callback_info_t *info; /* Description of this callback. */
-  int physical_level; /* What level in the physical callback tree is it? For root nodes this is 0. */
-  int logical_level; /* What level in the logical callback tree is it? For root nodes this is 0. */
-  callback_node_t *physical_parent; /* What callback ACTUALLY started us? For root nodes this is NULL. */
-  callback_node_t *logical_parent; /* What callback was LOGICALLY responsible for starting us? NULL means that physical parent is also logical parent. */
+void dump_and_exit_sighandler (int signum);
 
-  /* These fields are to track our internal ID of the client incurring this CB. 
-     The first client has ID 0, the second ID 1, ... -1 == unknown. -2 == originating from the initial stack. 
-     Trees from the initial stack will all have ID -2. 
-     Subsequent trees will begin with orig_client_id = true_client_id = -1 (unknown).
-     Once the client ID is discovered, the tree will be "colored" with that ID. 
-     The discovering node will have discovered_client_id == 1.
-
-     For trees originating from the initial stack, the color is always known.
-     For trees originating from client input, the color is discovered "at some point".
-       Nodes with (orig_client_id, true_client_id, discovered_client_id) = (-1, !-1, 0) were originally "colorless" -- the color (i.e. the client) had not yet been discovered.
-       The node with (orig_client_id, true_client_id, discovered_client_id) = (-1, !-1, 0) was the node that discovered the color (i.e. the client). This discovery is made with a CONNECTION_CB or a READ_CB.
-       Nodes with (orig_client_id, true_client_id) = (!-1, !-1) were in generations with the color (i.e. the client) already known.
-     */
-  int orig_client_id; /* The original ID inherited from the parent. */
-  int true_client_id; /* The true ID. */
-  int discovered_client_id; /* Whether or not this node "discovered" the client ID. */
-
-  int was_pending_cb; /* Was this CB invoked from uv__run_pending? */
-
-  struct sockaddr_storage *peer_info; /* Info about the peer associated with this node. The root of a tree allocates this, and descendants share it. The discovered_client_id node sets it. */ 
-
-  struct timespec start;
-  struct timespec stop;
-  struct timespec relative_start; /* START - the time at which execution began. */
-  struct timespec duration; /* STOP - START. */
-  int active; /* 1 if callback active, 0 if finished. */
-
-  int id; /* Unique ID for this node. This is the index of the node in global_order_list, i.e. the order in which it was evaluated relative to the other nodes. */
-
-  int executing_thread; /* Which thread ran me? This is an internal tid beginning at 0. -1 means no thread ran me (implies a 'marker' CBN). */
-
-  struct list *physical_children;
-  struct list *logical_children;
-
-  lcbn_t *lcbn; /* The logical CBN associated with this CBN. */
-  
-  struct list_elem global_order_elem; /* For inclusion in the global callback order. */
-  struct list_elem physical_child_elem; /* For inclusion in physical parent's list of children. */
-  struct list_elem logical_child_elem; /* For inclusion in logical parent's list of children. */
-  struct list_elem root_elem; /* For root nodes: inclusion in list of root nodes. */
-};
-
-void current_callback_node_set (callback_node_t *);
-callback_node_t * current_callback_node_get (void);
-callback_node_t * get_init_stack_callback_node (void);
-lcbn_t * get_init_stack_lcbn (void);
-
-callback_node_t * invoke_callback_wrap (any_func cb, enum callback_type type, ...);
-callback_node_t * invoke_callback (callback_info_t *);
+void invoke_callback_wrap (any_func cb, enum callback_type type, ...);
+void invoke_callback (callback_info_t *);
 
 time_t get_relative_time (void);
-
-void dump_callback_global_order (void);
-void dump_callback_trees (void);
-
-void dump_callback_global_order_sighandler (int);
-void dump_callback_trees_sighandler (int);
-void dump_all_trees_and_exit_sighandler (int);
 
 /* Register and retrieve an LCBN in its context (handle or req). */
 void lcbn_register (struct map *cb_type_to_lcbn, enum callback_type cb_type, lcbn_t *lcbn);

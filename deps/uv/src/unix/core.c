@@ -1018,12 +1018,6 @@ void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
 void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
   if (QUEUE_EMPTY(&w->pending_queue))
   {
-    /* We are being registered. If an active CB is registering it, it is our parent.
-       It is possible that there is no visible active parent, due to internal v8 machinery.
-       This shows up when running npm install. I'm not sure if it shows up in other places. */
-    w->logical_parent = current_callback_node_get();
-    if (!w->logical_parent)
-      mylog(LOG_MAIN, 5, "uv__io_feed: w has no logical parent\n");
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
   }
 }

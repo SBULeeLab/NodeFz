@@ -84,4 +84,6 @@ int lcbn_remove_unexecuted (struct list_elem *e, void *aux);
 
 int lcbn_looks_valid (lcbn_t *lcbn);
 
+int lcbn_is_active (lcbn_t *lcbn);
+
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */

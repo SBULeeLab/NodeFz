@@ -141,18 +141,6 @@ int uv_timer_start(uv_timer_t* handle,
               timer_less_than);
   uv__handle_start(handle);
 
-#if UNIFIED_CALLBACK
-  /* Might not be NULL; the parent of a repeating timer (itself) is set in invoke_callback. 
-     TODO This assumes that once uv_timer_start'd, a timer is never stop'd and start'd by the
-     owner of the handle. Need to differentiate between uv_timer_again and other uses. */
-  if (handle->logical_parent == NULL)
-  {
-    handle->logical_parent = current_callback_node_get();
-    handle->self_parent = 0;
-  }
-  assert(handle->logical_parent != NULL);
-#endif
-
   return 0;
 }
 
