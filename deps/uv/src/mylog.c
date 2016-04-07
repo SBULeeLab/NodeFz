@@ -13,7 +13,7 @@
 
 #include "uv-common.h" /* uv__malloc/uv__free */
 
-char log_class_strings[LOG_CLASS_MAX][100] = {
+char *log_class_strings[] = {
   "MAIN",
   "LCBN",
   "SCHEDULER",
@@ -73,20 +73,22 @@ void mylog (enum log_class logClass, int verbosity, const char *format, ...)
   char now_s[64];
   struct tm t;
 
+  assert(log_initialized());
+
+  assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
   if (get_verbosity(logClass) < verbosity)
     return;
-
-  assert(log_initialized());
+  assert(format);
 
   buf = (char *) uv__malloc(bufSize*sizeof(char));
   assert(buf);
   memset(buf, 0, bufSize);
 
-  pthread_mutex_lock(&log_lock); /* Monotonically increasing log timestamps. */
-
   /* Prefix. */
   my_pid = getpid();
   my_tid = pthread_self();
+
+  pthread_mutex_lock(&log_lock); /* Monotonically increasing log timestamps. */
 
   assert(clock_gettime(CLOCK_REALTIME, &now) == 0);
   localtime_r(&now.tv_sec, &t);
