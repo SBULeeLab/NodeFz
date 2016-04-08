@@ -6,8 +6,8 @@
    Attempting to store a key already associated with a value will overwrite the previous value.
 
    All map APIs are internally thread-safe. 
-   If you wish a higher-level locking mechanism, use map_lock and map_unlock. 
-   If you are iterating over a map, you are advised to lock the map. */
+   If you wish a higher-level locking mechanism (e.g. iterating with potential parallel modifications), 
+     use map_lock and map_unlock. */
 
 struct map;
 
