@@ -30,6 +30,7 @@
    If you are iterating over a list, you are advised to lock the list. */
 struct list_elem
 {
+  int magic;
   struct list_elem *prev;
   struct list_elem *next;
 };
@@ -57,7 +58,7 @@ typedef void (*list_destroy_func)(struct list_elem *e, void *aux);
 /* Returns -1 if a < b, 0 if a == b, 1 if a > b. */
 typedef int (*list_sort_func)(struct list_elem *a, struct list_elem *b, void *aux);
 /* Returns non-zero if a meets the filter condition (keep), else 0 (remove). */
-typedef int (*list_filter_func)(struct list_elem *a, void *aux);
+typedef int (*list_filter_func)(struct list_elem *e, void *aux);
 
 struct list * list_create (void);
 void list_destroy (struct list *list);

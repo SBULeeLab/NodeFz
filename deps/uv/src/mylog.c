@@ -18,7 +18,10 @@ char *log_class_strings[] = {
   "LCBN",
   "SCHEDULER",
   "THREADPOOL",
-  "STREAM"
+  "STREAM",
+  "LIST",
+  "MAP",
+  "TREE"
 };
 
 int verbosity_levels[LOG_CLASS_MAX];
