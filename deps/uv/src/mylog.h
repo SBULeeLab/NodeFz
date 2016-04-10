@@ -19,4 +19,6 @@ void mylog (enum log_class, int verbosity, const char *format, ...);
 void init_log (void);
 void set_verbosity (enum log_class, int);
 
+void mylog_UT (void);
+
 #endif /* UV_MYLOG_H */

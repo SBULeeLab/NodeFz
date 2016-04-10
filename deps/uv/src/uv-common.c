@@ -958,6 +958,7 @@ void unified_callback_init (void)
   map_UT();
   tree_UT();
   lcbn_UT();
+  mylog_UT();
 
   assert(!"Done unit testing");
 
