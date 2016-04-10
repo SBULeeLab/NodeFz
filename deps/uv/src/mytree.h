@@ -58,10 +58,10 @@ int tree_is_root (tree_node_t *node);
 unsigned tree_get_child_num (tree_node_t *node);
 
 /* Utility. */
-/* Apply F to ROOT and its sub-tree. */
+/* Apply F to ROOT and its descendants. */
 void tree_apply (tree_node_t *root, tree_apply_func f, void *aux);
-/* Apply F to LEAF and its direct ancestors. */
-void tree_apply_up (tree_node_t *leaf, tree_apply_func f, void *aux);
+/* Apply F to NODE and its direct ancestors. */
+void tree_apply_up (tree_node_t *node, tree_apply_func f, void *aux);
 
 /* Return the first node for which F returns non-zero, or NULL if no match found. */
 tree_node_t * tree_find (tree_node_t *root, tree_find_func f, void *aux);
@@ -69,11 +69,15 @@ tree_node_t * tree_find (tree_node_t *root, tree_find_func f, void *aux);
 /* Only a single instance of the returned list can exist at a time. 
    Finish using the returned list and list_destroy it prior to 
      calling tree_as_list again.
-   Do not free the elements of the list (this will damage the underlying tree). 
+   Do not free the elements of the list, as this will damage the underlying tree.
 
-   You can extract the tree nodes using list_entry(elem, tree_node_t, tree_as_list_elem). 
-   You can extract the wrapping structures using tree_entry(...). */
+   Extract the tree nodes using list_entry(elem, tree_node_t, tree_as_list_elem). 
+   Extract the wrapping structures using tree_entry(...). */
 struct list * tree_as_list (tree_node_t *root);
+
+/* Returns non-zero if tree looks valid. 
+   This is a non-recursive test. */
+int tree_looks_valid (tree_node_t *node);
 
 /* Tests tree APIs. */
 void tree_UT (void);
