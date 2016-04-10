@@ -9,22 +9,14 @@
 struct callback_info_s;
 struct lcbn_s;
 typedef struct lcbn_s lcbn_t;
-
-struct lcbn_dependency_s
-{
-  lcbn_t *dependency;
-  struct list_elem elem;
-};
 typedef struct lcbn_dependency_s lcbn_dependency_t;
-
-#define LCBN_MAGIC 33229988
 
 /* Nodes that comprise a logical callback tree. */
 struct lcbn_s
 {
   int magic;
-  char name[32];
-  char parent_name[32];
+  char name[64];
+  char parent_name[64];
 
   void *context; /* Request or handle with which this LCBN is associated. */
   any_func cb;
@@ -57,8 +49,8 @@ void lcbn_destroy (lcbn_t *lcbn);
 void lcbn_mark_begin (lcbn_t *lcbn);
 void lcbn_mark_end (lcbn_t *lcbn);
 
-char * lcbn_to_string (lcbn_t *cbn, char *buf, int size);
-lcbn_t * lcbn_from_string (char *buf);
+char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size);
+lcbn_t * lcbn_from_string (char *buf, int size);
 
 /* For use on LCBNs contained in a tree_as_list list. */
 void lcbn_tree_list_print_f (struct list_elem *e, void *fd);
@@ -85,5 +77,8 @@ int lcbn_remove_unexecuted (struct list_elem *e, void *aux);
 int lcbn_looks_valid (lcbn_t *lcbn);
 
 int lcbn_is_active (lcbn_t *lcbn);
+
+/* Tests lcbn APIs. */
+void lcbn_UT (void);
 
 #endif /* UV_LOGICAL_CALLBACK_NODE_H_ */

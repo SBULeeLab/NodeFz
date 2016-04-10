@@ -237,14 +237,14 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   {
     f = fopen(scheduler.schedule_file, "r");
     assert(f);
-    memset(line, 0, line_len);
+    memset(line, 0, line_len*sizeof(char));
     while (0 < getline(&line, &line_len, f))
     {
       /* Remove trailing newline. */
       if(line[strlen(line)-1] == '\n')
         line[strlen(line)-1] = '\0';
       /* Parse line as an lcbn_t and wrap with a sched_lcbn. */
-      sched_lcbn = sched_lcbn_create(lcbn_from_string(line));
+      sched_lcbn = sched_lcbn_create(lcbn_from_string(line, line_len));
       if (!scheduler.shadow_root)
       {
         assert(sched_lcbn->lcbn->cb_type == CALLBACK_TYPE_INITIAL_STACK);

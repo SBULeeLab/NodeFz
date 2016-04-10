@@ -944,17 +944,28 @@ void unified_callback_init (void)
 
   init_log();
   set_verbosity(LOG_MAIN, 9);
-  set_verbosity(LOG_LCBN, 9);
+  set_verbosity(LOG_LCBN, 6);
   set_verbosity(LOG_SCHEDULER, 9);
   set_verbosity(LOG_THREADPOOL, 9);
   set_verbosity(LOG_STREAM, 9);
 
-  mylog(LOG_MAIN, 9, "DEBUG: Testing list\n");
+  set_verbosity(LOG_LIST, 5);
+  set_verbosity(LOG_MAP, 5);
+  set_verbosity(LOG_TREE, 5);
+
+#ifdef JD_DEBUG
   list_UT();
-  mylog(LOG_MAIN, 9, "DEBUG: Testing map\n");
   map_UT();
-  mylog(LOG_MAIN, 9, "DEBUG: Testing tree\n");
   tree_UT();
+  lcbn_UT();
+
+  assert(!"Done unit testing");
+
+  set_verbosity(LOG_LIST, 9);
+  set_verbosity(LOG_MAP, 9);
+  set_verbosity(LOG_TREE, 9);
+  set_verbosity(LOG_LCBN, 9);
+#endif
 
   schedule_modeP = getenv("UV_SCHEDULE_MODE");
   schedule_fileP = getenv("UV_SCHEDULE_FILE");
