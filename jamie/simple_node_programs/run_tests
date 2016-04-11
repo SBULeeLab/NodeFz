@@ -12,6 +12,7 @@ use File::Basename;
 my @requested_tests;
 my $niter = 5;
 my $redirect = 0;
+my $node = "node";
 
 #arg processing
 if (not @ARGV or not GetOptions(
@@ -57,7 +58,7 @@ if ($nfailed) {
 }
 else {
   $rc = 0;
-  $exitMsg = "Success, all $ntests tests passed";
+  $exitMsg = "Success, $ntests/$ntests tests passed: <@passed_tests>";
 }
 
 &log($exitMsg);
@@ -93,7 +94,7 @@ sub run_test
     unlink $sched_file;
 
     #Record
-    $cmd = "UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$sched_file node $test";
+    $cmd = "UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$sched_file $node $test";
     if ($redirect) {
       $cmd .= " > /tmp/$base\_record_out";
     }
@@ -107,11 +108,12 @@ sub run_test
       }
       exec $cmd;
     }
-    sleep 2;
+    #TODO Automatically detect when child is done?
+    sleep 5;
 
     #Identify node process
     @allProcesses = &ps();
-    @nodeProcesses = grep { $_->{CMD} eq "node $test" } @allProcesses;
+    @nodeProcesses = grep { $_->{CMD} eq "$node $test" } @allProcesses;
     &assert((scalar(@nodeProcesses) == 1), "run_test: Record: Error, did not find 1 node process. I found <@nodeProcesses>");
     $nodeProcess = shift @nodeProcesses;
     &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
@@ -120,8 +122,8 @@ sub run_test
     $nodePid = $nodeProcess->{PID};
     $exists = kill 0, $nodePid;
     &assert(($exists), "run_test: Error, record node child (pid $nodePid) does not exist");
-    &log("Sending INT to $nodePid");
-    kill 'INT', $nodePid;
+    &log("Sending USR2 to $nodePid");
+    kill 'USR2', $nodePid;
     sleep 1;
 
     &assert((-f $sched_file and -s $sched_file > 0), "Error, after record, sched_file <$sched_file> does not exist or is empty");
@@ -135,7 +137,7 @@ sub run_test
     }
 
     #Replay
-    $cmd = "UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$sched_file node $test";
+    $cmd = "UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$sched_file $node $test";
     if ($redirect) {
       $cmd .= " > /tmp/$base\_replay_out";
     }
@@ -149,11 +151,15 @@ sub run_test
       }
       exec $cmd;
     }
-    sleep 5; #Implementation is not particularly efficient
+    sleep 1; #Let child get started
+
+    #Wait up to $timeout seconds for the replay to finish.
+    my $timeout = 30;
+    &waitForReplay($timeout, "$node $test");
 
     #Identify node process
     @allProcesses = &ps();
-    @nodeProcesses = grep { $_->{CMD} eq "node $test" } @allProcesses;
+    @nodeProcesses = grep { $_->{CMD} eq "$node $test" } @allProcesses;
     &assert((scalar(@nodeProcesses) <= 1), "run_test: Replay: Error, found too many node processes. I found <@nodeProcesses>, wanted 0 or 1.");
     if (scalar(@nodeProcesses)) {
       #If replay is still running, it hasn't exited by itself
@@ -163,7 +169,7 @@ sub run_test
       kill 'KILL', $nodeProcess->{PID};
       kill 'KILL', $nodeProcess->{PPID};
 
-      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself.");
+      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself on the $i\'th iteration.");
       return 1;
     }
 
@@ -188,6 +194,44 @@ Usage: $0 [--niter X] [--redirect] t1 t2 ...
   t1 t2 ...: List of tests (Node.js apps) you wish to run.
 Example: $0 --niter 5 fs_several.js fs_several_stat.js
 ";
+}
+
+#input: ($timeout, $processMatchStr)
+#output: ($rc) 0 on success, 1 on timeout
+#Wait until the first of {timeout, ps does not report a process with command eq $processMatchStr}
+sub waitForReplay
+{
+  my ($timeout, $matchStr) = @_;
+  eval
+  {
+    local $SIG{ALRM} = sub { die "alarm\n" }; # NB: \n required
+    alarm $timeout;
+    while (1)
+    {
+      my @allProcesses = &ps();
+      my @nodeProcesses = grep { $_->{CMD} eq $matchStr } @allProcesses;
+      if (not @nodeProcesses)
+      {
+        last;
+      }
+      sleep 1;
+    }
+    alarm 0;
+  };
+
+  my $rc = 0;
+
+  if ($@)
+  {
+    die unless $@ eq "alarm\n";   # propagate unexpected errors
+    $rc = 1; 
+  }
+  else
+  {
+    $rc = 0;
+  }
+
+  return $rc;
 }
 
 ####################################
