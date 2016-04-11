@@ -83,7 +83,7 @@ static void worker(void* arg) {
 
     while (QUEUE_EMPTY(&wq)) {
       idle_threads += 1;
-      mylog(LOG_THREADPOOL, 1, "worker: No work, waiting. %i LCBs already run.\n", scheduler_already_run());
+      mylog(LOG_THREADPOOL, 1, "worker: No work, waiting. %i LCBNs already run.\n", scheduler_already_run());
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
     }
@@ -318,12 +318,10 @@ void uv__work_done(uv_async_t* handle) {
          Anyway, spinning is an easy solution for now. */
       next_lcbn_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_lcbn_type))
-        mylog(LOG_THREADPOOL, 1, "uv__work_done: next lcbn is a threadpool CB (type %s). %i LCBs invoked so far. Spinning.\n", callback_type_to_string(next_lcbn_type), scheduler_already_run());
+        mylog(LOG_THREADPOOL, 1, "uv__work_done: next lcbn is a threadpool CB (type %s). %i LCBNs invoked so far. Spinning.\n", callback_type_to_string(next_lcbn_type), scheduler_already_run());
       while (is_threadpool_cb(next_lcbn_type))
       {
-        uv_mutex_unlock(&loop->wq_mutex);
-        uv_thread_yield();
-        uv_mutex_lock(&loop->wq_mutex);
+        uv_thread_yield_mutex(&loop->wq_mutex);
         next_lcbn_type = scheduler_next_lcbn_type();
       }
     }
@@ -446,7 +444,7 @@ any_func uv_uv__queue_done_ptr (void)
 
 /* Add extra LCBN dependencies if REQ is of one of the 'wrapped' paths
     (fs, getaddrinfo, getnameinfo). */ 
-void uv__add_other_dependencies(uv_work_t *req)
+void uv__add_other_dependencies (uv_work_t *req)
 {
   enum callback_type wrapped_work_type, wrapped_done_type;
   lcbn_t *work_lcbn;

@@ -71,6 +71,12 @@ int uv_thread_create(uv_thread_t *tid, void (*entry)(void *arg), void *arg) {
   return -err;
 }
 
+void uv_thread_yield_mutex(uv_mutex_t* mutex) {
+  uv_mutex_unlock(mutex);
+  uv_thread_yield();
+  uv_mutex_lock(mutex);
+}
+
 int uv_thread_yield(void) {
   return pthread_yield();
 }

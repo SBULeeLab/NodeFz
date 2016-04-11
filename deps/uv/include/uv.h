@@ -1457,6 +1457,7 @@ UV_EXTERN void uv_key_set(uv_key_t* key, void* value);
 typedef void (*uv_thread_cb)(void* arg);
 
 UV_EXTERN int uv_thread_create(uv_thread_t* tid, uv_thread_cb entry, void* arg);
+UV_EXTERN void uv_thread_yield_mutex(uv_mutex_t* mutex);
 UV_EXTERN int uv_thread_yield(void);
 UV_EXTERN uv_thread_t uv_thread_self(void);
 UV_EXTERN int uv_thread_join(uv_thread_t *tid);
