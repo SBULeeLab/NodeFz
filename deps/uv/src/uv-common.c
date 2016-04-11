@@ -722,6 +722,27 @@ void dump_and_exit_sighandler (int signum)
   exit(0);
 }
 
+/* Indexed by value of 'enum callback_type'. */
+int callback_type_to_nargs[] = 
+{
+  3 /* UV_ALLOC_CB */, 3 /* UV_READ_CB */,
+  2 /* UV_WRITE_CB */, 2 /* UV_CONNECT_CB */,
+  2 /* UV_SHUTDOWN_CB */, 2 /* UV_CONNECTION_CB */,
+  1 /* UV_CLOSE_CB */, 3 /* UV_POLL_CB */,
+  1 /* UV_TIMER_CB */, 1 /* UV_ASYNC_CB */,
+  1 /* UV_PREPARE_CB */, 1 /* UV_CHECK_CB */,
+  1 /* UV_IDLE_CB */, 3 /* UV_EXIT_CB */,
+  2 /* UV_WALK_CB */, 1 /* UV_FS_WORK_CB */,
+  1 /* UV_FS_CB */, 1 /* UV_WORK_CB */,
+  2 /* UV_AFTER_WORK_CB */, 1 /* UV_GETADDRINFO_WORK_CB */,
+  3 /* UV_GETADDRINFO_CB */, 1 /* UV_GETNAMEINFO_WORK_CB */,
+  4 /* UV_GETNAMEINFO_CB */, 4 /* UV_FS_EVENT_CB */,
+  4 /* UV_FS_POLL_CB */, 2 /* UV_SIGNAL_CB */,
+  2 /* UV_UDP_SEND_CB */, 5 /* UV_UDP_RECV_CB */,
+  1 /* UV_THREAD_CB */, 3 /* UV__IO_CB */,
+  3 /* UV__ASYNC_CB */, 1 /* UV__WORK_WORK */,
+  2 /* UV__WORK_DONE */
+};
 
 /* Execute the callback described by CBN based on CBN->info. */
 static void cbi_execute_callback (callback_info_t *cbi)
@@ -737,96 +758,126 @@ static void cbi_execute_callback (callback_info_t *cbi)
     /* User-defined CBs. */
 #ifdef JD_DEBUG_2
     case UV_ASYNC_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_async_cb) cbi->cb)((uv_async_t *) cbi->args[0]);
       break;
 #else
     /* include/uv.h */
     case UV_ALLOC_CB:
+      assert(callback_type_to_nargs[cbi->type] == 3);
       ((uv_alloc_cb) cbi->cb)((uv_handle_t *) cbi->args[0], (size_t) cbi->args[1], (uv_buf_t *) cbi->args[2]);
       break;
     case UV_READ_CB:
+      assert(callback_type_to_nargs[cbi->type] == 3);
       ((uv_read_cb) cbi->cb)((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]);
       break;
     case UV_WRITE_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_write_cb) cbi->cb)((uv_write_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_CONNECT_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_connect_cb) cbi->cb)((uv_connect_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_SHUTDOWN_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_shutdown_cb) cbi->cb)((uv_shutdown_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_CONNECTION_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_connection_cb) cbi->cb)((uv_stream_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_CLOSE_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_close_cb) cbi->cb)((uv_handle_t *) cbi->args[0]);
       break;
     case UV_POLL_CB:
+      assert(callback_type_to_nargs[cbi->type] == 3);
       ((uv_poll_cb) cbi->cb)((uv_poll_t *) cbi->args[0], (int) cbi->args[1], (int) cbi->args[2]);
       break;
     case UV_TIMER_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_timer_cb) cbi->cb)((uv_timer_t *) cbi->args[0]);
       break;
     case UV_ASYNC_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_async_cb) cbi->cb)((uv_async_t *) cbi->args[0]);
       break;
     case UV_PREPARE_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_prepare_cb) cbi->cb)((uv_prepare_t *) cbi->args[0]);
       break;
     case UV_CHECK_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_check_cb) cbi->cb)((uv_check_t *) cbi->args[0]);
       break;
     case UV_IDLE_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_idle_cb) cbi->cb)((uv_idle_t *) cbi->args[0]);
       break;
     case UV_EXIT_CB:
+      assert(callback_type_to_nargs[cbi->type] == 3);
       ((uv_exit_cb) cbi->cb)((uv_process_t *) cbi->args[0], (int64_t) cbi->args[1], (int) cbi->args[2]);
       break;
     case UV_WALK_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_walk_cb) cbi->cb)((uv_handle_t *) cbi->args[0], (void *) cbi->args[1]);
       break;
     case UV_FS_WORK_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_internal_work_cb) cbi->cb)((struct uv__work *) cbi->args[0]);
       break;
     case UV_FS_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_fs_cb) cbi->cb)((uv_fs_t *) cbi->args[0]);
       break;
     case UV_WORK_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_work_cb) cbi->cb)((uv_work_t *) cbi->args[0]);
       break;
     case UV_AFTER_WORK_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_after_work_cb) cbi->cb)((uv_work_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_GETADDRINFO_WORK_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_internal_work_cb) cbi->cb)((struct uv__work *) cbi->args[0]);
       break;
     case UV_GETNAMEINFO_WORK_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_internal_work_cb) cbi->cb)((struct uv__work *) cbi->args[0]);
       break;
     case UV_GETADDRINFO_CB:
+      assert(callback_type_to_nargs[cbi->type] == 3);
       ((uv_getaddrinfo_cb) cbi->cb)((uv_getaddrinfo_t *) cbi->args[0], (int) cbi->args[1], (struct addrinfo *) cbi->args[2]);
       break;
     case UV_GETNAMEINFO_CB:
+      assert(callback_type_to_nargs[cbi->type] == 4);
       ((uv_getnameinfo_cb) cbi->cb)((uv_getnameinfo_t *) cbi->args[0], (int) cbi->args[1], (const char *) cbi->args[2], (const char *) cbi->args[3]);
       break;
     case UV_FS_EVENT_CB:
+      assert(callback_type_to_nargs[cbi->type] == 4);
       ((uv_fs_event_cb) cbi->cb)((uv_fs_event_t *) cbi->args[0], (const char *) cbi->args[1], (int) cbi->args[2], (int) cbi->args[3]);
       break;
     case UV_FS_POLL_CB:
+      assert(callback_type_to_nargs[cbi->type] == 4);
       ((uv_fs_poll_cb) cbi->cb)((uv_fs_poll_t *) cbi->args[0], (int) cbi->args[1], (const uv_stat_t *) cbi->args[2], (const uv_stat_t *) cbi->args[3]);
       break;
     case UV_SIGNAL_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_signal_cb) cbi->cb)((uv_signal_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_UDP_SEND_CB:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv_udp_send_cb) cbi->cb)((uv_udp_send_t *) cbi->args[0], (int) cbi->args[1]);
       break;
     case UV_UDP_RECV_CB:
       /* Peer cbi is in the sockaddr_storage of cbi->args[3]. */
+      assert(callback_type_to_nargs[cbi->type] == 5);
       ((uv_udp_recv_cb) cbi->cb)((uv_udp_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2], (const struct sockaddr *) cbi->args[3], (unsigned) cbi->args[4]);
       break;
     case UV_THREAD_CB:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_thread_cb) cbi->cb)((void *) cbi->args[0]);
       break;
 #endif
@@ -835,17 +886,21 @@ static void cbi_execute_callback (callback_info_t *cbi)
 
     /* include/uv-unix.h */
     case UV__IO_CB:
+      assert(callback_type_to_nargs[cbi->type] == 3);
       ((uv__io_cb) cbi->cb)((struct uv_loop_s *) cbi->args[0], (struct uv__io_s *) cbi->args[1], (unsigned int) cbi->args[2]);
       break;
     case UV__ASYNC_CB:
+      assert(callback_type_to_nargs[cbi->type] == 3);
       ((uv__async_cb) cbi->cb)((struct uv_loop_s *) cbi->args[0], (struct uv__async *) cbi->args[1], (unsigned int) cbi->args[2]);
       break;
 
     /* include/uv-threadpool.h */
     case UV__WORK_WORK:
+      assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv__work_work_cb) cbi->cb)((struct uv__work *) cbi->args[0]);
       break;
     case UV__WORK_DONE:
+      assert(callback_type_to_nargs[cbi->type] == 2);
       ((uv__work_done_cb) cbi->cb)((struct uv__work *) cbi->args[0], (int) cbi->args[1]);
       break;
 
@@ -1394,39 +1449,19 @@ int pthread_self_internal (void)
   return internal_id;
 }
 
+/* Not thread safe. */
 static unsigned lcbn_next_exec_id (void)
 {
   lcbn_global_exec_counter++;
   return lcbn_global_exec_counter - 1;
 }
 
+/* Not thread safe. */
 static unsigned lcbn_next_reg_id (void)
 {
   lcbn_global_reg_counter++;
   return lcbn_global_reg_counter - 1;
 }
-
-/* cf. cbi_execute_callback */
-int callback_type_to_nargs[] = 
-{
-  3 /* UV_ALLOC_CB */, 3 /* UV_READ_CB */,
-  2 /* UV_WRITE_CB */, 2 /* UV_CONNECT_CB */,
-  2 /* UV_SHUTDOWN_CB */, 2 /* UV_CONNECTION_CB */,
-  1 /* UV_CLOSE_CB */, 3 /* UV_POLL_CB */,
-  1 /* UV_TIMER_CB */, 1 /* UV_ASYNC_CB */,
-  1 /* UV_PREPARE_CB */, 1 /* UV_CHECK_CB */,
-  1 /* UV_IDLE_CB */, 3 /* UV_EXIT_CB */,
-  2 /* UV_WALK_CB */, 1 /* UV_FS_WORK_CB */,
-  1 /* UV_FS_CB */, 1 /* UV_WORK_CB */,
-  2 /* UV_AFTER_WORK_CB */, 1 /* UV_GETADDRINFO_WORK_CB */,
-  1 /* UV_GETADDRINFO_CB */, 3 /* UV_GETNAMEINFO_WORK_CB */,
-  4 /* UV_GETNAMEINFO_CB */, 4 /* UV_FS_EVENT_CB */,
-  4 /* UV_FS_POLL_CB */, 2 /* UV_SIGNAL_CB */,
-  2 /* UV_UDP_SEND_CB */, 5 /* UV_UDP_RECV_CB */,
-  1 /* UV_THREAD_CB */, 3 /* UV__IO_CB */,
-  3 /* UV__ASYNC_CB */, 1 /* UV__WORK_WORK */,
-  2 /* UV__WORK_DONE */
-};
 
 void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
 {

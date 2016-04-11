@@ -324,7 +324,7 @@ typedef void (*uv_getnameinfo_cb)(uv_getnameinfo_t* req,
 
 typedef void (*uv__work_work_cb)(struct uv__work *w);
 typedef void (*uv__work_done_cb)(struct uv__work *w, int status);
-typedef void (*uv_internal_work_cb)(struct uv__work *w);
+typedef void (*uv_internal_work_cb)(struct uv__work *w); /* UV_FS_WORK_CB, UV_GETADDRINFO_WORK_CB, UV_GETNAMEINFO_WORK_CB */
 
 typedef struct {
   long tv_sec;
