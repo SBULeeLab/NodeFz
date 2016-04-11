@@ -15,6 +15,7 @@ typedef struct lcbn_dependency_s lcbn_dependency_t;
 struct lcbn_s
 {
   int magic;
+  /* TODO Move name, parent_name into sched_lcbn_t? */
   char name[64];
   char parent_name[64];
 

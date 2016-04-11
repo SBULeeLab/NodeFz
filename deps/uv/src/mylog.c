@@ -126,8 +126,8 @@ void mylog (enum log_class logClass, int verbosity, const char *format, ...)
     }
     else
     {
-      fprintf(stderr, "mylog: Warning, tried to print %u bytes but only managed %i. Trying again. This may result in duplicate output. Problem: %s\n", (unsigned) strlen(log_buf), amt_printed, strerror(errno));
-      fflush(stderr);
+      fprintf(output_stream, "mylog: Warning, tried to print %u bytes but only managed %i. Trying again. This may result in duplicate output. Problem: %s\n", (unsigned) strlen(log_buf), amt_printed, strerror(errno));
+      fflush(output_stream);
     }
   }
 
