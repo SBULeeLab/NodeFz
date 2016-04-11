@@ -1181,11 +1181,78 @@ Thur 31 Mar 2016
 delivering SIGINT for me. Requires the test to be self-driven and to
 complete within ~2 seconds. See 47cb3cdb0d7a7.
 
-Oh noes, the jumping bug has returned. run_tests can now hit it regularly.
+3. Enable -Werror. Resolve all compiler warnings.
+
+---------
+
+Fri 01 Apr 2016
+
+1. Running run_tests repeatedly, I've fixed a few race conditions/deadlocks in REPLAY mode. One more TODO regarding parallel LCB executions that I haven't yet resolved, though I know how to do so.
+2. I've tried running run_tests nohup'd, but something seems to go wrong. Using screen and trying a "big test":
+
+screen
+./run_tests  --redirect --niter 100 dns_lookup_many.js dns_lookup.js fs_read_nest1.js fs_read_nest2.js  fs_write_nest1.js fs_write_nest2.js fs_write_nest3.js fs_nest.js fs_nondet.js fs_nondet_stat.js | tee /tmp/run_tests_output
+Use 'Ctrl-A d' to disconnect
+
+Use 'screen -r' to re-attach.
+http://www.tecmint.com/screen-command-examples-to-manage-linux-terminals/
 
    - httpserver_complex_schedule fails. I must explore this further.
    - need to try MUD too
 
+RESULTS:
+  - passed with 100 iter on each (took about 2 hours)
+
+NEXT STEPS: 
+  - I concocted a more competitive fs_nest_many.js, which consistently causes the dread jump to manifest regularly as follows:
+    UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=/tmp/schedule_file.sched node fs_nest_many.js
+
+    ** This only happens regularly while in a screen session. Timing... **
+
+    You can also reproduce the issue with: ./run_tests --niter 20 dns_lookup_many.js
+      This actually produces issues like
+
+      MAIN       3   Mon Apr 04 20:16:29.213156708    20726   140676564018944      invoke_callback: invoking lcbn 0x298ac00 (type UV_GETADDRINFO_WORK_CB) context 0x298aa48 parent 0x29021b0 (parent type INITIAL_STACK) type �
+                         �  This actually produces issues like0x298b300 lcbn_orig (nil)
+
+  which is real-live corruption instead of just weird missing newlines. Promising!
+  Anyway, this regularly errors out appropriately, and both in RECORD (doesn't error out, just completes somewhat as expected) and REPLAY (does error out) mode.
+
+-----
+
+I installed gcc-4.9 which has support for -fstack-protect-strong. I mv'd /usr/bin/cc to /usr/bin/cc-orig and pointed cc to gcc-4.9.
+I added -fstack-protect-strong to uv's uv.gyp.
+
+---------
+
+Mon 11 Apr 2016
+
+- ASPLOS was fun!
+- I've been fighting with the "weird output/misbehavior" bug for about 2 weeks. I think it's gone. Here's what I learned:
+
+1. Always compile with -Wall -Werror and fix the compilation errors. The compiler is your first line of defense.
+2. Test all system calls for errors, including printf/fprintf
+3. Always write unit tests for your code modules. Even if it seems silly or needless. It pays off big-time in debugging later on.
+4. Be liberal in the use of log() calls. More output is always helpful.
+5. If you use any_func-style function pointers (void (*any_func)()), cast them to the appropriate type before you invoke them.
+   This allows the compiler to protect you.
+6. It's hard to get thread synchronization to work properly! As Knuth advises, premature optimization is unwise.
+   Stick to pthread_yield() unless you have hard evidence that the performance suffers.
+
+Sources of the problem:
+
+1. printf/fprintf was failing with EAGAIN and I was ignoring it. Given the gaps in execution time I observed, I suspect it was failing repeatedly.
+   The "execution jump" was really a long sequence of failed printf's.
+2. Cast function pointers appropriately.
+3. The hang was due to a deadlock elsewhere in the code. I didn't realize this because the output looked so weird that I couldn't tell where the execution was hung.
+
+Next steps:
+  - Write a "test suite" for my record/replay system to make regression testing easy. Something like this:
+    ./run_tests  --niter 10 fs_nest_many.js fs_nest.js dns_lookup.js dns_lookup_many.js timer_repeat.js  timer_tree.js
+  - Write a closed-loop web-server example for "baby steps" into more complex programs
+  - Write an event emitter example and study how this is implemented in Node
+  - Study process.nextTick and setImmediate to see what they do and what I should do about them
+  
 --------------------------------
 
 Next steps:
