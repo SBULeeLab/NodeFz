@@ -935,7 +935,7 @@ unsigned lcbn_global_exec_counter = 0;
 unsigned lcbn_global_reg_counter = 0;
 
 uv_mutex_t invoke_callback_lcbn_lock;
-uv_cond_t invoke_callback_lcbn_not_my_turn;
+uv_cond_t not_my_turn;
 
 int is_active_lcbn = 0;
 uv_cond_t no_active_lcbn;
@@ -1032,7 +1032,7 @@ void unified_callback_init (void)
   scheduler_init(schedule_mode, schedule_fileP);
 
   uv_mutex_init(&invoke_callback_lcbn_lock);
-  uv_cond_init(&invoke_callback_lcbn_not_my_turn);
+  uv_cond_init(&not_my_turn);
   uv_cond_init(&no_active_lcbn);
 
   tid_to_current_lcbn = map_create();
@@ -1144,27 +1144,29 @@ void invoke_callback (callback_info_t *cbi)
       sched_lcbn_t *sched_lcbn = sched_lcbn_create(scheduler_next_scheduled_lcbn());
       while (!sched_lcbn_is_next(sched_lcbn))
       {
-        mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s) is not the next scheduled LCBN (scheduled lcbn %p type %s). %i LCBs have been run already. Waiting for my turn.\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), sched_lcbn->lcbn, callback_type_to_string(sched_lcbn->lcbn->cb_type), scheduler_already_run());
-        uv_cond_wait(&invoke_callback_lcbn_not_my_turn, &invoke_callback_lcbn_lock);
+        mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s) is not the next scheduled LCBN (scheduled lcbn %p type %s). %i LCBNs have been run already. Waiting for my turn.\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), sched_lcbn->lcbn, callback_type_to_string(sched_lcbn->lcbn->cb_type), scheduler_already_run());
+        uv_cond_wait(&not_my_turn, &invoke_callback_lcbn_lock);
       }
       sched_lcbn_destroy(sched_lcbn);
     }
 
+    /* We only allow one (possibly nested) LCBN at a time. 
+       Wait for previous LCBN to finish. */
+    if (is_active_lcbn && is_base_lcbn)
+    {
+      mylog(LOG_MAIN, 9, "invoke_callback: is_active_lcbn %i is_base_lcbn %i; Waiting for exclusive LCBN execution\n", is_active_lcbn, is_base_lcbn);
+      while (is_active_lcbn && is_base_lcbn)
+        uv_cond_wait(&no_active_lcbn, &invoke_callback_lcbn_lock);
+      mylog(LOG_MAIN, 9, "invoke_callback: Done waiting for exclusive LCBN execution\n");
+    }
+    is_active_lcbn = 1;
+    mylog(LOG_MAIN, 9, "invoke_callback: I am the active LCBN. is_active_lcbn %i\n", is_active_lcbn);
+
     /* Advance the scheduler prior to invoking the CB. 
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
        the nested ones will perceive themselves as 'next'. */
-    mylog(LOG_MAIN, 5, "invoke_callback: lcbn %p (type %s); advancing the scheduler\n", 
-      lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
+    mylog(LOG_MAIN, 5, "invoke_callback: lcbn %p (type %s); advancing the scheduler\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
     scheduler_advance();
-
-    /* We only allow one (possibly nested) LCBN at a time. 
-       Wait for previous LCBN to finish. */
-    if (is_active_lcbn)
-      mylog(LOG_MAIN, 9, "invoke_callback: Waiting for exclusive LCBN execution\n");
-    while (is_active_lcbn && is_base_lcbn)
-      uv_cond_wait(&no_active_lcbn, &invoke_callback_lcbn_lock);
-    mylog(LOG_MAIN, 9, "invoke_callback: Done waiting for exclusive LCBN execution\n");
-    is_active_lcbn = 1;
 
     uv_mutex_unlock(&invoke_callback_lcbn_lock);
   }
@@ -1178,18 +1180,25 @@ void invoke_callback (callback_info_t *cbi)
      If was a logical callback, restore the previous lcbn. */
   if (is_logical_cb)
   {
-    mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s)\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
+    mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s) exec_id %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), lcbn_cur->global_exec_id);
     lcbn_mark_end(lcbn_cur);
     lcbn_current_set(lcbn_orig);
 
-    /* Wake up any waiting LCBNs. */
+    /* Wake up any waiting invoke_callback callers. */
+    uv_mutex_lock(&invoke_callback_lcbn_lock); /* Lock to make sure to-be-waiters have begun to wait. */
+
+    uv_cond_broadcast(&not_my_turn);
+    mylog(LOG_MAIN, 7, "invoke_callback: broadcast'd on not_my_turn\n");
+
     assert(is_active_lcbn);
     if (is_base_lcbn)
     {
-      uv_cond_broadcast(&invoke_callback_lcbn_not_my_turn);
       is_active_lcbn = 0;
       uv_cond_broadcast(&no_active_lcbn);
+      mylog(LOG_MAIN, 7, "invoke_callback: is_active_lcbn %i; broadcast'd on no_active_lcbn\n", is_active_lcbn);
     }
+
+    uv_mutex_unlock(&invoke_callback_lcbn_lock);
   }
 
   mylog(LOG_MAIN, 7, "invoke_callback: Done with cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
