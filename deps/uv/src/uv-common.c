@@ -980,7 +980,7 @@ static lcbn_t * get_init_stack_lcbn (void)
 
     init_stack_lcbn->global_exec_id = lcbn_next_exec_id();
     init_stack_lcbn->global_reg_id = lcbn_next_reg_id();
-    scheduler_record(sched_lcbn_create(init_stack_lcbn));
+    scheduler_register_lcbn(sched_lcbn_create(init_stack_lcbn));
   }
 
   assert(lcbn_looks_valid(init_stack_lcbn));
@@ -1014,6 +1014,7 @@ void unified_callback_init (void)
   tree_UT();
   lcbn_UT();
   mylog_UT();
+  scheduler_UT();
 
   assert(!"Done unit testing");
 
@@ -1118,17 +1119,18 @@ void invoke_callback (callback_info_t *cbi)
 
     lcbn_current_set(lcbn_cur);
 
-    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (parent type %s) lcbn_orig %p\n",
+    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (type %s) lcbn_orig %p\n",
       lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig);
     lcbn_mark_begin(lcbn_cur);
 
+    /* TODO Move this into the scheduler? */
     lcbn_cur->global_exec_id = lcbn_next_exec_id();
 
     if (callback_type_to_behavior(lcbn_cur->cb_type) == CALLBACK_BEHAVIOR_RESPONSE)
     {
       /* If this LCBN is a response, it may repeat. If so, the next response must come after this response,
          and is in some sense caused by this response. Consequently, register after setting LCBN so that it becomes a child of this LCBN. */
-      mylog(LOG_MAIN, 5, "invoke_callback: registering cb under context %p with type %s as child of LCBN %p\n",
+      mylog(LOG_MAIN, 5, "invoke_callback: registering cb (context %p type %s) as child of LCBN %p\n",
         lcbn_get_context(lcbn_cur), callback_type_to_string(lcbn_get_cb_type(lcbn_cur)), lcbn_cur);
       uv__register_callback(lcbn_get_context(lcbn_cur), lcbn_get_cb(lcbn_cur), lcbn_get_cb_type(lcbn_cur));
     }
@@ -1257,7 +1259,7 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
 
   /* Add to metadata structures. */
   lcbn_new->global_reg_id = lcbn_next_reg_id();
-  scheduler_record(sched_lcbn_create(lcbn_new));
+  scheduler_register_lcbn(sched_lcbn_create(lcbn_new));
 
   mylog(LOG_MAIN, 5, "uv__register_callback: lcbn %p context %p type %s registrar %p\n",
     lcbn_new, context, callback_type_to_string(cb_type), lcbn_cur);

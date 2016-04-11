@@ -40,7 +40,6 @@
 */
 
 /* Record: Indicate the LCBN whose CB we will invoke next. */
-#define SCHED_LCBN_MAGIC 19283746
 struct sched_lcbn_s
 {
   int magic;
@@ -71,13 +70,11 @@ enum execution_context
   EXEC_CONTEXT_THREADPOOL_DONE
 };
 
-#define SCHED_CONTEXT_MAGIC 55443322
-
 struct sched_context_s
 {
   int magic;
-  enum execution_context exec_context;
 
+  enum execution_context exec_context;
   enum callback_context cb_context;
   void *wrapper; /* uv_handle_t, uv_req_t?, uv_loop_t, struct uv__async */
 
@@ -104,9 +101,9 @@ enum schedule_mode scheduler_get_mode (void);
 /* Record. */
 
 /* This is the LCBN whose CB we execute next. 
-   Caller should ensure mutex. Or TODO in invoke_callback, invoke LCBNs through a scheduler API and do the mutex'ing there? */
-void scheduler_record (sched_lcbn_t *sched_lcbn);
-/* Dump the schedule to the file specified in schedule_init. */
+   Caller should ensure mutex for deterministic execution. */
+void scheduler_register_lcbn (sched_lcbn_t *sched_lcbn);
+/* Dump the schedule in registration order to the file specified in schedule_init. */
 void scheduler_emit (void);
 
 /* Replay. */
@@ -165,5 +162,7 @@ int scheduler_remaining (void);
      Name it like: uv__ready_*_lcbns {for * in async, check, fs_event, etc.} 
    It should return the list of sched_lcbn_t's that are available on the provided wrapper. */
 typedef struct list * (*ready_lcbns_func)(void *wrapper, enum execution_context context);
+
+void scheduler_UT (void);
 
 #endif  /* UV_SRC_SCHEDULER_H_ */
