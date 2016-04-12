@@ -210,14 +210,20 @@ int StreamBase::WriteBuffer(const FunctionCallbackInfo<Value>& args) {
   buf.base = const_cast<char*>(data);
   buf.len = length;
 
-  // Try writing immediately without allocation
   uv_buf_t* bufs = &buf;
   size_t count = 1;
-  int err = DoTryWrite(&bufs, &count);
-  if (err != 0)
-    goto done;
-  if (count == 0)
-    goto done;
+  int err;
+  if (false)
+  {
+    // Try writing immediately without allocation
+    /* JD: Never attempt this optimization, as it results in 
+           unpredictable registration of UV_WRITE_CBs. */
+    err = DoTryWrite(&bufs, &count);
+    if (err != 0)
+      goto done;
+    if (count == 0)
+      goto done;
+  }
   CHECK_EQ(count, 1);
 
   // Allocate, or write rest
@@ -276,6 +282,9 @@ int StreamBase::WriteString(const FunctionCallbackInfo<Value>& args) {
 
   bool try_write = storage_size <= sizeof(stack_storage) &&
                    (!IsIPCPipe() || send_handle_obj.IsEmpty());
+  /* JD: Never attempt this optimization, as it results in 
+         unpredictable registration of UV_WRITE_CBs. */
+  try_write = false;
   if (try_write) {
     data_size = StringBytes::Write(env->isolate(),
                                    stack_storage,
