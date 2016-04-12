@@ -46,7 +46,7 @@ void init_log (void)
     return;
   initialized = 1;
 
-  output_stream = stdout;
+  output_stream = stderr;
 
   uv_mutex_init(&log_lock);
 
@@ -111,7 +111,9 @@ void mylog (enum log_class logClass, int verbosity, const char *format, ...)
   va_end(args);
   assert(log_buf[strlen(log_buf)-1] == '\n');
 
-  /* When verbose logging is active, sometimes fprintf returns -1. */
+  /* When verbose logging is active, sometimes fprintf returns -1. 
+     NB Sometimes it returns -1 while still printing everything but the trailing newline. Beats me why. 
+        This can result in output like 'XX\n' where X is a str_to_print. */
   str_to_print = log_buf;
   amt_printed = 0;
   amt_remaining = strlen(log_buf);
@@ -127,13 +129,9 @@ void mylog (enum log_class logClass, int verbosity, const char *format, ...)
     else
     {
       fprintf(output_stream, "mylog: Warning, tried to print %u bytes but only managed %i. Trying again. This may result in duplicate output. Problem: %s\n", (unsigned) strlen(log_buf), amt_printed, strerror(errno));
-      fflush(output_stream);
+      fflush(output_stream); /* Something holding up the stream? */
     }
   }
-
-#ifdef JD_DEBUG
-  fflush(output_stream);
-#endif
 
   uv_mutex_unlock(&log_lock);
 }
