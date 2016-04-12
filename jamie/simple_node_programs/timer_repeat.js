@@ -1,12 +1,11 @@
 /*
-   This program launches a series of timers. 
+   This program launches a timer sequence using setInterval.
+   One timer every 50 ms; stops after 10 timers.
    Its behavior should be deterministic.
    I'd like to see what kinds of CBs are invoked in a timer-only world.
 */
 
 var timer_invocations = 0;
-var n_timers = 0;
-var max_timers = 20;
 
 var intervalObj;
 
@@ -20,7 +19,6 @@ var timerFunc = function(){
   }
 };
 
-n_timers++;
 intervalObj = setInterval(timerFunc, 50);
 
 //Start reading from stdin so we don't exit.

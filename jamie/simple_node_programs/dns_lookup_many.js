@@ -19,7 +19,7 @@ for (var i = 0; i < nQueries; i++)
 {
   dns.lookup('www.google.com', { family: 6 }, function onLookup(err, addresses, family) {
     nRun += 1;
-    var out = "APP: lookup " + nRun + ": www.google.com -> " + addresses;
+    var out = "APP: lookup " + nRun + ", err " + err + ", www.google.com -> " + addresses + ", family " + family;
     if (1)
     {
       /* This registers a signal handler for SIGWINCH. */

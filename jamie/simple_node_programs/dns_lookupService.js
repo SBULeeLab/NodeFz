@@ -5,7 +5,7 @@
 
 const dns = require('dns');
 dns.lookupService('127.0.0.1', 22, (err, hostname, service) => {
-    console.log(hostname, service); // Prints: localhost ssh
+  console.log('APP: hostname ' + hostname + ', service (port 22) ' + service); // localhost, ssh
 });
 
 //Start reading from stdin so we don't exit.

@@ -6,8 +6,12 @@
 var dns = require('dns');
 var fs = require('fs');
 
-dns.lookup('www.google.com', { family: 6 }, function onLookup(err, addresses, family) {
-  var out = "www.google.com -> " + addresses;
+//var host = 'woody.cs.vt.edu';
+var host = 'google.com';
+
+dns.lookup(host, { family: 6 }, function onLookup(err, address, family) {
+  console.log('APP: dns.lookup(\'%s\'): address: %j; family: %d', host, address, family);
+  var out = "APP: err " + err + ", " + host + " -> " + address + ", family " + family;
   if (1)
   {
     /* This registers a signal handler for SIGWINCH. */
