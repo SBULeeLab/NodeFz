@@ -889,10 +889,10 @@ bool Heap::CollectGarbage(GarbageCollector collector, const char* gc_reason,
                           const char* collector_reason,
                           const v8::GCCallbackFlags gc_callback_flags) {
 #if 0
-  printf("Heap::CollectGarbage: Skipping garbage collection\n");
+  fprintf(stderr, "Heap::CollectGarbage: Skipping garbage collection\n");
   return false; 
 #else
-  printf("Heap::CollectGarbage: Collecting garbage\n");
+  fprintf(stderr, "Heap::CollectGarbage: Collecting garbage\n");
   // The VM is in the GC state until exiting this function.
   VMState<GC> state(isolate_);
 

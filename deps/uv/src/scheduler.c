@@ -364,7 +364,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 
   memset(dump_buf, 0, sizeof dump_buf);
   lcbn_to_string(lcbn, dump_buf, sizeof dump_buf);
-  printf("%p: %s\n", (void *) lcbn, dump_buf);
+  fprintf(stderr, "%p: %s\n", (void *) lcbn, dump_buf);
 
   mylog(LOG_SCHEDULER, 9, "dump_lcbn_tree_list_func: returning\n");
 }
