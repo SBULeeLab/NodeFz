@@ -1142,23 +1142,22 @@ void invoke_callback (callback_info_t *cbi)
     {
       /* Wait until lcbn_cur is next in the schedule. 
          It might not be if 'the other' type of thread must go next (variously looper, TP). */ 
-      lcbn_t *next_lcbn = scheduler_next_scheduled_lcbn();
       sched_lcbn = sched_lcbn_create(lcbn_cur);
       if (!sched_lcbn_is_next(sched_lcbn))
       {
         mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
         while (!sched_lcbn_is_next(sched_lcbn))
         {
-          mylog(LOG_MAIN, 3, "invoke_callback: lcbn %p (type %s) is not the next scheduled LCBN (scheduled lcbn %p type %s). %i LCBNs have been run already. Waiting for my turn.\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), next_lcbn, callback_type_to_string(next_lcbn->cb_type), scheduler_already_run());
 #if 0
           /* This is unsafe, since the other thread might be spinning in uv__work_done and never come back to signal us. 
              To get this to work, would need to change the code in uv__work_done to broadcast every time it spins. 
-             We'll see if the performance is bad enough to merit this. */ 
+             We'll see if the performance is bad enough to merit this. 
+             TODO. */ 
           uv_cond_wait(&not_my_turn, &invoke_callback_lcbn_lock);
 #else
+          /* There must be another thread active, so use yield rather than a sleep backoff. */
           uv_thread_yield_mutex(&invoke_callback_lcbn_lock);
 #endif
-          next_lcbn = scheduler_next_scheduled_lcbn();
         }
         sched_lcbn_destroy(sched_lcbn);
         mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): done waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));

@@ -318,11 +318,13 @@ void uv__work_done(uv_async_t* handle) {
          Anyway, spinning is an easy solution for now. */
       next_lcbn_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_lcbn_type))
-        mylog(LOG_THREADPOOL, 1, "uv__work_done: next lcbn is a threadpool CB (type %s). %i LCBNs invoked so far. Spinning.\n", callback_type_to_string(next_lcbn_type), scheduler_already_run());
-      while (is_threadpool_cb(next_lcbn_type))
       {
-        uv_thread_yield_mutex(&loop->wq_mutex);
-        next_lcbn_type = scheduler_next_lcbn_type();
+        mylog(LOG_THREADPOOL, 1, "uv__work_done: next lcbn is a threadpool CB (type %s). %i LCBNs invoked so far. Spinning.\n", callback_type_to_string(next_lcbn_type), scheduler_already_run());
+        while (is_threadpool_cb(next_lcbn_type))
+        {
+          uv_thread_yield_mutex(&loop->wq_mutex);
+          next_lcbn_type = scheduler_next_lcbn_type();
+        }
       }
     }
 
