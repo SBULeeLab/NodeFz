@@ -131,11 +131,10 @@ int uv_fs_poll_stop(uv_fs_poll_t* handle) {
 
 struct list * uv__ready_fs_poll_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_fs_poll_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_fs_poll_lcbns;
+  uv_fs_poll_t *handle = (uv_fs_poll_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_fs_poll_lcbns = NULL;
 
-  handle = (uv_fs_poll_t *) h;
   assert(handle);
   assert(handle->type == UV_FS_POLL);
 

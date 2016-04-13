@@ -562,15 +562,13 @@ void uv__process_close(uv_process_t* handle) {
 
 struct list * uv__ready_process_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_process_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_process_lcbns;
+  uv_process_t *handle = (uv_process_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_process_lcbns = list_create();
 
-  handle = (uv_process_t *) h;
   assert(handle);
   assert(handle->type == UV_PROCESS);
 
-  ready_process_lcbns = list_create();
   /* TODO */
   switch (exec_context)
   {

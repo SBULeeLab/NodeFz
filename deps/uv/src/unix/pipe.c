@@ -295,11 +295,10 @@ uv_handle_type uv_pipe_pending_type(uv_pipe_t* handle) {
 
 struct list * uv__ready_pipe_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_pipe_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_pipe_lcbns;
+  uv_pipe_t *handle = (uv_pipe_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_pipe_lcbns = NULL;
 
-  handle = (uv_pipe_t *) h;
   assert(handle);
   assert(handle->type == UV_NAMED_PIPE);
 

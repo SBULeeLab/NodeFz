@@ -403,15 +403,13 @@ void uv__tcp_close(uv_tcp_t* handle) {
 
 struct list * uv__ready_tcp_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_tcp_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_tcp_lcbns;
+  uv_tcp_t *handle = (uv_tcp_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_tcp_lcbns = list_create();
 
-  handle = (uv_tcp_t *) h;
   assert(handle);
   assert(handle->type == UV_TCP);
 
-  ready_tcp_lcbns = list_create();
   switch (exec_context)
   {
     case EXEC_CONTEXT_UV__IO_POLL:

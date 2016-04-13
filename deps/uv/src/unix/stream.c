@@ -457,7 +457,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
   if (stream->connect_req) {
     uv__req_unregister(stream->loop, stream->connect_req);
 #if UNIFIED_CALLBACK
-    mylog(LOG_STREAM, 9, "uv__stream_destroy: destroying a connection\n");
+    mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: destroying a connection\n");
     invoke_callback_wrap((any_func) stream->connect_req->cb, UV_CONNECT_CB, (long) stream->connect_req, (long) -ECANCELED);
 #else
     stream->connect_req->cb(stream->connect_req, -ECANCELED);
@@ -476,7 +476,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
      */
     uv__req_unregister(stream->loop, stream->shutdown_req);
 #if UNIFIED_CALLBACK
-    mylog(LOG_STREAM, 9, "uv__stream_destroy: shutting down a connection\n");
+    mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: shutting down a connection\n");
     invoke_callback_wrap((any_func) stream->shutdown_req->cb, UV_SHUTDOWN_CB, (long) stream->shutdown_req, (long) -ECANCELED);
 #else
     stream->shutdown_req->cb(stream->shutdown_req, -ECANCELED);
@@ -531,10 +531,13 @@ static int uv__emfile_trick(uv_loop_t* loop, int accept_fd) {
 
 
 void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
-  uv_stream_t* stream;
+  uv_stream_t* stream = NULL;
   int err;
 
   stream = container_of(w, uv_stream_t, io_watcher);
+
+  mylog(LOG_UV_STREAM, 9, "uv__server_io: begin: loop %p w %p events %i stream %p\n", loop, w, events, stream);
+
   assert(events == UV__POLLIN);
   assert(stream->accepted_fd == -1);
   assert(!(stream->flags & UV_CLOSING));
@@ -549,13 +552,13 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
 #if defined(UV_HAVE_KQUEUE)
     if (w->rcount <= 0)
-      return;
+      goto DONE;
 #endif /* defined(UV_HAVE_KQUEUE) */
 
     err = uv__accept(uv__stream_fd(stream));
     if (err < 0) {
       if (err == -EAGAIN || err == -EWOULDBLOCK)
-        return;  /* Not an error. */
+        goto DONE;  /* Not an error. */
 
       if (err == -ECONNABORTED)
         continue;  /* Ignore. Nothing we can do about that. */
@@ -567,7 +570,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       }
 
 #if UNIFIED_CALLBACK
-      mylog(LOG_STREAM, 9, "uv__server_io: accepting new connection failed\n");
+      mylog(LOG_UV_STREAM, 9, "uv__server_io: accepting new connection failed\n");
       invoke_callback_wrap((any_func) stream->connection_cb, UV_CONNECTION_CB, (long) stream, (long) err);
 #else
       stream->connection_cb(stream, err);
@@ -578,7 +581,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;
 #if UNIFIED_CALLBACK
-    mylog(LOG_STREAM, 9, "uv__server_io: accepted new connection\n");
+    mylog(LOG_UV_STREAM, 9, "uv__server_io: accepted new connection\n");
     invoke_callback_wrap((any_func) stream->connection_cb, UV_CONNECTION_CB, (long) stream, (long) 0);
 #else
     stream->connection_cb(stream, 0);
@@ -587,7 +590,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     if (stream->accepted_fd != -1) {
       /* The user hasn't yet accepted called uv_accept() */
       uv__io_stop(loop, &stream->io_watcher, UV__POLLIN);
-      return;
+      goto DONE;
     }
 
     if (stream->type == UV_TCP && (stream->flags & UV_TCP_SINGLE_ACCEPT)) {
@@ -596,6 +599,9 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       nanosleep(&timeout, NULL);
     }
   }
+
+  DONE:
+    mylog(LOG_UV_STREAM, 9, "uv__stream_io: returning\n");
 }
 
 any_func uv_uv__server_io_ptr (void)
@@ -872,15 +878,15 @@ start:
   } else {
     do {
       if (iovcnt == 1) {
-        mylog(LOG_STREAM, 1, "uv__write: write'ing %i bytes\n", iov[0].iov_len);
+        mylog(LOG_UV_STREAM, 1, "uv__write: write'ing %i bytes\n", iov[0].iov_len);
 #if 0
         /* TODO */
-        mylog(LOG_STREAM, 1, "uv__write: DEBUG: sleeping a bit\n");
+        mylog(LOG_UV_STREAM, 1, "uv__write: DEBUG: sleeping a bit\n");
         sleep(3);
 #endif
         n = write(uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len);
       } else {
-        mylog(LOG_STREAM, 1, "uv__write: writev'ing %i vectors\n", iovcnt);
+        mylog(LOG_UV_STREAM, 1, "uv__write: writev'ing %i vectors\n", iovcnt);
         n = writev(uv__stream_fd(stream), iov, iovcnt);
       }
     }
@@ -913,7 +919,7 @@ start:
     }
   } else {
     /* Successful write */
-    mylog(LOG_STREAM, 1, "uv__write: Successful write!\n");
+    mylog(LOG_UV_STREAM, 1, "uv__write: Successful write!\n");
 
     while (n >= 0) {
       uv_buf_t* buf = &(req->bufs[req->write_index]);
@@ -980,7 +986,7 @@ static void uv__write_callbacks(uv_stream_t* stream) {
   int queue_len;
 
   QUEUE_LEN(queue_len, q, &stream->write_completed_queue);
-  mylog(LOG_STREAM, 7, "uv__write_callbacks: %i completed requests to handle\n", queue_len);
+  mylog(LOG_UV_STREAM, 7, "uv__write_callbacks: %i completed requests to handle\n", queue_len);
   while (!QUEUE_EMPTY(&stream->write_completed_queue)) {
     /* Pop a req off write_completed_queue. */
     q = QUEUE_HEAD(&stream->write_completed_queue);
@@ -1319,9 +1325,11 @@ int uv_shutdown(uv_shutdown_t* req, uv_stream_t* stream, uv_shutdown_cb cb) {
 
 
 static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
-  uv_stream_t* stream;
+  uv_stream_t* stream = NULL;
 
   stream = container_of(w, uv_stream_t, io_watcher);
+
+  mylog(LOG_UV_STREAM, 9, "uv__stream_io: begin: loop %p w %p events %i stream %p\n", loop, w, events, stream);
 
   assert(stream->type == UV_TCP ||
          stream->type == UV_NAMED_PIPE ||
@@ -1331,8 +1339,9 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   if (stream->connect_req) {
     /* This causes a call to stream->connect_req->cb, if defined,
         and wipes the connect_req from the stream. */
+    mylog(LOG_UV_STREAM, 9, "uv__stream_io: There is a pending connect_req, connecting then returning\n");
     uv__stream_connect(stream);
-    return;
+    goto DONE;
   }
 
   assert(uv__stream_fd(stream) >= 0);
@@ -1343,7 +1352,7 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     uv__read(stream);
 
   if (uv__stream_fd(stream) == -1)
-    return;  /* read_cb closed stream. */
+    goto DONE; /* read_cb closed stream. */
 
   /* Short-circuit iff POLLHUP is set, the user is still interested in read
    * events and uv__read() reported a partial read but not EOF. If the EOF
@@ -1360,7 +1369,7 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
 
   if (uv__stream_fd(stream) == -1)
-    return;  /* read_cb closed stream. */
+    goto DONE;  /* read_cb closed stream. */
 
   if (events & (UV__POLLOUT | UV__POLLERR | UV__POLLHUP)) {
     /* Pops the first request off of stream->write_queue, fulfills it,
@@ -1373,6 +1382,9 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     if (QUEUE_EMPTY(&stream->write_queue))
       uv__drain(stream);
   }
+
+  DONE:
+    mylog(LOG_UV_STREAM, 9, "uv__stream_io: returning\n");
 }
 
 
@@ -1382,9 +1394,11 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
  * getsockopt.
  */
 static void uv__stream_connect(uv_stream_t* stream) {
-  int error;
+  int error = 0;
   uv_connect_t* req = stream->connect_req;
   socklen_t errorsize = sizeof(int);
+
+  mylog(LOG_UV_STREAM, 9, "uv__stream_connect: begin: stream %p req %p\n", stream, req);
 
   assert(stream->type == UV_TCP || stream->type == UV_NAMED_PIPE);
   assert(req);
@@ -1408,7 +1422,7 @@ static void uv__stream_connect(uv_stream_t* stream) {
   }
 
   if (error == -EINPROGRESS)
-    return;
+    goto DONE;
 
   stream->connect_req = NULL;
   uv__req_unregister(stream->loop, req);
@@ -1420,7 +1434,7 @@ static void uv__stream_connect(uv_stream_t* stream) {
   if (req->cb)
   {
 #if UNIFIED_CALLBACK
-    mylog(LOG_STREAM, 9, "uv__stream_connect: connecting\n");
+    mylog(LOG_UV_STREAM, 9, "uv__stream_connect: connecting\n");
     invoke_callback_wrap((any_func) req->cb, UV_CONNECT_CB, (long) req, (long) error);
 #else
     req->cb(req, error);
@@ -1428,12 +1442,15 @@ static void uv__stream_connect(uv_stream_t* stream) {
   }
 
   if (uv__stream_fd(stream) == -1)
-    return;
+    goto DONE;
 
   if (error < 0) {
     uv__stream_flush_write_queue(stream, -ECANCELED);
     uv__write_callbacks(stream);
   }
+
+  DONE:
+    mylog(LOG_UV_STREAM, 9, "uv__stream_connect: returning\n");
 }
 
 
@@ -1443,7 +1460,9 @@ int uv_write2(uv_write_t* req,
               unsigned int nbufs,
               uv_stream_t* send_handle,
               uv_write_cb cb) {
-  int empty_queue;
+  int empty_queue, rc = 0;
+
+  mylog(LOG_UV_STREAM, 9, "uv_write2: begin: req %p stream %P bufs %p nbufs %i send_handle %p\n", req, stream, bufs, nbufs, send_handle);
 
   assert(nbufs > 0);
   assert((stream->type == UV_TCP ||
@@ -1452,11 +1471,17 @@ int uv_write2(uv_write_t* req,
          "uv_write (unix) does not yet support other types of streams");
 
   if (uv__stream_fd(stream) < 0)
-    return -EBADF;
+  {
+    rc = -EBADF;
+    goto DONE;
+  }
 
   if (send_handle) {
     if (stream->type != UV_NAMED_PIPE || !((uv_pipe_t*)stream)->ipc)
-      return -EINVAL;
+    {
+      rc = -EINVAL;
+      goto DONE;
+    }
 
     /* XXX We abuse uv_write2() to send over UDP handles to child processes.
      * Don't call uv__stream_fd() on those handles, it's a macro that on OS X
@@ -1465,7 +1490,10 @@ int uv_write2(uv_write_t* req,
      * which works but only by accident.
      */
     if (uv__handle_fd((uv_handle_t*) send_handle) < 0)
-      return -EBADF;
+    {
+      rc = -EBADF;
+      goto DONE;
+    }
   }
 
   /* It's legal for write_queue_size > 0 even when the write_queue is empty;
@@ -1489,7 +1517,10 @@ int uv_write2(uv_write_t* req,
     req->bufs = uv__malloc(nbufs * sizeof(bufs[0]));
 
   if (req->bufs == NULL)
-    return -ENOMEM;
+  {
+    rc = -ENOMEM;
+    goto DONE;
+  }
 
   memcpy(req->bufs, bufs, nbufs * sizeof(bufs[0]));
   req->nbufs = nbufs;
@@ -1527,7 +1558,10 @@ int uv_write2(uv_write_t* req,
     uv__stream_osx_interrupt_select(stream);
   }
 
-  return 0;
+  rc = 0;
+  DONE:
+    mylog(LOG_UV_STREAM, 9, "uv_write2: returning rc %i\n", rc);
+    return rc;
 }
 
 
@@ -1539,7 +1573,14 @@ int uv_write(uv_write_t* req,
              const uv_buf_t bufs[],
              unsigned int nbufs,
              uv_write_cb cb) {
-  return uv_write2(req, handle, bufs, nbufs, NULL, cb);
+  int rc = 0;
+
+  mylog(LOG_UV_STREAM, 9, "uv_write: begin: req %p handle %p bufs %p nbufs %i\n", req, handle, bufs, nbufs);
+
+  rc = uv_write2(req, handle, bufs, nbufs, NULL, cb);
+
+  mylog(LOG_UV_STREAM, 9, "uv_write: returning rc %i\n", rc);
+  return rc;
 }
 
 
@@ -1743,14 +1784,13 @@ int uv_stream_set_blocking(uv_stream_t* handle, int blocking) {
 
 static struct list * uv__ready_stream_lcbns_uv__write_callbacks (uv_stream_t *handle, unsigned int events)
 {
-  struct list *ready_lcbns;
-  QUEUE *q;
-  uv_write_t *req;
-  lcbn_t *lcbn;
+  uv_write_t *req = NULL;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_lcbns = list_create();
+  QUEUE *q = NULL;
 
   assert(handle);
 
-  ready_lcbns = list_create();
   QUEUE_FOREACH(q, &handle->write_completed_queue) {
     req = QUEUE_DATA(q, uv_write_t, queue);
     lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
@@ -1763,14 +1803,13 @@ static struct list * uv__ready_stream_lcbns_uv__write_callbacks (uv_stream_t *ha
 
 static struct list * uv__ready_stream_lcbns_uv__write (uv_stream_t *handle, unsigned int events)
 {
-  struct list *ready_lcbns;
-  QUEUE *q;
-  uv_write_t *req;
-  lcbn_t *lcbn;
+  uv_write_t *req = NULL;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_lcbns = list_create();
+  QUEUE *q = NULL;
 
   assert(handle);
 
-  ready_lcbns = list_create();
   /* uv__write moves the head of handle->write_queue to handle->write_completed_queue */
   if (!QUEUE_EMPTY(&handle->write_queue))
   {
@@ -1786,14 +1825,13 @@ static struct list * uv__ready_stream_lcbns_uv__write (uv_stream_t *handle, unsi
 
 static struct list * uv__ready_stream_lcbns_uv__stream_flush_write_queue (uv_stream_t *handle, unsigned int events)
 {
-  struct list *ready_lcbns;
-  QUEUE *q;
-  uv_write_t *req;
-  lcbn_t *lcbn;
+  uv_write_t *req = NULL;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_lcbns = list_create();
+  QUEUE *q = NULL;
   
   assert(handle);
 
-  ready_lcbns = list_create();
   QUEUE_FOREACH(q, &handle->write_queue) {
     req = QUEUE_DATA(q, uv_write_t, queue);
     lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WRITE_CB);
@@ -1806,11 +1844,11 @@ static struct list * uv__ready_stream_lcbns_uv__stream_flush_write_queue (uv_str
 
 static struct list * uv__ready_stream_lcbns_uv__stream_connect (uv_stream_t *stream, unsigned int events)
 {
-  struct list *ready_lcbns;
-  lcbn_t *lcbn;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_lcbns = list_create();
+
   assert(stream);
 
-  ready_lcbns = list_create();
   lcbn = lcbn_get(stream->connect_req->cb_type_to_lcbn, UV_CONNECT_CB);
   assert(lcbn && lcbn->cb == (any_func) stream->connect_req->cb);
   if (lcbn->cb)
@@ -1820,12 +1858,12 @@ static struct list * uv__ready_stream_lcbns_uv__stream_connect (uv_stream_t *str
 
 static struct list * uv__ready_stream_lcbns_uv__read (uv_stream_t *stream, unsigned int events)
 {
-  struct list *ready_lcbns;
-  lcbn_t *lcbn;
-  int pending_bytes;
+  struct list *ready_lcbns = list_create();
+  lcbn_t *lcbn = NULL;
+  int pending_bytes = 0;
+
   assert(stream);
 
-  ready_lcbns = list_create();
   /* We don't need to push multiple ALLOC/READ CBs, for two reasons.
      1. If we complete more than one alloc/read cycle, the new LCBNs won't
         actually exist until the old ones have executed (see invoke_callback).
@@ -1838,7 +1876,7 @@ static struct list * uv__ready_stream_lcbns_uv__read (uv_stream_t *stream, unsig
     /* Verify there are pending bytes. */
     assert(ioctl(uv__stream_fd(stream), FIONREAD, &pending_bytes) == 0);
     assert(0 < pending_bytes);
-    mylog(LOG_STREAM, 9, "uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
+    mylog(LOG_UV_STREAM, 9, "uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
 
     lcbn = lcbn_get(stream->cb_type_to_lcbn, UV_ALLOC_CB);
     assert(lcbn && lcbn->cb);
@@ -1854,13 +1892,11 @@ static struct list * uv__ready_stream_lcbns_uv__read (uv_stream_t *stream, unsig
 
 static struct list * uv__ready_stream_lcbns_uv__drain (uv_stream_t *stream, unsigned int events)
 {
-  struct list *ready_lcbns;
-  lcbn_t *lcbn;
-  uv_shutdown_t *req;
+  uv_shutdown_t *req = NULL;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_lcbns = list_create();
 
   assert(stream);
-
-  ready_lcbns = list_create();
 
   /* In uv__drain, complete shutdown_req if there is one. */
   if ((stream->flags & UV_STREAM_SHUTTING) &&
@@ -1880,13 +1916,11 @@ static struct list * uv__ready_stream_lcbns_uv__drain (uv_stream_t *stream, unsi
 
 static struct list * uv__ready_stream_lcbns_uv__stream_io (uv_stream_t *stream, unsigned int events)
 {
-  struct list *ready_lcbns;
-  QUEUE *q;
-  int queue_len;
+  struct list *ready_lcbns = list_create();
+  QUEUE *q = NULL;
+  int queue_len = 0;
 
   assert(stream);
-
-  ready_lcbns = list_create();
 
   if (stream->connect_req)
   {
@@ -1920,12 +1954,10 @@ static struct list * uv__ready_stream_lcbns_uv__stream_io (uv_stream_t *stream, 
 
 static struct list * uv__ready_stream_lcbns_uv__server_io (uv_stream_t *stream, unsigned int events)
 {
-  struct list *ready_lcbns;
-  lcbn_t *lcbn;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_lcbns = list_create();
 
   assert(stream);
-
-  ready_lcbns = list_create();
 
   /* If uv__accept returns -EAGAIN or -EWOULDBLOCK, this CB won't actually be called. 
      TODO It's not clear to me why this would happen. */
@@ -1939,17 +1971,15 @@ static struct list * uv__ready_stream_lcbns_uv__server_io (uv_stream_t *stream, 
 
 struct list * uv__ready_stream_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_stream_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_stream_lcbns;
+  uv_stream_t *handle = (uv_stream_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_stream_lcbns = list_create();
 
-  handle = (uv_stream_t *) h;
   assert(handle);
   assert(handle->type == UV_TCP ||
          handle->type == UV_NAMED_PIPE ||
          handle->type == UV_TTY);
 
-  ready_stream_lcbns = list_create();
   switch (exec_context)
   {
     case EXEC_CONTEXT_UV__IO_POLL:

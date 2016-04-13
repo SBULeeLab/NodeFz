@@ -8,16 +8,22 @@ enum log_class
   LOG_LCBN,
   LOG_SCHEDULER,
   LOG_THREADPOOL,
-  LOG_STREAM,
   LOG_LIST,
   LOG_MAP,
   LOG_TREE,
+  LOG_UV_STREAM,
+  LOG_UV_IO,
   LOG_CLASS_MAX
 };
 
+/* Call before any other mylog APIs. */
+void mylog_init (void);
+
+/* Higher values are more verbose. */
+void mylog_set_verbosity (enum log_class, int level);
+void mylog_set_all_verbosity (int level);
+/* Blab. */
 void mylog (enum log_class, int verbosity, const char *format, ...);
-void init_log (void);
-void set_verbosity (enum log_class, int);
 
 void mylog_UT (void);
 

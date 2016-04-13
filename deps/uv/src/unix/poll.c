@@ -131,15 +131,13 @@ void uv__poll_close(uv_poll_t* handle) {
 
 struct list * uv__ready_poll_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_poll_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_poll_lcbns;
+  uv_poll_t *handle = (uv_poll_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_poll_lcbns = list_create();
 
-  handle = (uv_poll_t *) h;
   assert(handle);
   assert(handle->magic == UV_HANDLE_MAGIC && handle->type == UV_POLL);
 
-  ready_poll_lcbns = list_create();
   switch (exec_context)
   {
     case EXEC_CONTEXT_UV__IO_POLL:

@@ -478,15 +478,13 @@ static void uv__signal_stop(uv_signal_t* handle) {
 
 struct list * uv__ready_signal_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_signal_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_signal_lcbns;
+  uv_signal_t *handle = (uv_signal_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_signal_lcbns = list_create();
 
-  handle = (uv_signal_t *) h;
   assert(handle);
   assert(handle->type == UV_SIGNAL);
 
-  ready_signal_lcbns = list_create();
   /* TODO */
   switch (exec_context)
   {

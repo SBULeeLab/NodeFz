@@ -389,11 +389,10 @@ struct list * uv__ready_async_event_lcbns (void *l, enum execution_context exec_
 
 struct list * uv__ready_async_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_async_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_async_lcbns;
+  uv_async_t *handle = (uv_async_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_async_lcbns = NULL;
 
-  handle = (uv_async_t *) h;
   assert(handle);
   assert(handle->type == UV_ASYNC);
 

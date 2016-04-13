@@ -213,7 +213,7 @@ static void init_once(void) {
   unsigned int i;
   const char* val;
 
-  init_log();
+  mylog_init();
 
   nthreads = ARRAY_SIZE(default_threads);
   val = getenv("UV_THREADPOOL_SIZE");
@@ -545,12 +545,11 @@ int uv_cancel(uv_req_t* req) {
 
 struct list * uv__ready_work_lcbns (void *wrapper, enum execution_context exec_context)
 {
-  struct list *ready_work_lcbns;
-  uv_work_t *req;
-  lcbn_t *lcbn;
+  uv_work_t *req = (uv_work_t *) wrapper;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_work_lcbns = NULL;
 
-  assert(wrapper);
-  req = (uv_work_t *) wrapper;
+  assert(req);
   assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
 
   ready_work_lcbns = list_create();

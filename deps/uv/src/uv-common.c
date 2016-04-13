@@ -997,7 +997,7 @@ void unified_callback_init (void)
   assert(!initialized);
   initialized = 1;
 
-  init_log();
+  mylog_init();
   set_verbosity(LOG_MAIN, 9);
   set_verbosity(LOG_LCBN, 4);
   set_verbosity(LOG_SCHEDULER, 5);

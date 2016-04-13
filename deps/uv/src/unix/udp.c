@@ -906,17 +906,15 @@ int uv__udp_recv_stop(uv_udp_t* handle) {
 
 struct list * uv__ready_udp_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_udp_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_udp_lcbns;
-  QUEUE *q;
-  uv_udp_send_t *req;
+  uv_udp_t *handle = (uv_udp_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_udp_lcbns = list_create();
+  QUEUE *q = NULL;
+  uv_udp_send_t *req = NULL;
 
-  handle = (uv_udp_t *) h;
   assert(handle);
   assert(handle->type == UV_UDP);
 
-  ready_udp_lcbns = list_create();
   /* TODO */
   switch (exec_context)
   {

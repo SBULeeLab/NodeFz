@@ -267,11 +267,10 @@ void uv__fs_event_close(uv_fs_event_t* handle) {
 
 struct list * uv__ready_fs_event_lcbns(void *h, enum execution_context exec_context)
 {
-  uv_fs_event_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_fs_event_lcbns;
+  uv_fs_event_t *handle = (uv_fs_event_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_fs_event_lcbns = NULL;
 
-  handle = (uv_fs_event_t *) h;
   assert(handle);
   assert(handle->type == UV_FS_EVENT);
 

@@ -178,9 +178,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   struct list *pending_wrappers = NULL;
   sched_context_t *sched_context = NULL;
 
+  mylog(LOG_MAIN, 9, "uv__io_poll: begin: loop %p timeout %i\n", loop, timeout);
+
   if (loop->nfds == 0) {
     assert(QUEUE_EMPTY(&loop->watcher_queue));
-    return;
+    goto DONE;
   }
 
   while (!QUEUE_EMPTY(&loop->watcher_queue)) {
@@ -245,7 +247,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     if (scheduler_remaining() == 0)
     {
       mylog(LOG_MAIN, 1, "uv__io_poll: No items left to schedule. I'm outta here!\n");
-      return;
+      goto DONE;
     }
     else
       mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
@@ -296,8 +298,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         continue;
       }
 
-      mylog(LOG_MAIN, 5, "uv__io_poll: Real timeout, returning\n");
-      return;
+      mylog(LOG_MAIN, 5, "uv__io_poll: Real timeout\n");
+      goto DONE;
     }
 
     if (nfds == -1) {
@@ -314,7 +316,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         continue;
 
       if (timeout == 0)
-        return;
+        goto DONE;
 
       /* Interrupted by a signal. Update timeout and poll again. */
       goto update_timeout;
@@ -360,49 +362,59 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
       if (io_events != 0) 
       {
-        mylog(LOG_MAIN, 7, "uv__io_poll: Relevant events for fd %i, adding it to the list of candidates\n", fd);
+        sched_context_t *sched_context = NULL;
+
+        mylog(LOG_MAIN, 5, "uv__io_poll: Relevant events for fd %i, adding it to the list of candidates\n", fd);
         w->iocb_events = io_events;
         if ((any_func) w->cb == uv_uv__async_io_ptr())
         {
           io_loop = loop;
-          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_ASYNC, io_loop)->elem);
+          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_ASYNC, io_loop);
+          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__async_io (sched_context %p)\n", fd, sched_context);
         }
         else if ((any_func) w->cb == uv_uv__inotify_read_ptr())
         {
           io_loop = loop;
-          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_INOTIFY_READ, io_loop)->elem);
+          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_INOTIFY_READ, io_loop);
+          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__inotify_read (sched_context %p)\n", fd, sched_context);
         }
         else if ((any_func) w->cb == uv_uv__signal_event_ptr())
         {
           io_loop = loop;
-          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_SIGNAL_EVENT, io_loop)->elem);
+          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_SIGNAL_EVENT, io_loop);
+          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__signal_event (sched_context %p)\n", fd, sched_context);
         }
         else if ((any_func) w->cb == uv_uv__poll_io_ptr())
         {
           io_handle = (uv_handle_t *) container_of(w, uv_poll_t, io_watcher);
-          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
+          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle);
+          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__poll_io (sched_context %p)\n", fd, sched_context);
         }
         else if ((any_func) w->cb == uv_uv__stream_io_ptr())
         {
           io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
-          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
+          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle);
+          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__stream_io (sched_context %p)\n", fd, sched_context);
         }
         else if ((any_func) w->cb == uv_uv__server_io_ptr())
         {
           io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
-          list_push_back(pending_wrappers, &sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle)->elem);
+          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle);
+          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__server_io (sched_context %p)\n", fd, sched_context);
         }
         else
           assert(!"uv__io_poll: Error, unexpected w->cb");
+
+        list_push_back(pending_wrappers, &sched_context->elem);
       }
       else
-        mylog(LOG_MAIN, 7, "uv__io_poll: No relevant events for fd %i\n", fd);
+        mylog(LOG_MAIN, 5, "uv__io_poll: No relevant events for fd %i\n", fd);
     }
 
     while (!list_empty(pending_wrappers))
     {
       /* Find, remove, and execute the w next in the schedule. */
-      mylog(LOG_MAIN, 7, "uv__io_poll: %u pending wrappers\n", list_size(pending_wrappers));
+      mylog(LOG_MAIN, 5, "uv__io_poll: %u pending wrappers\n", list_size(pending_wrappers));
       sched_context = scheduler_next_context(pending_wrappers);
       if (sched_context)
       {
@@ -459,11 +471,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         timeout = 0;
         continue;
       }
-      return;
+      goto DONE;
     }
 
     if (timeout == 0)
-      return;
+      goto DONE;
 
     if (timeout == -1)
       continue;
@@ -473,10 +485,13 @@ update_timeout:
 
     real_timeout -= (loop->time - base);
     if (real_timeout <= 0)
-      return;
+      goto DONE;
 
     timeout = real_timeout;
   }
+
+  DONE:
+    mylog(LOG_MAIN, 9, "uv__io_poll: returning\n");
 }
 
 

@@ -278,11 +278,12 @@ static void uv__finish_close(uv_handle_t* handle) {
 
 static void uv__run_closing_handles(uv_loop_t* loop) {
   uv_handle_t *p = NULL;
-  struct list *closing_handles = NULL;
+  struct list *closing_handles = list_create();
   struct list_elem *e = NULL;
   sched_context_t *sched_context = NULL;
 
-  closing_handles = list_create();
+  mylog(LOG_MAIN, 9, "uv__run_closing_handles: begin: loop %p\n", loop);
+
   for (p = loop->closing_handles; p != NULL; p = p->next_closing)
   {
     sched_context = sched_context_create(EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES, CALLBACK_CONTEXT_HANDLE, p);
@@ -313,7 +314,9 @@ static void uv__run_closing_handles(uv_loop_t* loop) {
     p = (uv_handle_t *) sched_context->wrapper;
     uv__make_close_pending(p);
   }
+
   list_destroy(closing_handles);
+  mylog(LOG_MAIN, 9, "uv__run_closing_handles: returning\n");
 }
 
 
@@ -363,6 +366,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int timeout;
   int r;
   int ran_pending;
+
+  mylog(LOG_MAIN, 9, "uv__run: begin: loop %p mode %i\n", loop, mode);
 
   uv__mark_uv_run_begin();
 
@@ -436,6 +441,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
   uv__mark_uv_run_end();
 
+  mylog(LOG_MAIN, 9, "uv__run: returning r %i\n", r);
   return r;
 }
 
@@ -467,6 +473,7 @@ int uv__socket(int domain, int type, int protocol) {
 
 #if defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
   sockfd = socket(domain, type | SOCK_NONBLOCK | SOCK_CLOEXEC, protocol);
+  mylog(LOG_MAIN, 9, "uv__socket: %i = socket()\n", sockfd);
   if (sockfd != -1)
     return sockfd;
 
@@ -475,6 +482,7 @@ int uv__socket(int domain, int type, int protocol) {
 #endif
 
   sockfd = socket(domain, type, protocol);
+  mylog(LOG_MAIN, 9, "uv__socket: %i = socket()\n", sockfd);
   if (sockfd == -1)
     return -errno;
 
@@ -515,6 +523,7 @@ int uv__accept(int sockfd) {
                          NULL,
                          NULL,
                          UV__SOCK_NONBLOCK|UV__SOCK_CLOEXEC);
+    mylog(LOG_MAIN, 9, "uv__accept: %i = uv__accept4()\n", peerfd);
     if (peerfd != -1)
       return peerfd;
 
@@ -529,6 +538,7 @@ skip:
 #endif
 
     peerfd = accept(sockfd, NULL, NULL);
+    mylog(LOG_MAIN, 9, "uv__accept: %i = uv__accept()\n", peerfd);
     if (peerfd == -1) {
       if (errno == EINTR)
         continue;
@@ -558,6 +568,7 @@ int uv__close(int fd) {
 
   saved_errno = errno;
   rc = close(fd);
+  mylog(LOG_MAIN, 9, "uv__close: close(%i)\n", fd);
   if (rc == -1) {
     rc = -errno;
     if (rc == -EINTR)
@@ -671,9 +682,10 @@ int uv__cloexec(int fd, int set) {
  * between the call to dup() and fcntl(FD_CLOEXEC).
  */
 int uv__dup(int fd) {
-  int err;
+  int err, origfd = fd;
 
-  fd = dup(fd);
+  fd = dup(origfd);
+  mylog(LOG_MAIN, 9, "uv__dup: %i = dup(%i)\n", fd, origfd);
 
   if (fd == -1)
     return -errno;
@@ -794,15 +806,16 @@ int uv_fileno(const uv_handle_t* handle, uv_os_fd_t* fd) {
 
 
 static int uv__run_pending(uv_loop_t* loop) {
-  QUEUE* q;
+  QUEUE* q = NULL;
   QUEUE pq;
-  uv__io_t* w;
+  uv__io_t* w = NULL;
   int did_anything;
 
-  uv_handle_t *handle;
-  struct list *pending_handles;
-  sched_context_t *sched_context;
+  uv_handle_t *handle = NULL;
+  struct list *pending_handles = list_create();
+  sched_context_t *sched_context = NULL;
 
+  mylog(LOG_MAIN, 9, "uv__run_pending: begin: loop %p\n", loop);
   uv__mark_uv__run_pending_begin();
 
   did_anything = 0;
@@ -816,7 +829,6 @@ static int uv__run_pending(uv_loop_t* loop) {
   QUEUE_SPLIT(&loop->pending_queue, q, &pq);
 
   /* Interpret pq as a list of handle contexts. */
-  pending_handles = list_create();
   QUEUE_FOREACH(q, &pq) {
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
     w->iocb_events = UV__POLLOUT;
@@ -870,10 +882,11 @@ static int uv__run_pending(uv_loop_t* loop) {
     QUEUE_INIT(q);
     QUEUE_INSERT_HEAD(&loop->pending_queue, q);
   }
-  list_destroy_full(pending_handles, sched_context_list_destroy_func, NULL); 
 
   DONE:
+    list_destroy_full(pending_handles, sched_context_list_destroy_func, NULL); 
     uv__mark_uv__run_pending_end();
+    mylog(LOG_MAIN, 9, "uv__run_pending: returning did_anything %i\n", did_anything);
     return did_anything;
 }
 
@@ -947,6 +960,8 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(w->fd >= 0);
   assert(w->fd < INT_MAX);
 
+  mylog(LOG_UV_IO, 9, "uv__io_start: begin: loop %p w %p events %i\n", loop, w, events);
+
   w->pevents |= events;
   maybe_resize(loop, w->fd + 1);
 
@@ -960,7 +975,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
       QUEUE_REMOVE(&w->watcher_queue);
       QUEUE_INIT(&w->watcher_queue);
     }
-    return;
+    goto DONE;
   }
 #endif
 
@@ -971,6 +986,9 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     loop->watchers[w->fd] = w;
     loop->nfds++;
   }
+
+  DONE:
+    mylog(LOG_UV_IO, 9, "uv__io_start: returning\n");
 }
 
 
@@ -978,14 +996,15 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(0 == (events & ~(UV__POLLIN | UV__POLLOUT)));
   assert(0 != events);
 
+  mylog(LOG_UV_IO, 9, "uv__io_stop: begin: loop %p w %p events %i\n", loop, w, events);
   if (w->fd == -1)
-    return;
+    goto DONE;
 
   assert(w->fd >= 0);
 
   /* Happens when uv__io_stop() is called on a handle that was never started. */
   if ((unsigned) w->fd >= loop->nwatchers)
-    return;
+    goto DONE;
 
   w->pevents &= ~events;
 
@@ -1003,6 +1022,9 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
   else if (QUEUE_EMPTY(&w->watcher_queue))
     QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
+
+  DONE:
+    mylog(LOG_UV_IO, 9, "uv__io_stop: returning\n");
 }
 
 
@@ -1071,6 +1093,7 @@ int uv__open_cloexec(const char* path, int flags) {
 
   if (!no_cloexec) {
     fd = open(path, flags | UV__O_CLOEXEC);
+    mylog(LOG_MAIN, 9, "uv__open_cloexec: %i = open(%s)\n", fd, path);
     if (fd != -1)
       return fd;
 
@@ -1083,6 +1106,7 @@ int uv__open_cloexec(const char* path, int flags) {
 #endif
 
   fd = open(path, flags);
+  mylog(LOG_MAIN, 9, "uv__open_cloexec: %i = open(%s)\n", fd, path);
   if (fd == -1)
     return -errno;
 

@@ -557,6 +557,7 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
     {
       sched_context = list_entry(e, sched_context_t, elem);
       assert(sched_context_looks_valid(sched_context));
+      mylog(LOG_SCHEDULER, 3, "scheduler_next_context: examining context %p (exec_context %i cb_context %i wrapper %p)\n", sched_context, sched_context->exec_context, sched_context->cb_context, sched_context->wrapper);
       if (scheduler_next_lcbn(sched_context))
       {
         next_sched_context = sched_context;
@@ -568,7 +569,12 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
     assert(!"scheduler_next_context: Error, unexpected scheduler mode");
 
   if (next_sched_context)
+  {
     assert(sched_context_looks_valid(next_sched_context));
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: sched_context %p is next\n", sched_context);
+  }
+  else
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: None of the %u sched_contexts were next\n", list_size(sched_context_list));
 
   DONE:
     scheduler__unlock();
@@ -690,9 +696,10 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
      and changing INVOKE_CALLBACK to HANDLE_LCBN. Then we would eliminate these invisible guys, and have
      no SILENT_CONTEXTs at all.
      */
+  mylog(LOG_SCHEDULER, 3, "scheduler_next_sched_lcbn: Examining the ready lcbns of sched_context %p (wrapper %p)\n", sched_context, wrapper);
   if (list_empty(ready_lcbns))
   {
-    mylog(LOG_SCHEDULER, 1, "scheduler_next_sched_lcbn: context %p has no ready lcbns, returning SILENT_CONTEXT\n", wrapper);
+    mylog(LOG_SCHEDULER, 1, "scheduler_next_sched_lcbn: sched_context %p (wrapper %p) has no ready lcbns, returning SILENT_CONTEXT\n", sched_context, wrapper);
     next_sched_lcbn = (sched_lcbn_t *) SILENT_CONTEXT;
     goto DONE;
   }
@@ -702,6 +709,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
   {
     sched_lcbn = list_entry(e, sched_lcbn_t, elem);
     assert(sched_lcbn_looks_valid(sched_lcbn));
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_sched_lcbn: examining sched_lcbn %p (lcbn %p type %s)\n", sched_lcbn, sched_lcbn->lcbn, callback_type_to_string(sched_lcbn->lcbn->cb_type));
     if (sched_lcbn_is_next(sched_lcbn))
     {
       next_sched_lcbn = sched_lcbn;
@@ -715,7 +723,10 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
     assert(sched_lcbn_looks_valid(next_sched_lcbn));
     next_sched_lcbn = sched_lcbn_create(next_sched_lcbn->lcbn);
     assert(sched_lcbn_looks_valid(next_sched_lcbn));
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_sched_lcbn: next_sched_lcbn %p (lcbn %p type %s) is next\n", next_sched_lcbn, sched_lcbn->lcbn, callback_type_to_string(sched_lcbn->lcbn->cb_type));
   }
+  else
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_sched_lcbn: None of the %u sched_lcbns were next\n", list_size(ready_lcbns));
 
   DONE:
     scheduler__unlock();
@@ -790,6 +801,7 @@ struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context
   handle = (uv_handle_t *) wrapper;
   assert(handle->magic == UV_HANDLE_MAGIC);
 
+  mylog(LOG_SCHEDULER, 5, "uv__ready_handle_lcbns_wrap: handle %p type %i\n", handle, handle->type);
   func = handle_lcbn_funcs[handle->type];
   assert(func);
 

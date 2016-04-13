@@ -57,16 +57,16 @@
    Callers are responsible for cleaning up the list, perhaps like this:       \
      list_destroy_full(ready_handles, sched_context_destroy_func, NULL) */    \
   static struct list * uv__ready_##_name##s(uv_loop_t *loop, enum execution_context exec_context) { \
-    uv_##_name##_t* handle;                                                    \
-    struct list *ready_handles;                                               \
-    sched_context_t *sched_context;                                           \
-    QUEUE* q;                                                                 \
+    uv_##_name##_t* handle = NULL;                                            \
+    struct list *ready_handles = NULL;                                        \
+    sched_context_t *sched_context = NULL;                                    \
+    QUEUE* q = NULL;                                                          \
                                                                               \
     ready_handles = list_create();                                            \
                                                                               \
     /* All registered handles are always ready. */                            \
-    QUEUE_FOREACH(q, &loop->_name##_handles) {                                 \
-      handle = QUEUE_DATA(q, uv_##_name##_t, queue);                           \
+    QUEUE_FOREACH(q, &loop->_name##_handles) {                                \
+      handle = QUEUE_DATA(q, uv_##_name##_t, queue);                          \
       sched_context = sched_context_create(exec_context, CALLBACK_CONTEXT_HANDLE, handle);  \
       list_push_back(ready_handles, &sched_context->elem);                    \
     }                                                                         \
@@ -113,8 +113,10 @@
                                                                               \
     lcbn_t *orig = NULL, *tmp = NULL;                                         \
                                                                               \
+    mylog(LOG_MAIN, 9, "uv__run_" #_name ": begin: loop %p\n", loop);         \
+                                                                              \
     if (QUEUE_EMPTY(&loop->_name##_handles))                                  \
-      return;                                                                 \
+      goto DONE;                                                              \
                                                                               \
     orig = lcbn_current_get();                                                \
     ready_handles = uv__ready_##_name##s(loop, EXEC_CONTEXT_UV__RUN_##_type); \
@@ -148,6 +150,8 @@
       list_destroy_full(ready_handles, sched_context_list_destroy_func, NULL); \
                                                                               \
     lcbn_current_set(orig);                                                   \
+    DONE:                                                                     \
+      mylog(LOG_MAIN, 9, "uv__run_" #_name ": returning\n");                  \
   }                                                                           \
                                                                               \
   void uv__##_name##_close(uv_##_name##_t* handle) {                          \

@@ -19,10 +19,11 @@ char *log_class_strings[] = {
   "LCBN",
   "SCHEDULER",
   "THREADPOOL",
-  "STREAM",
   "LIST",
   "MAP",
-  "TREE"
+  "TREE",
+  "UV_STREAM",
+  "UV_IO"
 };
 
 int verbosity_levels[LOG_CLASS_MAX];
@@ -30,15 +31,22 @@ uv_mutex_t log_lock;
 int initialized = 0;
 FILE *output_stream = NULL;
 
-/* Functions. */
+/* Private functions. */
 
-int get_verbosity (enum log_class logClass)
+static int log_initialized (void)
+{
+  return initialized;
+}
+
+static int get_verbosity (enum log_class logClass)
 {
   assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
   return verbosity_levels[logClass];
 }
 
-void init_log (void)
+/* Public functions. */
+
+void mylog_init (void)
 {
   int i = 0;
 
@@ -53,20 +61,23 @@ void init_log (void)
   /* Default verbosity levels. */
   for (i = LOG_CLASS_MIN; i < LOG_CLASS_MAX; i++)
     verbosity_levels[i] = 3;
+
   /* Print log header. */
   fprintf(output_stream, "%-10s %-3s %-32s %-7s %-20s %-10s\n", "LOG CLASS", "VOL", "TIME", "PID", "TID", "MESSAGE");
   fflush(output_stream);
 }
 
-static int log_initialized (void)
-{
-  return initialized;
-}
-
-void set_verbosity (enum log_class logClass, int verbosity)
+void mylog_set_verbosity (enum log_class logClass, int verbosity)
 {
   assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
   verbosity_levels[logClass] = verbosity;
+}
+
+void mylog_set_all_verbosity (int verbosity)
+{
+  int i = 0;
+  for (i = LOG_CLASS_MIN; i < LOG_CLASS_MAX; i++)
+    verbosity_levels[i] = verbosity;
 }
 
 static char log_buf[2048]; /* Only access under log_lock. */

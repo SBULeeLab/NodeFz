@@ -90,10 +90,9 @@ static int timer_less_than(const struct heap_node* ha,
    Callers are responsible for cleaning up the list, perhaps like this: 
      list_destroy_full(ready_timers, sched_context_destroy_func, NULL) */
 static struct list * uv__ready_timers(uv_loop_t* loop, enum execution_context exec_context) {
-  struct list *ready_timers;
+  struct list *ready_timers = list_create();
   struct heap_apply_info hai;
 
-  ready_timers = list_create();
   hai.list = ready_timers;
   hai.exec_context = exec_context;
 
@@ -107,7 +106,6 @@ int uv_timer_init(uv_loop_t* loop, uv_timer_t* handle) {
   handle->repeat = 0;
   return 0;
 }
-
 
 int uv_timer_start(uv_timer_t* handle,
                    uv_timer_cb cb,
@@ -211,15 +209,19 @@ int uv__next_timeout(const uv_loop_t* loop) {
 
 
 void uv__run_timers(uv_loop_t* loop) {
-  struct list *ready_timers;
-  sched_context_t *next_timer_context;
-  sched_lcbn_t *next_timer_lcbn;
-  uv_timer_t* next_timer_handle;
+  struct list *ready_timers = NULL;
+  sched_context_t *next_timer_context = NULL;
+  sched_lcbn_t *next_timer_lcbn = NULL;
+  uv_timer_t* next_timer_handle = NULL;
+
+  mylog(LOG_MAIN, 9, "uv__run_timers: begin: loop %p\n", loop);
 
   if (heap_empty((struct heap *) &loop->timer_heap))
-    return;
+    goto DONE;
 
   ready_timers = NULL;
+  /* Timers are time-sensitive, so new ones may become viable after we run old ones.
+     Loop until we've no longer got a timer to run. */
   for (;;) {
     if (ready_timers)
       list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
@@ -248,23 +250,23 @@ void uv__run_timers(uv_loop_t* loop) {
 #endif
   }
 
-  if (ready_timers)
-    list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
+  DONE:
+    if (ready_timers)
+      list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
+    mylog(LOG_MAIN, 9, "uv__run_timers: returning\n");
 }
 
 /* Returns a list of sched_lcbn_t's describing the ready LCBNs associated with HANDLE.
    Callers are responsible for cleaning up the list, perhaps like this: 
      list_destroy_full(ready_lcbns, sched_lcbn_destroy_func, NULL) */
 struct list * uv__ready_timer_lcbns(void *h, enum execution_context exec_context) {
-  uv_timer_t *handle;
-  lcbn_t *lcbn;
-  struct list *ready_timer_lcbns;
+  uv_timer_t *handle = (uv_timer_t *) h;
+  lcbn_t *lcbn = NULL;
+  struct list *ready_timer_lcbns = list_create();
   
-  handle = (uv_timer_t *) h;
   assert(handle);
   assert(handle->type == UV_TIMER);
 
-  ready_timer_lcbns = list_create();
   switch (exec_context)
   {
     case EXEC_CONTEXT_UV__RUN_TIMERS:
