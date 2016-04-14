@@ -24,6 +24,8 @@ void mylog_set_verbosity (enum log_class, int level);
 void mylog_set_all_verbosity (int level);
 /* Blab. */
 void mylog (enum log_class, int verbosity, const char *format, ...);
+/* Print buf as LEN char's. */
+void mylog_buf (enum log_class, int verbosity, char *buf, int len);
 
 void mylog_UT (void);
 

@@ -38,10 +38,72 @@ static int log_initialized (void)
   return initialized;
 }
 
-static int get_verbosity (enum log_class logClass)
+static int is_log_class_valid (enum log_class log_class)
 {
-  assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
-  return verbosity_levels[logClass];
+  return (LOG_CLASS_MIN <= log_class && log_class < LOG_CLASS_MAX);
+}
+
+static int get_verbosity (enum log_class log_class)
+{
+  assert(is_log_class_valid(log_class));
+  return verbosity_levels[log_class];
+}
+
+/* Store a mylog prefix in BUF with space for at least LEN chars.
+   If you want monotonically increasing timestamps, hold log_lock before you call. 
+   Returns BUF for your chaining convenience. */
+static char * mylog_gen_prefix (enum log_class log_class, int verbosity, char *buf, int len)
+{
+  pid_t my_pid = getpid();
+  long my_tid = (long) uv_thread_self();
+
+  struct timespec now;
+  char now_s[64];
+  struct tm t;
+
+  assert(log_initialized());
+  assert(buf);
+  assert(is_log_class_valid(log_class));
+
+  assert(clock_gettime(CLOCK_REALTIME, &now) == 0);
+  localtime_r(&now.tv_sec, &t);
+
+  memset(now_s, 0, sizeof now_s);
+  strftime(now_s, sizeof now_s, "%a %b %d %H:%M:%S", &t);
+  snprintf(now_s + strlen(now_s), sizeof(now_s) - strlen(now_s), ".%09ld", now.tv_nsec);
+
+  memset(buf, 0, len);
+  snprintf(buf, len, "%-10s %-3i %-32s %-7i %-20li ", log_class_strings[log_class], verbosity, now_s, my_pid, (long) my_tid);
+  return buf;
+}
+
+static void mylog_persistent_print (FILE *stream, char *str)
+{
+  int amt_printed = 0, amt_remaining = 0;
+  char *str_to_print = NULL;
+
+  /* When verbose logging is active, sometimes fprintf returns -1. 
+     NB Sometimes it returns -1 while still printing everything but the trailing newline. Beats me why. 
+        This can result in output like 'XX\n' where X is a str_to_print. */
+  str_to_print = str;
+  amt_printed = 0;
+  amt_remaining = strlen(str);
+  while (amt_remaining)
+  {
+    amt_printed = fprintf(stream, "%s", str_to_print);
+    assert(amt_printed <= amt_remaining);
+    if (0 <= amt_printed)
+    {
+      amt_remaining -= amt_printed;
+      str_to_print += amt_printed;
+    }
+    else
+    {
+      fprintf(stream, "mylog: Warning, tried to print %u bytes but only managed %i. Trying again. This may result in duplicate output. Problem: %s\n", (unsigned) strlen(str_to_print), amt_printed, strerror(errno));
+      fflush(stream); /* Something holding up the stream? */
+    }
+  }
+
 }
 
 /* Public functions. */
@@ -67,10 +129,10 @@ void mylog_init (void)
   fflush(output_stream);
 }
 
-void mylog_set_verbosity (enum log_class logClass, int verbosity)
+void mylog_set_verbosity (enum log_class log_class, int verbosity)
 {
-  assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
-  verbosity_levels[logClass] = verbosity;
+  assert(is_log_class_valid(log_class));
+  verbosity_levels[log_class] = verbosity;
 }
 
 void mylog_set_all_verbosity (int verbosity)
@@ -81,72 +143,65 @@ void mylog_set_all_verbosity (int verbosity)
 }
 
 static char log_buf[2048]; /* Only access under log_lock. */
-void mylog (enum log_class logClass, int verbosity, const char *format, ...)
+void mylog (enum log_class log_class, int verbosity, const char *format, ...)
 {
-  pid_t my_pid = 0;
-  pthread_t my_tid = 0;
   va_list args;
-  int amt_printed = 0, amt_remaining = 0;
-  char *str_to_print = NULL;
-
-  struct timespec now;
-  char now_s[64];
-  struct tm t;
 
   assert(log_initialized());
 
-  assert(LOG_CLASS_MIN <= logClass && logClass < LOG_CLASS_MAX);
-  if (get_verbosity(logClass) < verbosity)
+  assert(is_log_class_valid(log_class));
+  if (get_verbosity(log_class) < verbosity)
     return;
   assert(format);
 
-  /* Prefix. */
-  my_pid = getpid();
-  my_tid = pthread_self();
+  uv_mutex_lock(&log_lock); /* Thread safety; monotonically increasing log timestamps. */
 
-  uv_mutex_lock(&log_lock); /* Monotonically increasing log timestamps. */
+  mylog_gen_prefix(log_class, verbosity, log_buf, sizeof log_buf);
 
-  assert(clock_gettime(CLOCK_REALTIME, &now) == 0);
-  localtime_r(&now.tv_sec, &t);
-
-  memset(now_s, 0, sizeof now_s);
-  strftime(now_s, sizeof now_s, "%a %b %d %H:%M:%S", &t);
-  snprintf(now_s + strlen(now_s), sizeof(now_s) - strlen(now_s), ".%09ld", now.tv_nsec);
-
-  memset(log_buf, 0, sizeof log_buf);
-  snprintf(log_buf, sizeof log_buf, "%-10s %-3i %-32s %-7i %-20li ", log_class_strings[logClass], verbosity, now_s, my_pid, (long) my_tid);
-
-  /* User's statement. */
+  /* Prep user's message. */
   va_start(args, format);
   vsnprintf(log_buf + strlen(log_buf), sizeof(log_buf) - strlen(log_buf), format, args);
   va_end(args);
   assert(log_buf[strlen(log_buf)-1] == '\n');
 
-  /* When verbose logging is active, sometimes fprintf returns -1. 
-     NB Sometimes it returns -1 while still printing everything but the trailing newline. Beats me why. 
-        This can result in output like 'XX\n' where X is a str_to_print. */
-  str_to_print = log_buf;
-  amt_printed = 0;
-  amt_remaining = strlen(log_buf);
-  while (amt_remaining)
+  mylog_persistent_print(output_stream, log_buf);
+
+  uv_mutex_unlock(&log_lock);
+}
+
+/* Print buf as LEN char's. */
+void mylog_buf (enum log_class log_class, int verbosity, char *buf, int len)
+{
+  int i = 0;
+
+  assert(log_initialized());
+
+  assert(is_log_class_valid(log_class));
+  if (get_verbosity(log_class) < verbosity)
+    return;
+
+  uv_mutex_lock(&log_lock); /* Thread safety; monotonically increasing log timestamps. */
+
+  mylog_gen_prefix(log_class, verbosity, log_buf, sizeof log_buf);
+
+  /* Print the prefix. */
+  mylog_persistent_print(output_stream, log_buf);
+
+  /* Print the buffer itself, one char at a time in case of null bytes. */
+  snprintf(log_buf, sizeof log_buf, "mylog_buf: Buffer %p, len %i: ", buf, len);
+  mylog_persistent_print(output_stream, log_buf);
+  for (i = 0; i < len; i++)
   {
-    amt_printed = fprintf(output_stream, "%s", str_to_print);
-    assert(amt_printed <= amt_remaining);
-    if (0 <= amt_printed)
-    {
-      amt_remaining -= amt_printed;
-      str_to_print += amt_printed;
-    }
-    else
-    {
-      fprintf(output_stream, "mylog: Warning, tried to print %u bytes but only managed %i. Trying again. This may result in duplicate output. Problem: %s\n", (unsigned) strlen(log_buf), amt_printed, strerror(errno));
-      fflush(output_stream); /* Something holding up the stream? */
-    }
+    snprintf(log_buf, sizeof log_buf, "%c", buf[i]);
+    mylog_persistent_print(output_stream, log_buf);
   }
 
   uv_mutex_unlock(&log_lock);
 }
 
+/* Unit testing. */
+
+/* For competing logger threads. */
 static void mylog_UT_logger (void *arg)
 {
   int i = 0;

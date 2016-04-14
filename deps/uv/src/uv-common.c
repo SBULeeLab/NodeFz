@@ -998,15 +998,14 @@ void unified_callback_init (void)
   initialized = 1;
 
   mylog_init();
-  set_verbosity(LOG_MAIN, 9);
-  set_verbosity(LOG_LCBN, 4);
-  set_verbosity(LOG_SCHEDULER, 5);
-  set_verbosity(LOG_THREADPOOL, 9);
-  set_verbosity(LOG_STREAM, 9);
+  mylog_set_verbosity(LOG_MAIN, 9);
+  mylog_set_verbosity(LOG_LCBN, 5);
+  mylog_set_verbosity(LOG_SCHEDULER, 5);
+  mylog_set_verbosity(LOG_THREADPOOL, 9);
 
-  set_verbosity(LOG_LIST, 5);
-  set_verbosity(LOG_MAP, 5);
-  set_verbosity(LOG_TREE, 5);
+  mylog_set_verbosity(LOG_LIST, 5);
+  mylog_set_verbosity(LOG_MAP, 5);
+  mylog_set_verbosity(LOG_TREE, 5);
 
 #ifdef JD_UT
   list_UT();
