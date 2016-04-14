@@ -441,9 +441,10 @@ int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
     parents_equal = 0;
 
   equal = (cb_type_equal && child_num_equal && parents_equal);
+  mylog(LOG_LCBN, 5, "lcbn_semantic_equals: equal %i (cb_type_equal %i child_num_equal %i parents_equal %i)\n", equal, cb_type_equal, child_num_equal, parents_equal);
 
   DONE:
-    mylog(LOG_LCBN, 9, "lcbn_semantic_equals: returning equal %i (cb_type_equal %i child_num_equal %i parents_equal %i\n", equal, cb_type_equal, child_num_equal, parents_equal);
+    mylog(LOG_LCBN, 9, "lcbn_semantic_equals: returning equal %i\n", equal);
     return equal;
 }
 

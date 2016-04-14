@@ -86,6 +86,8 @@ void uv__stream_init(uv_loop_t* loop,
                      uv_handle_type type) {
   int err;
 
+  mylog(LOG_UV_STREAM, 9, "uv__stream_init: begin: loop %p stream %p type %i\n", loop, stream, type);
+
   uv__handle_init(loop, (uv_handle_t*)stream, type);
   stream->read_cb = NULL;
   stream->alloc_cb = NULL;
@@ -117,6 +119,7 @@ void uv__stream_init(uv_loop_t* loop,
 #endif /* defined(__APPLE_) */
 
   uv__io_init(&stream->io_watcher, uv__stream_io, -1);
+  mylog(LOG_UV_STREAM, 9, "uv__stream_init: returning\n");
 }
 
 
@@ -451,13 +454,14 @@ void uv__stream_flush_write_queue(uv_stream_t* stream, int error) {
 
 
 void uv__stream_destroy(uv_stream_t* stream) {
+  mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: begin: stream %p\n", stream); 
   assert(!uv__io_active(&stream->io_watcher, UV__POLLIN | UV__POLLOUT));
   assert(stream->flags & UV_CLOSED);
 
   if (stream->connect_req) {
     uv__req_unregister(stream->loop, stream->connect_req);
 #if UNIFIED_CALLBACK
-    mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: destroying a connection\n");
+    mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: stream %p dropping a connect req\n", stream);
     invoke_callback_wrap((any_func) stream->connect_req->cb, UV_CONNECT_CB, (long) stream->connect_req, (long) -ECANCELED);
 #else
     stream->connect_req->cb(stream->connect_req, -ECANCELED);
@@ -476,7 +480,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
      */
     uv__req_unregister(stream->loop, stream->shutdown_req);
 #if UNIFIED_CALLBACK
-    mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: shutting down a connection\n");
+    mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: stream %p shutting down\n", stream);
     invoke_callback_wrap((any_func) stream->shutdown_req->cb, UV_SHUTDOWN_CB, (long) stream->shutdown_req, (long) -ECANCELED);
 #else
     stream->shutdown_req->cb(stream->shutdown_req, -ECANCELED);
@@ -485,6 +489,7 @@ void uv__stream_destroy(uv_stream_t* stream) {
   }
 
   assert(stream->write_queue_size == 0);
+  mylog(LOG_UV_STREAM, 9, "uv__stream_destroy: returning\n");
 }
 
 
@@ -581,7 +586,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;
 #if UNIFIED_CALLBACK
-    mylog(LOG_UV_STREAM, 9, "uv__server_io: accepted new connection\n");
+    mylog(LOG_UV_STREAM, 9, "uv__server_io: stream %p accepted new connection (accepted_fd %i)\n", stream, stream->accepted_fd);
     invoke_callback_wrap((any_func) stream->connection_cb, UV_CONNECTION_CB, (long) stream, (long) 0);
 #else
     stream->connection_cb(stream, 0);
@@ -601,7 +606,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
 
   DONE:
-    mylog(LOG_UV_STREAM, 9, "uv__stream_io: returning\n");
+    mylog(LOG_UV_STREAM, 9, "uv__server_io: returning\n");
 }
 
 any_func uv_uv__server_io_ptr (void)
@@ -802,12 +807,14 @@ static void uv__write(uv_stream_t* stream) {
   int iovcnt;
   ssize_t n;
 
+  mylog(LOG_UV_STREAM, 9, "uv__write: begin: stream %p\n", stream);
+
 start:
 
   assert(uv__stream_fd(stream) >= 0);
 
   if (QUEUE_EMPTY(&stream->write_queue))
-    return;
+    goto DONE;
 
   q = QUEUE_HEAD(&stream->write_queue);
   req = QUEUE_DATA(q, uv_write_t, queue);
@@ -863,6 +870,7 @@ start:
 
     do {
       n = sendmsg(uv__stream_fd(stream), &msg, 0);
+      mylog(LOG_UV_STREAM, 1, "uv__write: stream %p, %i = sendmsg(%i, ...)\n", stream, n, uv__stream_fd(stream));
     }
 #if defined(__APPLE__)
     /*
@@ -878,16 +886,11 @@ start:
   } else {
     do {
       if (iovcnt == 1) {
-        mylog(LOG_UV_STREAM, 1, "uv__write: write'ing %i bytes\n", iov[0].iov_len);
-#if 0
-        /* TODO */
-        mylog(LOG_UV_STREAM, 1, "uv__write: DEBUG: sleeping a bit\n");
-        sleep(3);
-#endif
         n = write(uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len);
+        mylog(LOG_UV_STREAM, 1, "uv__write: stream %p, %i = write(%i, %p, %i)\n", stream, n, uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len);
       } else {
-        mylog(LOG_UV_STREAM, 1, "uv__write: writev'ing %i vectors\n", iovcnt);
         n = writev(uv__stream_fd(stream), iov, iovcnt);
+        mylog(LOG_UV_STREAM, 1, "uv__write: stream %p, %i = writev(%i, %p, %i)\n", stream, n, uv__stream_fd(stream), iov, iovcnt);
       }
     }
 #if defined(__APPLE__)
@@ -912,7 +915,7 @@ start:
       if (!uv__io_active(&stream->io_watcher, UV__POLLIN))
         uv__handle_stop(stream);
       uv__stream_osx_interrupt_select(stream);
-      return;
+      goto DONE;
     } else if (stream->flags & UV_STREAM_BLOCKING) {
       /* If this is a blocking stream, try again. */
       goto start;
@@ -960,7 +963,7 @@ start:
           assert(n == 0);
           uv__write_req_finish(req);
           /* TODO: start trying to write the next request. */
-          return;
+          goto DONE;
         }
       }
     }
@@ -977,6 +980,9 @@ start:
 
   /* Notify select() thread about state change */
   uv__stream_osx_interrupt_select(stream);
+
+  DONE:
+    mylog(LOG_UV_STREAM, 9, "uv__write: returning\n");
 }
 
 
@@ -1160,13 +1166,14 @@ static int uv__stream_recv_cmsg(uv_stream_t* stream, struct msghdr* msg) {
 
 static void uv__read(uv_stream_t* stream) {
   uv_buf_t buf;
-  ssize_t nread;
+  ssize_t nread, tot_nread;
   struct msghdr msg;
   char cmsg_space[CMSG_SPACE(UV__CMSG_FD_SIZE)];
-  int count;
+  int count, succ_reads;
   int err;
   int is_ipc;
 
+  mylog(LOG_UV_STREAM, 9, "uv__read: begin: stream %p\n", stream);
   stream->flags &= ~UV_STREAM_READ_PARTIAL;
 
   /* Prevent loop starvation when the data comes in as fast as (or faster than)
@@ -1179,6 +1186,8 @@ static void uv__read(uv_stream_t* stream) {
   /* XXX: Maybe instead of having UV_STREAM_READING we just test if
    * tcp->read_cb is NULL or not?
    */
+  succ_reads = 0;
+  tot_nread = 0;
   while (stream->read_cb
       && (stream->flags & UV_STREAM_READING)
       && (count-- > 0)) {
@@ -1189,6 +1198,7 @@ static void uv__read(uv_stream_t* stream) {
 #else
     stream->alloc_cb((uv_handle_t*)stream, 64 * 1024, &buf);
 #endif
+    mylog(LOG_UV_STREAM, 9, "uv__read: buf %p buf.base %p buf.len %li\n", &buf, buf.base, buf.len);
     if (buf.len == 0) {
       /* User indicates it can't or won't handle the read. */
 #if UNIFIED_CALLBACK
@@ -1196,7 +1206,7 @@ static void uv__read(uv_stream_t* stream) {
 #else
       stream->read_cb(stream, UV_ENOBUFS, &buf);
 #endif
-      return;
+      goto DONE;
     }
 
     assert(buf.base != NULL);
@@ -1207,6 +1217,8 @@ static void uv__read(uv_stream_t* stream) {
         nread = read(uv__stream_fd(stream), buf.base, buf.len);
       }
       while (nread < 0 && errno == EINTR);
+      mylog(LOG_UV_STREAM, 9, "uv__read: stream %p, %i = read(%i, ...) (content hash %u)\n", stream, nread, uv__stream_fd(stream), map_hash(buf.base, nread));
+      mylog_buf(LOG_UV_STREAM, 9, buf.base, nread);
     } else {
       /* ipc uses recvmsg */
       msg.msg_flags = 0;
@@ -1222,7 +1234,11 @@ static void uv__read(uv_stream_t* stream) {
         nread = uv__recvmsg(uv__stream_fd(stream), &msg, 0);
       }
       while (nread < 0 && errno == EINTR);
+      mylog(LOG_UV_STREAM, 9, "uv__read: stream %p, %i = uv__recvmsg(%i, ...)\n", stream, nread, uv__stream_fd(stream));
     }
+
+    succ_reads++;
+    tot_nread += nread;
 
     if (nread < 0) {
       /* Error */
@@ -1252,10 +1268,10 @@ static void uv__read(uv_stream_t* stream) {
           uv__stream_osx_interrupt_select(stream);
         }
       }
-      return;
+      goto DONE;
     } else if (nread == 0) {
       uv__stream_eof(stream, &buf);
-      return;
+      goto DONE;
     } else {
       /* Successful read */
       ssize_t buflen = buf.len;
@@ -1268,7 +1284,7 @@ static void uv__read(uv_stream_t* stream) {
 #else
           stream->read_cb(stream, err, &buf);
 #endif
-          return;
+          goto DONE;
         }
       }
 #if UNIFIED_CALLBACK
@@ -1280,10 +1296,13 @@ static void uv__read(uv_stream_t* stream) {
       /* Return if we didn't fill the buffer, there is no more data to read. */
       if (nread < buflen) {
         stream->flags |= UV_STREAM_READ_PARTIAL;
-        return;
+        goto DONE;
       }
     }
   }
+
+  DONE:
+    mylog(LOG_UV_STREAM, 9, "uv__read: returning (succ_reads %i tot_nread %i)\n", succ_reads, tot_nread);
 }
 
 
@@ -1462,7 +1481,7 @@ int uv_write2(uv_write_t* req,
               uv_write_cb cb) {
   int empty_queue, rc = 0;
 
-  mylog(LOG_UV_STREAM, 9, "uv_write2: begin: req %p stream %P bufs %p nbufs %i send_handle %p\n", req, stream, bufs, nbufs, send_handle);
+  mylog(LOG_UV_STREAM, 9, "uv_write2: begin: req %p stream %p bufs %p nbufs %i send_handle %p\n", req, stream, bufs, nbufs, send_handle);
 
   assert(nbufs > 0);
   assert((stream->type == UV_TCP ||

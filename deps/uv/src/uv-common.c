@@ -769,6 +769,7 @@ static void cbi_execute_callback (callback_info_t *cbi)
       break;
     case UV_READ_CB:
       assert(callback_type_to_nargs[cbi->type] == 3);
+      mylog(LOG_MAIN, 5, "cbi_execute_callback: uv_read_cb(%p, %li, %p)\n", (uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (uv_buf_t *) cbi->args[2]);
       ((uv_read_cb) cbi->cb)((uv_stream_t *) cbi->args[0], (ssize_t) cbi->args[1], (const uv_buf_t *) cbi->args[2]);
       break;
     case UV_WRITE_CB:
@@ -1007,6 +1008,9 @@ void unified_callback_init (void)
   mylog_set_verbosity(LOG_MAP, 5);
   mylog_set_verbosity(LOG_TREE, 5);
 
+  mylog_set_verbosity(LOG_UV_STREAM, 9);
+  mylog_set_verbosity(LOG_UV_IO, 9);
+
 #ifdef JD_UT
   list_UT();
   map_UT();
@@ -1117,7 +1121,7 @@ void invoke_callback (callback_info_t *cbi)
     is_base_lcbn = (is_user_cb && lcbn_orig == NULL);
 
     mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (type %s) lcbn_orig %p; is_user_cb %i is_base_lcbn %i\n",
-      lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig);
+      lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig, is_user_cb, is_base_lcbn);
 
     lcbn_cur->info = cbi;
 
