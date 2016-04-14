@@ -145,33 +145,33 @@ extern "C" {
   XX(EHOSTDOWN, "host is down")                                               \
 
 #define UV_HANDLE_TYPE_MAP(XX)                                                \
-  XX(ASYNC, async)                                                            \
-  XX(CHECK, check)                                                            \
-  XX(FS_EVENT, fs_event)                                                      \
-  XX(FS_POLL, fs_poll)                                                        \
-  XX(HANDLE, handle)                                                          \
-  XX(IDLE, idle)                                                              \
-  XX(NAMED_PIPE, pipe)                                                        \
-  XX(POLL, poll)                                                              \
-  XX(PREPARE, prepare)                                                        \
-  XX(PROCESS, process)                                                        \
-  XX(STREAM, stream)                                                          \
-  XX(TCP, tcp)                                                                \
-  XX(TIMER, timer)                                                            \
-  XX(TTY, tty)                                                                \
-  XX(UDP, udp)                                                                \
-  XX(SIGNAL, signal)                                                          \
+  XX(ASYNC, async)       /* 1 */                                              \
+  XX(CHECK, check)       /* 2 */                                              \
+  XX(FS_EVENT, fs_event) /* 3 */                                              \
+  XX(FS_POLL, fs_poll)   /* 4 */                                              \
+  XX(HANDLE, handle)     /* 5 */                                              \
+  XX(IDLE, idle)         /* 6 */                                              \
+  XX(NAMED_PIPE, pipe)   /* 7 */                                              \
+  XX(POLL, poll)         /* 8 */                                              \
+  XX(PREPARE, prepare)   /* 9 */                                              \
+  XX(PROCESS, process)   /* 10 */                                             \
+  XX(STREAM, stream)     /* 11 */                                             \
+  XX(TCP, tcp)           /* 12 */                                             \
+  XX(TIMER, timer)       /* 13 */                                             \
+  XX(TTY, tty)           /* 14 */                                             \
+  XX(UDP, udp)           /* 15 */                                             \
+  XX(SIGNAL, signal)     /* 16 */                                             \
 
 #define UV_REQ_TYPE_MAP(XX)                                                   \
-  XX(REQ, req)                                                                \
-  XX(CONNECT, connect)                                                        \
-  XX(WRITE, write)                                                            \
-  XX(SHUTDOWN, shutdown)                                                      \
-  XX(UDP_SEND, udp_send)                                                      \
-  XX(FS, fs)                                                                  \
-  XX(WORK, work)                                                              \
-  XX(GETADDRINFO, getaddrinfo)                                                \
-  XX(GETNAMEINFO, getnameinfo)                                                \
+  XX(REQ, req)                 /* 1 */                                        \
+  XX(CONNECT, connect)         /* 2 */                                        \
+  XX(WRITE, write)             /* 3 */                                        \
+  XX(SHUTDOWN, shutdown)       /* 4 */                                        \
+  XX(UDP_SEND, udp_send)       /* 5 */                                        \
+  XX(FS, fs)                   /* 6 */                                        \
+  XX(WORK, work)               /* 7 */                                        \
+  XX(GETADDRINFO, getaddrinfo) /* 8 */                                        \
+  XX(GETNAMEINFO, getnameinfo) /* 9 */                                        \
 
 typedef enum {
 #define XX(code, _) UV_ ## code = UV__ ## code,
