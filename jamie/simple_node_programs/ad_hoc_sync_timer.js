@@ -44,6 +44,7 @@ var safeStat = function () {
 safeStat(); 
 /* After 1 second, write the file and then set created=1. */
 setTimeout(function() { 
+  mylog("Creating " + fname);
   fs.writeFile(fname, 'AAAAA', function() { 
     mylog("Finished creating " + fname); 
     created = 1; 

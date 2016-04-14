@@ -41,7 +41,7 @@ http.createServer(function (request, response) {
     mylog('Server: finished client ' + client_id);
   });
 }).listen(port, function (){ 
-  mylog('Server: bound to a client'); 
+  mylog('Server listening'); 
 });
 
 /* Timers going off every .1 seconds for 1.5 seconds. */
@@ -104,22 +104,19 @@ var options = {
   method : 'POST'
 };
 
-for (var i = 0; i < n_clients; i++)
-{
-  setTimeout(function(){
-    /* Semi-random times. */
-    mylog('Client: Timeout finished'); 
-    fs.readFile("/tmp/bigfile", function(){
-      mylog('Client: Read finished');
-      http.request(options, function log_response (response) {
-        mylog('Client: I got response ' + response);
-        response.on('data', function(chunk) { 
-          mylog('Client: Got ' + chunk.length + ' bytes of data: ' + chunk);
-        });
-        response.on('end', function() { 
-          mylog('Client: No more data is coming');
-        });
-      }).end();
-    });
-  }, i*150);
+var clientNums = new Array();
+for (var i = 0; i < n_clients; i++) {
+  clientNums.push(i);
 }
+clientNums.forEach(function (clientNum) {
+  mylog('Client ' + clientNum + ': submitting request');
+  http.request(options, function log_response (response) {
+    mylog('Client ' + clientNum + ': I got response ' + response);
+    response.on('data', function(chunk) { 
+      mylog('Client ' + clientNum + ': Got ' + chunk.length + ' bytes of data: ' + chunk);
+    });
+    response.on('end', function() { 
+      mylog('Client ' + clientNum + ': No more data is coming');
+    });
+  }).end();
+});

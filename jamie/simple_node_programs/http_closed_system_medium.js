@@ -40,7 +40,7 @@ http.createServer(function (request, response) {
     mylog('Server: finished client ' + client_id);
   });
 }).listen(port, function (){ 
-  mylog('Server: bound to a client'); 
+  mylog('Server listening'); 
 });
 
 /* Client speaks. */
@@ -53,15 +53,19 @@ var options = {
   method : 'POST'
 };
 
-for (var i = 0; i < n_clients; i++)
-{
+var clientNums = new Array();
+for (var i = 0; i < n_clients; i++) {
+  clientNums.push(i);
+}
+clientNums.forEach(function (clientNum) {
+  mylog('Client ' + clientNum + ': submitting request');
   http.request(options, function log_response (response) {
-    mylog('Client: I got response ' + response);
+    mylog('Client ' + clientNum + ': I got response ' + response);
     response.on('data', function(chunk) { 
-      mylog('Client: Got ' + chunk.length + ' bytes of data: ' + chunk);
+      mylog('Client ' + clientNum + ': Got ' + chunk.length + ' bytes of data: ' + chunk);
     });
     response.on('end', function() { 
-      mylog('Client: No more data is coming');
+      mylog('Client ' + clientNum + ': No more data is coming');
     });
   }).end();
-}
+});
