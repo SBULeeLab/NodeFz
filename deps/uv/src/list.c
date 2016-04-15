@@ -467,7 +467,9 @@ static struct list_elem * list_tail (struct list *list)
 unsigned list_size (struct list *list)
 {
   unsigned size = 0;
+#ifdef JD_DEBUG
   struct list_elem *e = NULL;
+#endif
 
   mylog(LOG_LIST, 9, "list_size: begin: list %p\n", list);
   assert(list_looks_valid(list));
