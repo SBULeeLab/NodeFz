@@ -1,0 +1,100 @@
+#!/usr/bin/env python2
+
+#Author: Jamie Davis (davisjam@vt.edu)
+#Description: Package for transforming callback descriptions into a graph
+# Defines the following public classes: 
+#	 Callback
+#  CallbackGraph
+# Python version: 2.7.6
+
+import logging, argparse
+import Callback as CB
+import gv
+
+logging.basicConfig(level=logging.DEBUG)
+
+#input: (node, graph)
+#output: nodeHandle corresponding to node
+def getNodeHandle (node, graph):
+	nodeName = "Node %s" % (node.getRegID())
+	nodeHandle = gv.findnode(graph, nodeName)
+	if (not nodeHandle):
+		nodeHandle = gv.node(graph, "Node %s" % (node.getRegID()))
+	return nodeHandle
+
+#add NODE, its children, and a parental edge to GRAPH
+#node handles for NODE and its children will be created if they do not already exist in GRAPH
+#ACTION nodes will be diamonds. RESPONSE nodes will be circles.
+def addNodeAndChildren (node, graph):
+	assert(isinstance(node, CB.CallbackNode))
+	
+	nodeHandle = getNodeHandle(node, graph)
+	
+	#assign attributes	
+	gv.setv(nodeHandle, "label", "node <%s,%s> (%s,%s,%s)\\nCB type %s\\nContext %s\\nBehavior %s\\nExecuted %s" % (node.getRegID(), node.getExecID(), node.getTreeNumber(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed()))
+	
+	#assign shape based on behavior
+	behavior = node.getBehavior()
+	if (behavior == "ACTION"):
+		shape = "diamond"
+	elif (behavior == "RESPONSE"):
+		shape = "circle"
+	else:
+		shape = "square"
+	gv.setv(nodeHandle, "shape", shape)
+	
+	#Edges: parent -> children
+	for child in node.children:
+		childHandle = getNodeHandle(child, graph)
+		gv.edge(nodeHandle, childHandle)
+	#Edges: node dependencies -> node
+	for dep in node.dependencies:
+		depHandle = getNodeHandle(dep, graph)
+		edgeHandle = gv.edge(depHandle, nodeHandle)
+		gv.setv(edgeHandle, "style", "dotted")
+
+#For use with CallbackTree.removeNodes
+def nodeNotExecuted (node):
+	assert(isinstance(node, CB.CallbackNode))
+	return (not node.executed())
+
+def addExecOrder (tree, digraph):	
+	cbNodes = tree.getExecOrder()
+	for i in range(0, len(cbNodes)-1):
+		j = i + 1
+		node1, node2 = cbNodes[i], cbNodes[j]
+		#Don't draw edges for un-executed nodes
+		if (0 <= int(node1.exec_id) and 0 <= int(node2.exec_id)):
+			h1, h2 = getNodeHandle(node1, digraph), getNodeHandle(node2, digraph)
+			edgeHandle = gv.edge(h1, h2)
+			gv.setv(edgeHandle, "style", "invis")			
+
+def main():
+	parser = argparse.ArgumentParser(description="Turn a file of callback events into a .gv file compatible with GraphViz.")
+	parser.add_argument("cbFile", help="file describing events")
+	parser.add_argument("outputFile", help="file describing events")
+	parser.add_argument("--onlyExecuted", help="only display nodes that were executed", action="store_true")
+	parser.add_argument("--execOrder", help="vertical position indicates relative execution order", action="store_true")
+
+	args = parser.parse_args()
+	
+	logging.info("args.cbFile %s args.outputFile %s" % (args.cbFile, args.outputFile))
+	tree = CB.CallbackNodeTree(args.cbFile)
+
+	if (args.onlyExecuted):
+		logging.info("Removing unexecuted nodes")
+		tree.removeNodes(nodeNotExecuted)
+	
+	digraph = gv.digraph("Callback tree")
+	tree.walk(addNodeAndChildren, digraph)
+	logging.info("Walked the tree")
+	
+	if (args.execOrder):
+		addExecOrder(tree, digraph)
+	
+	gv.write(digraph, args.outputFile)
+	logging.info("Check %s for results" % (args.outputFile))
+	
+	tree.expandSchedule()
+
+main()
