@@ -28,6 +28,7 @@
 #include <assert.h>
 #include <limits.h>
 
+/* For walking the heap in heap_apply. */
 struct heap_apply_info
 {
   struct list *list;
@@ -36,8 +37,14 @@ struct heap_apply_info
 
 static int uv__timer_ready(uv_timer_t *handle)
 {
+  int ready = 0;
+
+  mylog(LOG_TIMER, 9, "uv__timer_ready: begin: handle %p\n", handle);
   assert(handle);
-  return (handle->timeout < handle->loop->time);
+
+  ready = (handle->timeout < handle->loop->time);
+  mylog(LOG_TIMER, 9, "uv__timer_ready: returning ready %i (timeout %llu time %llu)\n", ready, handle->timeout, handle->loop->time);
+  return ready;
 }
 
 /* Wrapper around uv__timer_ready for use with heap_walk.
@@ -214,21 +221,21 @@ void uv__run_timers(uv_loop_t* loop) {
   sched_lcbn_t *next_timer_lcbn = NULL;
   uv_timer_t* next_timer_handle = NULL;
 
-  mylog(LOG_MAIN, 9, "uv__run_timers: begin: loop %p\n", loop);
+  mylog(LOG_TIMER, 9, "uv__run_timers: begin: loop %p\n", loop);
 
   if (heap_empty((struct heap *) &loop->timer_heap))
+  {
+    mylog(LOG_TIMER, 7, "uv__run_timers: No timers\n");
     goto DONE;
+  }
 
-  ready_timers = NULL;
+  ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
   /* Timers are time-sensitive, so new ones may become viable after we run old ones.
-     Loop until we've no longer got a timer to run. */
-  for (;;) {
-    if (ready_timers)
-      list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
-
-    /* Find the ready timers. */
-    ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
-
+     Loop until we've no longer got a timer to run. 
+     At the top of the loop, ready_timers is up to date. */
+  for (;;)
+  {
+    mylog(LOG_TIMER, 7, "uv__run_timers: %u timers ready\n", list_size(ready_timers));
     /* Extract the next timer to run. */
     next_timer_context = scheduler_next_context(ready_timers);
     if (list_empty(ready_timers) || !next_timer_context)
@@ -248,12 +255,16 @@ void uv__run_timers(uv_loop_t* loop) {
 #else
     handle->timer_cb(next_timer_handle);
 #endif
+
+    /* Refresh the list. */
+    list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
+    ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
   }
 
   DONE:
     if (ready_timers)
       list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
-    mylog(LOG_MAIN, 9, "uv__run_timers: returning\n");
+    mylog(LOG_TIMER, 9, "uv__run_timers: returning\n");
 }
 
 /* Returns a list of sched_lcbn_t's describing the ready LCBNs associated with HANDLE.

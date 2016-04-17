@@ -19,6 +19,7 @@ char *log_class_strings[] = {
   "LCBN",
   "SCHEDULER",
   "THREADPOOL",
+  "TIMER",
   "LIST",
   "MAP",
   "TREE",

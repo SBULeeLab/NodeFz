@@ -1003,6 +1003,7 @@ void unified_callback_init (void)
   mylog_set_verbosity(LOG_LCBN, 5);
   mylog_set_verbosity(LOG_SCHEDULER, 5);
   mylog_set_verbosity(LOG_THREADPOOL, 9);
+  mylog_set_verbosity(LOG_TIMER, 9);
 
   mylog_set_verbosity(LOG_LIST, 5);
   mylog_set_verbosity(LOG_MAP, 5);

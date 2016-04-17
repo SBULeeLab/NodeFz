@@ -8,6 +8,7 @@ enum log_class
   LOG_LCBN,
   LOG_SCHEDULER,
   LOG_THREADPOOL,
+  LOG_TIMER,
   LOG_LIST,
   LOG_MAP,
   LOG_TREE,
