@@ -79,7 +79,7 @@ sub run_test
 
   my $base = basename($test);
 
-  my $sched_file = "/tmp/$base\_schedule_file.sched";
+  my $sched_file_pref = "/tmp/$base\_schedule";
 
   my ($cmd, $cpid, $nodePid, $exists);
   my (@allProcesses, @nodeProcesses);
@@ -90,11 +90,12 @@ sub run_test
   @origCoreFiles = glob 'core.node.*';
   for (my $i = 0; $i < $niter; $i++) {
     &log("run_test: test '$test' iter $i");
-    
+
+    my $sched_file = "$sched_file_pref\_$i.sched";
     unlink $sched_file;
 
     #Record
-    $cmd = "UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$sched_file $node $test";
+    $cmd = "UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=$sched_file $node $test 2>/tmp/run_tests_stderr";
     if ($redirect) {
       $cmd .= " > /tmp/$base\_record_out";
     }
@@ -109,7 +110,7 @@ sub run_test
       exec $cmd;
     }
     #TODO Automatically detect when child is done?
-    sleep 5;
+    sleep 10;
 
     #Identify node process
     @allProcesses = &ps();
@@ -124,8 +125,16 @@ sub run_test
     &assert(($exists), "run_test: Error, record node child (pid $nodePid) does not exist");
     &log("Sending USR2 to $nodePid");
     kill 'USR2', $nodePid;
-    sleep 1;
 
+    while (not (-f $sched_file and -s $sched_file > 0)) {
+      &log("Waiting for $sched_file");
+      sleep 1;
+      my @ps = &ps();
+      my @nodeProcess = grep { $_->{PID} eq $nodePid } @ps;
+      if (not @nodeProcess) {
+        &assert((-f $sched_file and -s $sched_file > 0), "Error, node process is gone (pid $nodePid) but sched_file <$sched_file> does not exist or is empty");
+      }
+    }
     &assert((-f $sched_file and -s $sched_file > 0), "Error, after record, sched_file <$sched_file> does not exist or is empty");
 
     @newCoreFiles = glob 'core.node.*';
@@ -137,7 +146,7 @@ sub run_test
     }
 
     #Replay
-    $cmd = "UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$sched_file $node $test";
+    $cmd = "UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$sched_file $node $test 2>/tmp/run_tests_stderr";
     if ($redirect) {
       $cmd .= " > /tmp/$base\_replay_out";
     }
@@ -166,10 +175,16 @@ sub run_test
       $nodeProcess = shift @nodeProcesses;
       &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
 
+      #Ask it to emit its schedule.
+      &log("run_test: test '$test' iter $i: Sending node process USR2 so it will dump its schedule to date");
+      kill 'USR2', $nodeProcess->{PID};
+      sleep 3;
+
+      #Kill it dead.
       kill 'KILL', $nodeProcess->{PID};
       kill 'KILL', $nodeProcess->{PPID};
 
-      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself on the $i\'th iteration.");
+      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself.");
       return 1;
     }
 
