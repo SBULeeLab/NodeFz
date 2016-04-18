@@ -83,7 +83,29 @@ enum callback_type
   UV__WORK_WORK,
   UV__WORK_DONE,
 
-  CALLBACK_TYPE_INITIAL_STACK,
+  INITIAL_STACK,
+
+  /* Internal libuv loop events. TODO The scheduler should probably work on events, not callbacks. And there are 'callback' events and 'internal marker' events. */
+  MARKER_UV_RUN_BEGIN,
+  MARKER_EVENTS_BEGIN = MARKER_UV_RUN_BEGIN, /* For iteration. */
+  MARKER_UV_RUN_END,
+  MARKER_RUN_TIMERS_1_BEGIN,
+  MARKER_RUN_TIMERS_1_END,
+  MARKER_RUN_PENDING_BEGIN,
+  MARKER_RUN_PENDING_END,
+  MARKER_RUN_IDLE_BEGIN,
+  MARKER_RUN_IDLE_END,
+  MARKER_RUN_PREPARE_BEGIN,
+  MARKER_RUN_PREPARE_END,
+  MARKER_IO_POLL_BEGIN,
+  MARKER_IO_POLL_END,
+  MARKER_RUN_CHECK_BEGIN,
+  MARKER_RUN_CHECK_END,
+  MARKER_RUN_CLOSING_BEGIN,
+  MARKER_RUN_CLOSING_END,
+  MARKER_RUN_TIMERS_2_BEGIN,
+  MARKER_RUN_TIMERS_2_END,
+  MARKER_EVENTS_END = MARKER_RUN_TIMERS_2_END, /* For iteration. */
 
   CALLBACK_TYPE_ANY,
   CALLBACK_TYPE_MAX
@@ -97,6 +119,7 @@ enum callback_context
   CALLBACK_CONTEXT_IO_ASYNC, /* struct uv__async.io_watcher */
   CALLBACK_CONTEXT_IO_INOTIFY_READ, /* loop */
   CALLBACK_CONTEXT_IO_SIGNAL_EVENT, /* loop */
+  /* TODO ? CALLBACK_CONTEXT_MARKER, */
   CALLBACK_CONTEXT_UNKNOWN,
   CALLBACK_CONTEXT_MAX
 };
@@ -133,5 +156,8 @@ char * callback_behavior_to_string (enum callback_behavior type);
 enum callback_behavior callback_behavior_from_string (char *str);
 
 int is_threadpool_cb (enum callback_type cb_type);
+int is_timer_cb (enum callback_type cb_type);
+int is_io_poll_cb (enum callback_type cb_type);
+int is_marker_event (enum callback_type cb_type);
 
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */

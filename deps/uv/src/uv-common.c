@@ -756,12 +756,6 @@ static void cbi_execute_callback (callback_info_t *cbi)
   switch (cbi->type)
   {
     /* User-defined CBs. */
-#ifdef JD_DEBUG_2
-    case UV_ASYNC_CB:
-      assert(callback_type_to_nargs[cbi->type] == 1);
-      ((uv_async_cb) cbi->cb)((uv_async_t *) cbi->args[0]);
-      break;
-#else
     /* include/uv.h */
     case UV_ALLOC_CB:
       assert(callback_type_to_nargs[cbi->type] == 3);
@@ -881,7 +875,6 @@ static void cbi_execute_callback (callback_info_t *cbi)
       assert(callback_type_to_nargs[cbi->type] == 1);
       ((uv_thread_cb) cbi->cb)((void *) cbi->args[0]);
       break;
-#endif
 
     /* Internal CBs. */
 
@@ -906,17 +899,7 @@ static void cbi_execute_callback (callback_info_t *cbi)
       break;
 
     default:
-#ifdef JD_DEBUG_2
-    /* TODO I am here. 200 iterations worked with these settings. This means that everything but actually invoking the CBs went well.
-       Perhaps I'm invoking the wrong CB somewhere? If it's been GC'd by V8 already that would be bad. */
-      mylog(LOG_MAIN, 1, "cbi_execute_callback: usleep'ing instead of invoking a CB\n");
-      usleep(10);
-      /* mylog(LOG_MAIN, 1, "cbi_execute_callback: yield'ing instead of invoking a CB\n");
-         uv_thread_yield(); */
-      break;
-#else
       assert(!"cbi_execute_callback: ERROR, unsupported type");
-#endif
   }
 
   mylog(LOG_MAIN, 3, "cbi_execute_callback: End\n");
@@ -954,18 +937,6 @@ struct map *tid_to_current_lcbn;
 /* Maps pthread_t to internal id, yielding human-readable thread IDs. */
 struct map *pthread_to_tid;
 
-/* Printing nodes with colors based on client ID. */
-#define RESERVED_IDS 6
-enum reserved_id
-{
-  ID_NODEJS_INTERNAL = -1*RESERVED_IDS, /* Callbacks originating internally -- node. */
-  ID_LIBUV_INTERNAL, /* Callbacks originating internally -- libuv. */
-  ID_INITIAL_STACK,  /* Callbacks registered during the initial stack. */
-  ID_UNKNOWN,        /* Unknown origin -- e.g. close() prior to connection being completed? */
-  IO_NETWORK_INPUT,  /* CB received network input. */
-  IO_NETWORK_OUTPUT  /* CB delivered network output. */
-};
-
 /* Code in support of tracking the initial stack. */
 
 /* Returns the CBN associated with the initial stack.
@@ -977,7 +948,7 @@ static lcbn_t * get_init_stack_lcbn (void)
   {
     init_stack_lcbn = lcbn_create(NULL, NULL, 0);
 
-    init_stack_lcbn->cb_type = CALLBACK_TYPE_INITIAL_STACK;
+    init_stack_lcbn->cb_type = INITIAL_STACK;
 
     init_stack_lcbn->global_exec_id = lcbn_next_exec_id();
     init_stack_lcbn->global_reg_id = lcbn_next_reg_id();
@@ -1020,6 +991,8 @@ void unified_callback_init (void)
   mylog_UT();
   scheduler_UT();
 #endif
+
+/* mylog_set_all_verbosity(0); */
 
   schedule_modeP = getenv("UV_SCHEDULE_MODE");
   schedule_fileP = getenv("UV_SCHEDULE_FILE");
@@ -1125,51 +1098,29 @@ void invoke_callback (callback_info_t *cbi)
       lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig, is_user_cb, is_base_lcbn);
 
     lcbn_cur->info = cbi;
-
-    /* Critical section. */
-    uv_mutex_lock(&invoke_callback_lcbn_lock);
-
-    if (callback_type_to_behavior(lcbn_cur->cb_type) == CALLBACK_BEHAVIOR_RESPONSE)
-    {
-      /* If this LCBN is a response, it may repeat. If so, the next response must come after this response,
-         and is in some sense caused by this response. Consequently, register after setting LCBN so that it becomes a child of this LCBN. */
-      mylog(LOG_MAIN, 5, "invoke_callback: registering cb (context %p type %s) as child of LCBN %p\n",
-        lcbn_get_context(lcbn_cur), callback_type_to_string(lcbn_get_cb_type(lcbn_cur)), lcbn_cur);
-      lcbn_current_set(lcbn_cur);
-      uv__register_callback(lcbn_get_context(lcbn_cur), lcbn_get_cb(lcbn_cur), lcbn_get_cb_type(lcbn_cur));
-      lcbn_current_set(lcbn_orig);
-    }
-
     lcbn_cur->executing_thread = pthread_self_internal();
 
     if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     {
       /* Wait until lcbn_cur is next in the schedule. 
          It might not be if 'the other' type of thread must go next (variously looper, TP). */ 
+      mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
       sched_lcbn = sched_lcbn_create(lcbn_cur);
-      if (!sched_lcbn_is_next(sched_lcbn))
-      {
-        mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
-        while (!sched_lcbn_is_next(sched_lcbn))
-        {
-#if 0
-          /* This is unsafe, since the other thread might be spinning in uv__work_done and never come back to signal us. 
-             To get this to work, would need to change the code in uv__work_done to broadcast every time it spins. 
-             We'll see if the performance is bad enough to merit this. 
-             TODO. */ 
-          uv_cond_wait(&not_my_turn, &invoke_callback_lcbn_lock);
-#else
-          /* There must be another thread active, so use yield rather than a sleep backoff. */
-          uv_thread_yield_mutex(&invoke_callback_lcbn_lock);
-#endif
-        }
-        sched_lcbn_destroy(sched_lcbn);
-        mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): done waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
-      }
+      scheduler_block_until_next(sched_lcbn);
+      sched_lcbn_destroy(sched_lcbn);
+      mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): done waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
     }
 
-    /* We only allow one (possibly nested) LCBN at a time. 
-       Wait for previous LCBN to finish. */
+    /* Critical section. */
+    uv_mutex_lock(&invoke_callback_lcbn_lock);
+
+    /* We're next, right? */
+    sched_lcbn = sched_lcbn_create(lcbn_cur);
+    assert(sched_lcbn_is_next(sched_lcbn));
+    sched_lcbn_destroy(sched_lcbn);
+
+    /* Only allow one (possibly nested) user CB is allowed at a time. 
+       Wait for any currently-active user CB to finish. */
     if (is_user_cb)
     {
       if (is_active_user_cb && is_base_lcbn)
@@ -1184,12 +1135,22 @@ void invoke_callback (callback_info_t *cbi)
 
     mylog(LOG_MAIN, 9, "invoke_callback: I am going to invoke LCBN %p (type %s). is_user_cb %i is_active_user_cb %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), is_user_cb, is_active_user_cb);
 
+    if (callback_type_to_behavior(lcbn_cur->cb_type) == CALLBACK_BEHAVIOR_RESPONSE)
+    {
+      /* If this LCBN is a response, it may repeat. If so, the next response must come after this response,
+         and is in some sense caused by this response. Consequently, register after setting LCBN so that it becomes a child of this LCBN. */
+      lcbn_current_set(lcbn_cur);
+      mylog(LOG_MAIN, 5, "invoke_callback: registering cb (context %p type %s) as child of LCBN %p\n",
+        lcbn_get_context(lcbn_cur), callback_type_to_string(lcbn_get_cb_type(lcbn_cur)), lcbn_cur);
+      uv__register_callback(lcbn_get_context(lcbn_cur), lcbn_get_cb(lcbn_cur), lcbn_get_cb_type(lcbn_cur));
+      lcbn_current_set(lcbn_orig);
+    }
+
+    /* Commit to being the active CB. */
+
     /* Advance the scheduler prior to invoking the CB. 
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
        the nested ones will perceive themselves as 'next'. */
-    sched_lcbn = sched_lcbn_create(lcbn_cur);
-    assert(sched_lcbn_is_next(sched_lcbn));
-    sched_lcbn_destroy(sched_lcbn);
 
     mylog(LOG_MAIN, 5, "invoke_callback: lcbn %p (type %s); advancing the scheduler\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
     scheduler_advance();
@@ -1358,29 +1319,20 @@ int uv__init_stack_active (void)
   return lcbn_is_active(get_init_stack_lcbn());
 }
 
-/* Tracking whether or not we're in uv_run. */
-int uv_run_active = 0;
-/* Note that we've entered libuv's uv_run loop. */
-void uv__mark_uv_run_begin (void)
+/* Note that we've entered Node's "main" uv_run loop. */
+void uv__mark_main_uv_run_begin (void)
 {
-  assert(!uv_run_active);
-  uv_run_active = 1;
-  mylog(LOG_MAIN, 9, "uv__mark_uv_run_begin: uv_run has begun\n");
+  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_begin: begin\n");
+  emit_marker_event(MARKER_UV_RUN_BEGIN);
+  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_begin: returning\n");
 }
 
-/* Note that we've finished the libuv uv_run loop.
-   Pair with uv__mark_uv_run_begin. */
-void uv__mark_uv_run_end (void)
+/* Note that we've exited Node's "main" uv_run loop. */
+void uv__mark_main_uv_run_end (void)
 {
-  assert(uv_run_active);
-  uv_run_active = 0;
-  mylog(LOG_MAIN, 9, "uv__mark_uv_run_end: uv_run has ended\n");
-}
-
-/* Returns non-zero if we're in the application's initial stack, else 0. */
-int uv__uv_run_active (void)
-{
-  return uv_run_active;
+  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_end: begin\n");
+  emit_marker_event(MARKER_UV_RUN_END);
+  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_end: returning\n");
 }
 
 /* Tracking whether or not we're in uv__run_pending. */
@@ -1531,3 +1483,61 @@ void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
 
   invoke_callback(cbi);
 }
+
+/* Metronome events are in a registration chain. 
+   The first uv_run is a child of the initial stack.
+   Each subsequent marker event is a child of the previous one. */
+lcbn_t *prev_marker_event = NULL;
+void emit_marker_event (enum callback_type cbt)
+{
+  lcbn_t *lcbn = lcbn_create(NULL, NULL, cbt), *parent = NULL;
+  sched_lcbn_t *sched_lcbn = sched_lcbn_create(lcbn);
+
+  mylog(LOG_MAIN, 9, "emit_marker_event: begin: cbt %s\n", callback_type_to_string(cbt));
+  assert(is_marker_event(cbt));
+
+  /* Register as child of the parent. */
+  if (prev_marker_event)
+    parent = prev_marker_event;
+  else
+  {
+    assert(cbt == MARKER_UV_RUN_BEGIN);
+    parent = get_init_stack_lcbn();
+  }
+  lcbn_add_child(parent, lcbn);
+  lcbn->global_reg_id = lcbn_next_reg_id();
+  scheduler_register_lcbn(sched_lcbn);
+
+  /* Wait until we're scheduled to go. */
+  mylog(LOG_MAIN, 9, "emit_marker_event: waiting my turn\n");
+  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    scheduler_block_until_next(sched_lcbn);
+  mylog(LOG_MAIN, 9, "emit_marker_event: done waiting my turn\n");
+
+  uv_mutex_lock(&invoke_callback_lcbn_lock);
+
+  /* Get an exec id, fake an execution, tell any waiters we're done. */
+  lcbn_mark_begin(lcbn);
+  lcbn->global_exec_id = lcbn_next_exec_id();
+  lcbn_mark_end(lcbn);
+
+  mylog(LOG_MAIN, 5, "emit_marker_event: lcbn %p (type %s); advancing the scheduler\n", lcbn, callback_type_to_string(lcbn->cb_type));
+  scheduler_advance();
+
+  /* Just in case. 
+     TODO Necessary? */
+  uv_cond_broadcast(&not_my_turn);
+  uv_cond_broadcast(&no_active_lcbn);
+
+  uv_mutex_unlock(&invoke_callback_lcbn_lock);
+
+  prev_marker_event = lcbn;
+  mylog(LOG_MAIN, 9, "emit_marker_event: returning\n");
+}
+
+/* TODO 
+  - Emit events in uv_run pre and post calling functions.
+  - In REPLAY mode, loop on the variable uv__run_X's (uv__run_timers, uv__io_poll)
+    until the appropriate marker event is ready.
+*/
+   

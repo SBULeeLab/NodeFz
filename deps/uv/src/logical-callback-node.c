@@ -210,6 +210,19 @@ void lcbn_destroy (lcbn_t *lcbn)
     mylog(LOG_LCBN, 9, "lcbn_destroy: returning\n");
 }
 
+lcbn_t * lcbn_parent (lcbn_t *lcbn)
+{
+  lcbn_t *parent = NULL;
+
+  mylog(LOG_LCBN, 9, "lcbn_parent: begin: lcbn %p\n", lcbn);
+  assert(lcbn_looks_valid(lcbn));
+
+  parent = tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node);
+
+  mylog(LOG_LCBN, 9, "lcbn_parent: returning parent %p\n", parent);
+  return parent;
+}
+
 /* Mark LCBN as active and update its start_time field. */
 void lcbn_mark_begin (lcbn_t *lcbn)
 {
@@ -413,8 +426,8 @@ int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b)
   b_par_tree = tree_get_parent(&b->tree_node);
   if (!a_par_tree && !b_par_tree)
   {
-    assert(a->cb_type == CALLBACK_TYPE_INITIAL_STACK);
-    assert(b->cb_type == CALLBACK_TYPE_INITIAL_STACK);
+    assert(a->cb_type == INITIAL_STACK);
+    assert(b->cb_type == INITIAL_STACK);
     equal = 1;
     mylog(LOG_LCBN, 9, "lcbn_semantic_equals: Ran out of tree on both sides, equal\n");
     goto DONE;
@@ -568,7 +581,7 @@ void lcbn_UT (void)
   for (i = 0; i < n_lcbns; i++)
   {
     if (i == 0)
-      cb_type = CALLBACK_TYPE_INITIAL_STACK;
+      cb_type = INITIAL_STACK;
     else
       cb_type = (UV_ALLOC_CB + i) % (CALLBACK_TYPE_MAX - CALLBACK_TYPE_MIN);
     lcbns[i] = lcbn_create(NULL, lcbn_UT, cb_type);

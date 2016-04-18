@@ -1246,12 +1246,71 @@ Sources of the problem:
 2. Cast function pointers appropriately.
 3. The hang was due to a deadlock elsewhere in the code. I didn't realize this because the output looked so weird that I couldn't tell where the execution was hung.
 
+---------
+
+Tue 12 Apr 2016
+
+1. Tweak timing, output, etc. so that run_tests passes consistently
+2. New test programs:
+  ad_hoc_sync_timer.js          demonstrates ad hoc synchronization using a timer
+  http_closed_system_easy.js    server and client within a single JS program. Easy schedule (no async).
+  *http_closed_system_medium.j   sserver and client within a single JS program. Medium schedule (server does FS op before reply)
+  *http_closed_system_hard.js    server and client within a single JS program. Hard schedule (like medium, but with background noise: DNS, timers, FS)
+
+  *Does not pass run_tests yet
+
+---------
+
+Wed 13 Apr 2016
+
+1. Add more logging throughout.
+2. Add safe variable declarations.
+
+- Working on understanding the error in http_closed_system_medium.js (224 CBs run, hangs looking for a SHUTDOWN_CB with 71 CBs left).
+
+---------
+
+Thur 14 Apr 2016
+
+  - study how event emitters are implemented in Node
+
+--------
+
+Fri 15 Apr 2016
+
+1. Pushed the git repo to bitbucket for DY to try his hand at things.
+  Branch: cbn_remove
+  To push the latest: 
+    git push --mirror git@bitbucket.org:jamiedavis314/nodejsrr
+
+2. Begin marker events for high fidelity recording.
+
+--------
+
+Sat 16 Apr 2016
+
+1. Tweaks to marker system for correctness. Works my hand. 
+   Overnight run: screen session is running http_close_*
+   If this works, wrap it up into a commit.
+
+--------
+
+Sun 17 Apr 2016
+
+The overnight runs passed. Yay!
+Morning run: regressiontest (everything that has passed so far)
+
+I tried nodejs-mud over VNC but it hung in the same fashion that it did before the introduction of the marker events. VNC is pretty slow. Debugging would be easier from the office, but before then...
+  - GUI interactions are hard
+  - It would be nice if I could mimic the interaction through an http_close type test case. Study the behavior and add a new test case.
+
 Next steps:
   - Write a "test suite" for my record/replay system to make regression testing easy. Something like this:
     ./run_tests  --niter 10 fs_nest_many.js fs_nest.js dns_lookup.js dns_lookup_many.js timer_repeat.js  timer_tree.js
-  - Write a closed-loop web-server example for "baby steps" into more complex programs
-  - Write an event emitter example and study how this is implemented in Node
+    Make sure we verify program output, too, not just libuv-level record/replay.
   - Study process.nextTick and setImmediate to see what they do and what I should do about them
+  - Incorporate DB example
+  - Incorporate Promises example
   
 --------------------------------
 

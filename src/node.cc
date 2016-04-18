@@ -3972,13 +3972,19 @@ static void StartNodeInstance(void* arg) {
 #endif
 
       uv_mark_init_stack_end();
+      fprintf(stderr, "node::StartNodeInstance: Initial stack is definitely over now\n");
       do {
         fprintf(stderr, "node::StartNodeInstance: beginning of loop\n");
+
+        fprintf(stderr, "node::StartNodeInstance: pumping message loop\n");
         v8::platform::PumpMessageLoop(default_platform, isolate);
+        fprintf(stderr, "node::StartNodeInstance: done pumping message loop\n");
 
         fprintf(stderr, "node::StartNodeInstance: uv_run\n");
+        uv_mark_main_uv_run_begin();
         more = uv_run(env->event_loop(), UV_RUN_ONCE);
-        fprintf(stderr, "node::StartNodeInstance: uv_run done\n");
+        uv_mark_main_uv_run_end();
+        fprintf(stderr, "node::StartNodeInstance: uv_run done (more %i)\n", more);
 
         if (more == false) {
           v8::platform::PumpMessageLoop(default_platform, isolate);
@@ -3987,8 +3993,12 @@ static void StartNodeInstance(void* arg) {
           // Emit `beforeExit` if the loop became alive either after emitting
           // event, or after running some callbacks.
           more = uv_loop_alive(env->event_loop());
+          fprintf(stderr, "node::StartNodeInstance: uv_run after EmitBeforeExit\n");
+          uv_mark_main_uv_run_begin();
           if (uv_run(env->event_loop(), UV_RUN_NOWAIT) != 0)
             more = true;
+          uv_mark_main_uv_run_end();
+          fprintf(stderr, "node::StartNodeInstance: uv_run after EmitBeforeExit done (more %i)\n", more);
         }
         fprintf(stderr, "node::StartNodeInstance: end of loop\n");
       } while (more == true);
@@ -4022,6 +4032,7 @@ static void StartNodeInstance(void* arg) {
 }
 
 int Start(int argc, char** argv) {
+  fprintf(stderr, "node::Start: Initial stack code will run soon\n");
   uv_mark_init_stack_begin();
   PlatformInit();
 

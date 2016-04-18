@@ -119,9 +119,16 @@ int uv_timer_start(uv_timer_t* handle,
                    uint64_t timeout,
                    uint64_t repeat) {
   uint64_t clamped_timeout;
+  uint64_t time_from_now = timeout - handle->loop->time;
+  int rc = 0;
+
+  mylog(LOG_TIMER, 9, "uv__timer_ready: begin: handle %p timeout %llu (time_from_now %llu) repeat %llu\n", handle, timeout, time_from_now, repeat);
 
   if (cb == NULL)
-    return -EINVAL;
+  {
+    rc = -EINVAL;
+    goto DONE;
+  }
 
   if (uv__is_active(handle))
     uv_timer_stop(handle);
@@ -146,7 +153,10 @@ int uv_timer_start(uv_timer_t* handle,
               timer_less_than);
   uv__handle_start(handle);
 
-  return 0;
+  rc = 0;
+  DONE:
+    mylog(LOG_TIMER, 9, "uv_timer_start: returning rc %i\n", rc);
+    return rc;
 }
 
 

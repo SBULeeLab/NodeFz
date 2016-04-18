@@ -39,7 +39,6 @@
       request the third FS operation.
 */
 
-/* Record: Indicate the LCBN whose CB we will invoke next. */
 struct sched_lcbn_s
 {
   int magic;
@@ -94,15 +93,25 @@ enum schedule_mode
 };
 
 /* Record mode: SCHEDULE_FILE is where to send output.
-   Replay mode: SCHEDULE_FILE is where to find schedule. */
+   Replay mode: SCHEDULE_FILE is where to find schedule. 
+    SCHEDULE_FILE must be in registration order. 
+    The exec_id of each LCBN should indicate the order in which execution occurred. 
+
+    The schedule recorded in replay mode is saved to 'SCHEDULE_FILE-replay'. */
 void scheduler_init (enum schedule_mode mode, char *schedule_file);
 enum schedule_mode scheduler_get_mode (void);
 
 /* Record. */
 
-/* This is the LCBN whose CB we execute next. 
-   Caller should ensure mutex for deterministic execution. */
+/* Record the registration time of an LCBN.
+   Caller should ensure mutex for deterministic replay. */
 void scheduler_register_lcbn (sched_lcbn_t *sched_lcbn);
+
+/* TODO The caller sets the global_exec_id for the LCBNs in invoke_callback.
+     This puts the burden of tracking exec IDs on the caller instead of on the scheduler,
+     which seems a bit odd. 
+   Anyway, make sure you set lcbn->global_exec_id under a mutex! */
+
 /* Dump the schedule in registration order to the file specified in schedule_init. */
 void scheduler_emit (void);
 
@@ -142,6 +151,12 @@ lcbn_t * scheduler_next_scheduled_lcbn (void);
 
 /* Returns the callback_type of the next scheduled LCBN. */
 enum callback_type scheduler_next_lcbn_type (void);
+
+/* Block until SCHED_LCBN is next up.
+   This allows competing threads to finish whatever they are doing.
+   This is necessary if you call scheduler_advance prior to actually
+   invoking a callback. */
+void scheduler_block_until_next (sched_lcbn_t *sched_lcbn);
 
 /* (scheduler_next_context) check if SCHED_LCBN is next on the schedule, or 
    (invoke_callback) verify that SCHED_LCBN is supposed to be next on the schedule. */

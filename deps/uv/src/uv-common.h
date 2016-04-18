@@ -245,9 +245,10 @@ void uv__mark_init_stack_begin (void);
 void uv__mark_init_stack_end (void);
 int uv__init_stack_active (void);
 
-void uv__mark_uv_run_begin (void);
-void uv__mark_uv_run_end (void);
-int uv__uv_run_active (void);
+void uv__mark_main_uv_run_begin (void);
+void uv__mark_main_uv_run_end (void);
+
+void emit_marker_event (enum callback_type cbt);
 
 void uv__mark_uv__run_pending_begin (void);
 void uv__mark_uv__run_pending_end (void);

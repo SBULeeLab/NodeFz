@@ -22,6 +22,27 @@ static char *callback_type_strings[] = {
   "UV__WORK_WORK", "UV__WORK_DONE", 
 
   "INITIAL_STACK",
+
+  /* Internal libuv loop events. */
+  "MARKER_UV_RUN_BEGIN",
+  "MARKER_UV_RUN_END",
+  "MARKER_RUN_TIMERS_1_BEGIN",
+  "MARKER_RUN_TIMERS_1_END",
+  "MARKER_RUN_PENDING_BEGIN",
+  "MARKER_RUN_PENDING_END",
+  "MARKER_RUN_IDLE_BEGIN",
+  "MARKER_RUN_IDLE_END",
+  "MARKER_RUN_PREPARE_BEGIN",
+  "MARKER_RUN_PREPARE_END",
+  "MARKER_IO_POLL_BEGIN",
+  "MARKER_IO_POLL_END",
+  "MARKER_RUN_CHECK_BEGIN",
+  "MARKER_RUN_CHECK_END",
+  "MARKER_RUN_CLOSING_BEGIN",
+  "MARKER_RUN_CLOSING_END",
+  "MARKER_RUN_TIMERS_2_BEGIN",
+  "MARKER_RUN_TIMERS_2_END",
+
   "ANY_CALLBACK"
 };
 
@@ -185,4 +206,23 @@ int is_threadpool_cb (enum callback_type cbt)
   assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
   return (cbt == UV__WORK_WORK || cbt == UV_WORK_CB || /* Obvious ones. */
           cbt == UV_FS_WORK_CB || cbt == UV_GETADDRINFO_WORK_CB || cbt == UV_GETNAMEINFO_WORK_CB); /* Internal threadpool users. */
+}
+
+int is_timer_cb (enum callback_type cbt)
+{
+  assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
+  return (cbt == UV_TIMER_CB);
+}
+
+int is_io_poll_cb (enum callback_type cbt)
+{
+  assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
+  /* return (cbt == UV_ASYNC_CB || cbt == UV_ALLOC_CB || cb == ...); */
+  return (cbt != MARKER_IO_POLL_END); /* TODO Hack. */
+}
+
+int is_marker_event (enum callback_type cbt)
+{
+  assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
+  return (MARKER_EVENTS_BEGIN <= cbt && cbt <= MARKER_EVENTS_END);
 }

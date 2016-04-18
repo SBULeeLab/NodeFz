@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <unistd.h>
 
 #define SCHEDULER_MAGIC 8675309 /* Jenny. */
 #define SCHED_LCBN_MAGIC 19283746
@@ -246,8 +247,14 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
     goto DONE;
   }
 
+  /* "Normal" REPLAY path. Test semantic equality. */
   assert(lcbn_looks_valid(next_lcbn));
-  equal = lcbn_semantic_equals(next_lcbn, ready_sched_lcbn->lcbn);
+  /* Optimization: marker events are just a chain, with no risk of confusion.
+       Testing the cb_type is sufficient and saves time. */
+  if (is_marker_event(next_lcbn->cb_type) || is_marker_event(ready_sched_lcbn->lcbn->cb_type))
+    equal = (next_lcbn->cb_type == ready_sched_lcbn->lcbn->cb_type);
+  else
+    equal = lcbn_semantic_equals(next_lcbn, ready_sched_lcbn->lcbn);
   verbosity = equal ? 5 : 7;
   mylog(LOG_SCHEDULER, verbosity, "sched_lcbn_is_next: Next exec_id %i next_lcbn %p (type %s) ready_sched_lcbn %p (type %s) equal? %i\n", next_lcbn->global_exec_id, next_lcbn, callback_type_to_string(next_lcbn->cb_type), ready_sched_lcbn->lcbn, callback_type_to_string(ready_sched_lcbn->lcbn->cb_type), equal);
   is_next = equal;
@@ -405,8 +412,12 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   {
     int found = 0;
     size_t dummy = 0;
+    struct stat sb;
+
     f = fopen(scheduler.schedule_file, "r");
     assert(f);
+    assert(!fstat(fileno(f), &sb));
+    assert(0 < sb.st_size);
 
     line = NULL;
     while (0 < getline(&line, &dummy, f))
@@ -417,19 +428,20 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
 
       /* Parse line_buf as an lcbn_t and wrap in a sched_lcbn. */
       sched_lcbn = sched_lcbn_create(lcbn_from_string(line, strlen(line)));
-      if (!scheduler.shadow_root)
-      {
-        /* First is the root. */
-        assert(sched_lcbn->lcbn->cb_type == CALLBACK_TYPE_INITIAL_STACK);
-        scheduler.shadow_root = sched_lcbn->lcbn;
-      }
 
       /* Add the new lcbn to the name map. */
       map_insert(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->name, sizeof sched_lcbn->lcbn->name), sched_lcbn->lcbn);
 
-      if (sched_lcbn->lcbn->cb_type != CALLBACK_TYPE_INITIAL_STACK)
+      if (!scheduler.shadow_root)
       {
-        /* Locate the parent_lcbn by name; update the tree. */
+        /* First is the root. */
+        assert(sched_lcbn->lcbn->cb_type == INITIAL_STACK);
+        scheduler.shadow_root = sched_lcbn->lcbn;
+      }
+      else
+      {
+        /* Locate the parent_lcbn by name; update the tree. 
+           This requires that the input schedule be in REGISTRATION ORDER. */
         parent_lcbn = map_lookup(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->parent_name, sizeof sched_lcbn->lcbn->parent_name), &found);
         assert(found && lcbn_looks_valid(parent_lcbn));
         tree_add_child(&parent_lcbn->tree_node, &sched_lcbn->lcbn->tree_node);
@@ -438,8 +450,10 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
       free(line);
       line = NULL;
     }
-    assert(errno != EINVAL);
+    assert(errno != EINVAL); /* getline failure */
+
     assert(!fclose(f));
+    assert(scheduler.shadow_root);
 
     /* Calculate desired_schedule based on the execution order of the tree we've parsed. */ 
     scheduler.desired_schedule = tree_as_list(&scheduler.shadow_root->tree_node);
@@ -497,36 +511,41 @@ void scheduler_register_lcbn (sched_lcbn_t *sched_lcbn)
 static char lcbn_str_buf[2048];
 void scheduler_emit (void)
 {
-  FILE *f = NULL;
+  int fd = -1;
+  ssize_t len = 0;
   sched_lcbn_t *sched_lcbn = NULL;
   struct list_elem *e = NULL;
 
   mylog(LOG_SCHEDULER, 9, "scheduler_emit: begin\n");
   assert(scheduler_initialized());
 
-  scheduler__lock();
-
-  if (scheduler.mode != SCHEDULE_MODE_RECORD)
-    goto DONE;
+  if (scheduler.mode == SCHEDULE_MODE_REPLAY)
+    strncat(scheduler.schedule_file, "-replay", sizeof scheduler.schedule_file);
 
   mylog(LOG_SCHEDULER, 1, "scheduler_emit: Writing schedule to %s\n", scheduler.schedule_file);
 
-  f = fopen(scheduler.schedule_file, "w");
-  assert(f);
+  fd = open(scheduler.schedule_file, O_CREAT|O_TRUNC|O_WRONLY, 0777);
+  assert(0 <= fd);
+
+  scheduler__lock();
+
   for (e = list_begin(scheduler.registration_schedule); e != list_end(scheduler.registration_schedule); e = list_next(e))
   {
     memset(lcbn_str_buf, 0, sizeof lcbn_str_buf);
     sched_lcbn = list_entry(e, sched_lcbn_t, elem);
     assert(sched_lcbn_looks_valid(sched_lcbn));
     lcbn_to_string(sched_lcbn->lcbn, lcbn_str_buf, sizeof lcbn_str_buf);
-    assert(fprintf(f, "%s\n", lcbn_str_buf) == (int) strlen(lcbn_str_buf) + 1);
+    len = strlen(lcbn_str_buf);
+    lcbn_str_buf[len] = '\n';
+    lcbn_str_buf[len+1] = '\0';
+    assert(write(fd, lcbn_str_buf, len+1) == len+1);
   }
-  assert(!fflush(f));
-  assert(!fclose(f));
+  assert(!fsync(fd));
+  assert(!close(fd));
 
-  DONE:
-    scheduler__unlock();
-    mylog(LOG_SCHEDULER, 9, "scheduler_emit: returning\n");
+  scheduler__unlock();
+
+  mylog(LOG_SCHEDULER, 9, "scheduler_emit: returning\n");
 }
 
 sched_context_t * scheduler_next_context (struct list *sched_context_list)
@@ -574,7 +593,7 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
     mylog(LOG_SCHEDULER, 3, "scheduler_next_context: sched_context %p is next\n", sched_context);
   }
   else
-    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: None of the %u sched_contexts were next\n", list_size(sched_context_list));
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: None of the %u sched_contexts were next (next type: %s; exec_id %i)\n", list_size(sched_context_list), callback_type_to_string(scheduler_next_lcbn_type()), scheduler_already_run()+1);
 
   DONE:
     scheduler__unlock();
@@ -890,7 +909,7 @@ void scheduler_UT (void)
   for (i = 0; i < n_items; i++)
   {
     if (i == 0)
-      cb_type = CALLBACK_TYPE_INITIAL_STACK;
+      cb_type = INITIAL_STACK;
     else
       cb_type = (UV_ALLOC_CB + i) % (UV_THREAD_CB - UV_ALLOC_CB);
 
@@ -960,4 +979,13 @@ void scheduler_UT (void)
 
   mylog(LOG_SCHEDULER, 5, "scheduler_UT: passed\n"); 
   scheduler_uninitialize();
+}
+
+void scheduler_block_until_next (sched_lcbn_t *sched_lcbn)
+{
+  mylog(LOG_SCHEDULER, 9, "scheduler_block_until_next: begin: sched_lcbn %p\n", sched_lcbn);
+  assert(sched_lcbn_looks_valid(sched_lcbn));
+  while (!sched_lcbn_is_next(sched_lcbn))
+    uv_thread_yield();
+  mylog(LOG_SCHEDULER, 9, "scheduler_block_until_next: returning\n");
 }

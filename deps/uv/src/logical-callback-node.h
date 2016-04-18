@@ -47,6 +47,8 @@ lcbn_t * lcbn_create (void *context, any_func cb, enum callback_type cb_type);
 void lcbn_add_child (lcbn_t *parent, lcbn_t *child);
 void lcbn_destroy (lcbn_t *lcbn);
 
+lcbn_t * lcbn_parent (lcbn_t *lcbn);
+
 void lcbn_mark_begin (lcbn_t *lcbn);
 void lcbn_mark_end (lcbn_t *lcbn);
 

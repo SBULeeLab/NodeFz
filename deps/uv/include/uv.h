@@ -279,6 +279,8 @@ UV_EXTERN int uv_loop_configure(uv_loop_t* loop, uv_loop_option option, ...);
 
 UV_EXTERN void uv_mark_init_stack_end(void);
 UV_EXTERN void uv_mark_init_stack_begin(void);
+UV_EXTERN void uv_mark_main_uv_run_begin(void);
+UV_EXTERN void uv_mark_main_uv_run_end(void);
 UV_EXTERN int uv_run(uv_loop_t*, uv_run_mode mode);
 UV_EXTERN void uv_stop(uv_loop_t*);
 
