@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+TESTS='fs_nest_many.js fs_nest.js dns_lookup.js dns_lookupService.js dns_lookup_many.js timer_repeat.js timer_tree.js fs_nondet.js fs_nondet_stat.js ad_hoc_sync_timer.js http_closed_system_easy.js http_closed_system_medium.js http_closed_system_hard.js'
+
+set -x
+./run_tests --niter 100 $TESTS
+set +x
