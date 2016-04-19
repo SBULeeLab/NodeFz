@@ -1304,6 +1304,47 @@ I tried nodejs-mud over VNC but it hung in the same fashion that it did before t
   - GUI interactions are hard
   - It would be nice if I could mimic the interaction through an http_close type test case. Study the behavior and add a new test case.
 
+--------
+
+Mon 18 Apr 2016
+
+1. Progress on debugging nodejs-mud:
+  - Fix more bugs in marker code, added some asserts.
+  - Identify causes of sometime-failures in multi-client nodejs-mud recordings:
+    A. The read requests actually differ. On record, sometimes favicon is not requested. On replay, sometimes it is.
+      I'm guessing this is a browser state issue, so I need to be more careful about resetting the state.
+
+      In addition, the favico request is sometimes of a different length, so perhaps adding length checks
+      on reads wouldn't be safe? Need to check. Compare the 'Accept:' field:
+        UV_STREAM  9   Mon Apr 18 11:23:40.004977512    18718   140092208760704      mylog_buf: Buffer 0x2945560, len 304: GET /favicon.ico HTTP/1.1
+        Host: localhost:50034
+        User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:44.0) Gecko/20100101 Firefox/44.0
+        Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+        Accept-Language: en-US,en;q=0.5
+        Accept-Encoding: gzip, deflate
+        Connection: keep-alive
+
+        vs.
+
+        UV_STREAM  9   Mon Apr 18 11:23:10.006021579    18708   140012807735168      mylog_buf: Buffer 0x3525630, len 274: GET /favicon.ico HTTP/1.1
+        Host: localhost:50033
+        User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:44.0) Gecko/20100101 Firefox/44.0
+        Accept: image/png,image/*;q=0.8,*/*;q=0.5
+        Accept-Language: en-US,en;q=0.5
+        Accept-Encoding: gzip, deflate
+        Connection: keep-alive
+
+    B. The order of requests sometimes varies. 
+       Each client opens two streams. I hypothesize one for AJAX queries (GET /recv) and one for regular queries (GET /, /style.css, move).
+       However, the type of request that goes through each stream seems to vary.
+       This might simply be due to timeouts because the VNC connection is so slow.
+       Need to verify this behavior when in the office.
+
+  VNC:
+    ssh -p2000 -L 5900:localhost:5900 woody.cs.vt.edu #Set up port forwarding on 5900 to woody
+    x11vnc -safer -localhost -nopw -once -display :0  #Set up a VNC server listening on localhost on woody.
+    xtightvncviewer localhost:5900                    #Connect to it
+
 Next steps:
   - Write a "test suite" for my record/replay system to make regression testing easy. Something like this:
     ./run_tests  --niter 10 fs_nest_many.js fs_nest.js dns_lookup.js dns_lookup_many.js timer_repeat.js  timer_tree.js
