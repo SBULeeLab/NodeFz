@@ -16,7 +16,7 @@ import logging
 #self.REQUIRED_KEYS describes the members set in the constructor
 #Other members that can be set via methods:	children, parent		
 class CallbackNode (object):
-	REQUIRED_KEYS = ["name", "context", "context_type", "cb_type", "cb_behavior", "tree_number", "tree_level", "level_entry", "exec_id", "reg_id", "callback_info", "registrar", "tree_parent", "registration_time", "start_time", "end_time", "executing_thread", "active", "finished", "dependencies"]
+	REQUIRED_KEYS = ["name", "context", "context_type", "cb_type", "cb_behavior", "tree_number", "tree_level", "level_entry", "exec_id", "reg_id", "callback_info", "registrar", "tree_parent", "registration_time", "start_time", "end_time", "executing_thread", "active", "finished", "extra_info", "dependencies"]
 	
 	# CallbackString (a string of fields formatted as: 'Callback X: | <key> <value> | <key> <value> | .... |'
 	#   A CallbackString must a key-value pair for all of the members of self.REQUIRED_KEYS
@@ -71,7 +71,7 @@ class CallbackNode (object):
 	
 	#getParent()
 	#Returns the parent of this CBN. Must have been set using setParent.		
-	def getParent (self):		
+	def getParent (self):
 		return self.parent
 		
 	#addChild(child)
@@ -157,8 +157,17 @@ class CallbackNode (object):
 	def getLevelEntry (self):
 		return self.level_entry
 
+	def isMarkerNode (self):
+		if (re.search('^MARKER_.*', self.getCBType())):
+			return True
+		else:
+			return False
+
+	def getExtraInfo (self):
+		return self.extra_info
+
 #############################
-# CallbackNode
+# CallbackNodeTree
 #############################
 
 #Representation of a tree of CallbackNodes from libuv
@@ -204,7 +213,7 @@ class CallbackNodeTree (object):
 		for node in self.callbackNodes:
 			for n in node.dependencies:
 				logging.debug("CallbackNodeTree::_updateDependencies: dependency %s" % (n))
-			logging.debug("CallbackNodeTree::_updateDependencies: callbackNodeDict %s" % (self.callbackNodeDict))
+			#logging.debug("CallbackNodeTree::_updateDependencies: callbackNodeDict %s" % (self.callbackNodeDict))
 			node.dependencies = [self.callbackNodeDict[n] for n in node.dependencies]
 			logging.debug("CallbackNodeTree::_updateDependencies: Node %s's dependencies: %s" % (node.getName(), node.dependencies))
 		
@@ -227,16 +236,25 @@ class CallbackNodeTree (object):
 				logging.debug("CallbackNodeTree::removeNodes: removing node: %s" % (node))
 				#Remove NODE from the tree
 				if (node.parent):					
-					node.parent.children = [x for x in node.parent.children if x.name != node.name]					
-				#...and its children
-				node.children = []
+					node.parent.children = [x for x in node.parent.children if x.name != node.name]
+					node.parent = None
 				
 		self.walk(remove_walk, None)
+		self.callbackNodes = [n for n in self.callbackNodes if self.contains(n)]
 	
 	#return the tree nodes
 	def getTreeNodes (self):
 		return self.callbackNodes
-	
+
+	def contains (self, node):
+		if (not node):
+			return False
+		assert (isinstance(node, CallbackNode))
+		if (node.getName() == self.root.getName()):
+			return True
+		else:
+			return self.contains(node.getParent())
+
 	#return the tree nodes in execution order
 	def getExecOrder (self):
 		return sorted(self.getTreeNodes(), key=lambda node: int(node.getExecID()))
@@ -255,26 +273,26 @@ class CallbackNodeTree (object):
 			pred = curr
 		assert("CallbackNodeTree::getNodeExecPredecessor: Error, did not find node with execID %s in tree" % (node.getExecID()))
 	
-	#Transform the tree into an intermediate format for more convenient schedule re-arrangement.
-	#This may add new nodes and change the exec_id of many nodes.
-	#The external behavior of the application under the original and unwrapped schedules should match.
-	def expandSchedule (self):
-		return
-		
-		#convert a single ASYNC_CB followed by multiple AFTER_WORK_CB's into a series of
-		#ASYNC_CB's each followed by one AFTER_WORK_CB
-		nodesExecOrder = self.getExecOrder()
-		#These are the AFTER_WORK_CBs preceded by other AFTER_WORK_CBs.
-		#assert(not "TODO Need to test for UV_AFTER_WORK_CB or any of its nested dependents")
-		nodesNeedingWrapper = [n for n in nodesExecOrder if n.getCBType() == 'UV_AFTER_WORK_CB' and self.getNodeExecPredecessor(n).getCBType() == 'UV_AFTER_WORK_CB']
-		
-		#loop invariant: at the beginning of each iter, NODE must be preceded by an AFTER_WORK_CB that is preceded by a UV_ASYNC_CB  
-		for node in nodesNeedingWrapper:
-			pred = node.getNodeExecPredecessor()
-			async = pred.getNodeExecPredecessor()
-			assert(pred.getCBType() == 'UV_AFTER_WORK_CB')
-			assert(async.getCBType() == 'UV_ASYNC_CB')
-			logging.debug("LOOKS OK")
+	# #Transform the tree into an intermediate format for more convenient schedule re-arrangement.
+	# #This may add new nodes and change the exec_id of many nodes.
+	# #The external behavior of the application under the original and unwrapped schedules should match.
+	# def expandSchedule (self):
+	# 	return
+	#
+	# 	#convert a single ASYNC_CB followed by multiple AFTER_WORK_CB's into a series of
+	# 	#ASYNC_CB's each followed by one AFTER_WORK_CB
+	# 	nodesExecOrder = self.getExecOrder()
+	# 	#These are the AFTER_WORK_CBs preceded by other AFTER_WORK_CBs.
+	# 	#assert(not "TODO Need to test for UV_AFTER_WORK_CB or any of its nested dependents")
+	# 	nodesNeedingWrapper = [n for n in nodesExecOrder if n.getCBType() == 'UV_AFTER_WORK_CB' and self.getNodeExecPredecessor(n).getCBType() == 'UV_AFTER_WORK_CB']
+	#
+	# 	#loop invariant: at the beginning of each iter, NODE must be preceded by an AFTER_WORK_CB that is preceded by a UV_ASYNC_CB
+	# 	for node in nodesNeedingWrapper:
+	# 		pred = node.getNodeExecPredecessor()
+	# 		async = pred.getNodeExecPredecessor()
+	# 		assert(pred.getCBType() == 'UV_AFTER_WORK_CB')
+	# 		assert(async.getCBType() == 'UV_ASYNC_CB')
+	# 		logging.debug("LOOKS OK")
 			
 	def write (self, fileName):
 		assert(not "CallbackNodeTree::write: Not yet implemented")

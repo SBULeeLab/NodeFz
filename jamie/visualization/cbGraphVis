@@ -32,8 +32,14 @@ def addNodeAndChildren (node, graph):
 	
 	nodeHandle = getNodeHandle(node, graph)
 	
-	#assign attributes	
-	gv.setv(nodeHandle, "label", "node <%s,%s> (%s,%s,%s)\\nCB type %s\\nContext %s\\nBehavior %s\\nExecuted %s" % (node.getRegID(), node.getExecID(), node.getTreeNumber(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed()))
+	#assign attributes
+	extraInfo = node.getExtraInfo()
+	if (extraInfo):
+		extraInfo = "\\nExtra info: %s" % (extraInfo)
+	else:
+		extraInfo = ""
+	nodeStr = "node <%s,%s> (%s,%s,%s)\\nCB type %s\\nContext %s\\nBehavior %s\\nExecuted %s %s" % (node.getRegID(), node.getExecID(), node.getTreeNumber(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed(), extraInfo)
+	gv.setv(nodeHandle, "label", nodeStr)
 	
 	#assign shape based on behavior
 	behavior = node.getBehavior()
@@ -55,10 +61,17 @@ def addNodeAndChildren (node, graph):
 		edgeHandle = gv.edge(depHandle, nodeHandle)
 		gv.setv(edgeHandle, "style", "dotted")
 
+#Returns true if node was not executed
 #For use with CallbackTree.removeNodes
 def nodeNotExecuted (node):
 	assert(isinstance(node, CB.CallbackNode))
 	return (not node.executed())
+
+#Returns true if node is a marker event rather than a user CB
+#For use with CallbackTree.removeNodes
+def nodeIsMarker (node):
+	assert(isinstance(node, CB.CallbackNode))
+	return node.isMarkerNode()
 
 def addExecOrder (tree, digraph):	
 	cbNodes = tree.getExecOrder()
@@ -76,6 +89,7 @@ def main():
 	parser.add_argument("cbFile", help="file describing events")
 	parser.add_argument("outputFile", help="file describing events")
 	parser.add_argument("--onlyExecuted", help="only display nodes that were executed", action="store_true")
+	parser.add_argument("--noMarkers", help="do not display the \"marker\" nodes that indicate uv loop progress", action="store_true")
 	parser.add_argument("--execOrder", help="vertical position indicates relative execution order", action="store_true")
 
 	args = parser.parse_args()
@@ -86,17 +100,21 @@ def main():
 	if (args.onlyExecuted):
 		logging.info("Removing unexecuted nodes")
 		tree.removeNodes(nodeNotExecuted)
+
+	if (args.noMarkers):
+		logging.info("Removing marker nodes")
+		tree.removeNodes(nodeIsMarker)
 	
-	digraph = gv.digraph("Callback tree")
+	digraph = gv.digraph("Creating gv graph from tree")
 	tree.walk(addNodeAndChildren, digraph)
-	logging.info("Walked the tree")
-	
+
 	if (args.execOrder):
+		logging.info("Tweaking graph so it displays in execution order")
 		addExecOrder(tree, digraph)
 	
 	gv.write(digraph, args.outputFile)
 	logging.info("Check %s for results" % (args.outputFile))
-	
-	tree.expandSchedule()
+
+###################################
 
 main()
