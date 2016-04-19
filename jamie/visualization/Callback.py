@@ -68,6 +68,11 @@ class CallbackNode (object):
 	def setParent (self, parent):
 		assert(isinstance(parent, CallbackNode))
 		self.parent = parent
+	
+	#getParent()
+	#Returns the parent of this CBN. Must have been set using setParent.		
+	def getParent (self):		
+		return self.parent
 		
 	#addChild(child)
 	#Adds CHILD to self's list of children
@@ -79,6 +84,16 @@ class CallbackNode (object):
 		assert(int(self.tree_level) + 1 == int(child.tree_level))
 		self.children.append(child)
 		
+	#getTreeRoot()
+	#Returns the CallbackNode at the root of the tree
+	def getTreeRoot (self):
+		curr = self
+		parent = curr.getParent()
+		while (parent):
+			curr = parent
+			parent = curr.getParent()
+		return curr
+		
 	#isDescendant(other)
 	#True if OTHER is a descendant (child, grand-child, etc.) of self, else false
 	def isDescendant (self, other):
@@ -88,7 +103,7 @@ class CallbackNode (object):
 				return True
 			if (child.isDescendant(other)):
 				return True
-		return False
+		return False		
 	
 	# == and != based on name
 	def __eq__ (self, other):
@@ -176,10 +191,11 @@ class CallbackNodeTree (object):
 			else:
 				assert(not self.root)
 				self.root = node
-		assert(self.root)
-		#Sanity test: all nodes must be root or one of its descendants
+				
+		#Does the tree look valid?
+		assert(self.root)		
 		for node in self.callbackNodes:
-			assert(node == self.root or self.root.isDescendant(node))
+			assert(node.getTreeRoot() == self.root)
 		
 		self._updateDependencies()
 	
@@ -243,6 +259,7 @@ class CallbackNodeTree (object):
 	#This may add new nodes and change the exec_id of many nodes.
 	#The external behavior of the application under the original and unwrapped schedules should match.
 	def expandSchedule (self):
+		return
 		
 		#convert a single ASYNC_CB followed by multiple AFTER_WORK_CB's into a series of
 		#ASYNC_CB's each followed by one AFTER_WORK_CB

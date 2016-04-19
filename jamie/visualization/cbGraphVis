@@ -10,8 +10,10 @@
 import logging, argparse
 import Callback as CB
 import gv
+import sys
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
+sys.setrecursionlimit(10000)
 
 #input: (node, graph)
 #output: nodeHandle corresponding to node
