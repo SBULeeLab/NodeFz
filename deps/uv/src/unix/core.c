@@ -904,7 +904,7 @@ static int uv__run_pending(uv_loop_t* loop) {
   QUEUE* q = NULL;
   QUEUE pq;
   uv__io_t* w = NULL;
-  int did_anything;
+  int did_anything = 0, queue_len = 0;
 
   uv_handle_t *handle = NULL;
   struct list *pending_handles = list_create();
@@ -922,15 +922,17 @@ static int uv__run_pending(uv_loop_t* loop) {
   q = QUEUE_HEAD(&loop->pending_queue);
   /* JD: QUEUE_SPLIT'ing fixes the size of the work we'll do this time. */
   QUEUE_SPLIT(&loop->pending_queue, q, &pq);
+  QUEUE_LEN(queue_len, q, &pq);
+  mylog(LOG_MAIN, 7, "uv__run_pending: pq len %i\n", queue_len);
 
   /* Interpret pq as a list of handle contexts. */
   QUEUE_FOREACH(q, &pq) {
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
     w->iocb_events = UV__POLLOUT;
-    if ((any_func) w->cb == uv_uv__stream_io_ptr())
-      handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
-    else if ((any_func) w->cb == uv_uv__udp_io_ptr())
+    if ((any_func) w->cb == uv_uv__udp_io_ptr())
       handle = (uv_handle_t *) container_of(w, uv_udp_t, io_watcher);
+    else if ((any_func) w->cb == uv_uv__stream_io_ptr())
+      handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
     else
       assert(!"uv__run_pending: unexpected cb");
     sched_context = sched_context_create(EXEC_CONTEXT_UV__RUN_PENDING, CALLBACK_CONTEXT_HANDLE, handle);
@@ -938,6 +940,7 @@ static int uv__run_pending(uv_loop_t* loop) {
   }
 
   /* Find, remove, and execute the handle next in the schedule. */
+  mylog(LOG_MAIN, 7, "uv__run_pending: %u pending handles\n", list_size(pending_handles));
   while (!list_empty(pending_handles))
   {
     sched_context = scheduler_next_context(pending_handles);
@@ -960,7 +963,7 @@ static int uv__run_pending(uv_loop_t* loop) {
       QUEUE_INIT(q);
 
       /* Run the handle. */
-      mylog(LOG_MAIN, 7, "Loop %p iter %i w %p\n", loop, loop->niter, w);
+      mylog(LOG_MAIN, 7, "uv__run_pending: Running handle %p w %p\n", handle, w);
       uv__uv__run_pending_set_active_cb((any_func) w->cb);
       w->iocb_events = UV__POLLOUT;
       invoke_callback_wrap((any_func) w->cb, UV__IO_CB, (long) loop, (long) w, (long) UV__POLLOUT);
@@ -971,6 +974,8 @@ static int uv__run_pending(uv_loop_t* loop) {
   }
 
   /* Repair: add any handles we didn't run back onto the front of pending_queue. */
+  QUEUE_LEN(queue_len, q, &pq);
+  mylog(LOG_MAIN, 7, "uv__run_pending: Replacing %i un-scheduled items.\n", queue_len);
   while (!QUEUE_EMPTY(&pq)) {
     q = QUEUE_HEAD(&pq);
     QUEUE_REMOVE(q);

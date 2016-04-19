@@ -590,7 +590,7 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
   if (next_sched_context)
   {
     assert(sched_context_looks_valid(next_sched_context));
-    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: sched_context %p is next\n", sched_context);
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: sched_context %p is next\n", next_sched_context);
   }
   else
     mylog(LOG_SCHEDULER, 3, "scheduler_next_context: None of the %u sched_contexts were next (next type: %s; exec_id %i)\n", list_size(sched_context_list), callback_type_to_string(scheduler_next_lcbn_type()), scheduler_already_run()+1);
@@ -715,10 +715,10 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
      and changing INVOKE_CALLBACK to HANDLE_LCBN. Then we would eliminate these invisible guys, and have
      no SILENT_CONTEXTs at all.
      */
-  mylog(LOG_SCHEDULER, 3, "scheduler_next_sched_lcbn: Examining the ready lcbns of sched_context %p (wrapper %p)\n", sched_context, wrapper);
+  mylog(LOG_SCHEDULER, 3, "scheduler_next_sched_lcbn: sched_context %p (wrapper %p): %u ready LCBNs\n", sched_context, wrapper, list_size(ready_lcbns));
   if (list_empty(ready_lcbns))
   {
-    mylog(LOG_SCHEDULER, 1, "scheduler_next_sched_lcbn: sched_context %p (wrapper %p) has no ready lcbns, returning SILENT_CONTEXT\n", sched_context, wrapper);
+    mylog(LOG_SCHEDULER, 1, "scheduler_next_sched_lcbn: no ready LCBNs, returning SILENT_CONTEXT\n", sched_context, wrapper);
     next_sched_lcbn = (sched_lcbn_t *) SILENT_CONTEXT;
     goto DONE;
   }

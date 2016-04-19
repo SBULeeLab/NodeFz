@@ -1152,7 +1152,6 @@ void invoke_callback (callback_info_t *cbi)
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
        the nested ones will perceive themselves as 'next'. */
 
-    mylog(LOG_MAIN, 5, "invoke_callback: lcbn %p (type %s); advancing the scheduler\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
     scheduler_advance();
 
     if (is_user_cb)
@@ -1161,6 +1160,7 @@ void invoke_callback (callback_info_t *cbi)
     lcbn_mark_begin(lcbn_cur);
     lcbn_cur->global_exec_id = lcbn_next_exec_id();
 
+    mylog(LOG_MAIN, 7, "invoke_callback: Invoking lcbn %p (type %s) exec_id %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), lcbn_cur->global_exec_id);
     uv_mutex_unlock(&invoke_callback_lcbn_lock);
   } /* is_logical_cb */
 
@@ -1446,7 +1446,8 @@ int pthread_self_internal (void)
   return internal_id;
 }
 
-/* Not thread safe. */
+/* Not thread safe.
+   Call with invoke_callback_lcbn_lock. */
 static unsigned lcbn_next_exec_id (void)
 {
   lcbn_global_exec_counter++;
@@ -1511,15 +1512,22 @@ void emit_marker_event (enum callback_type cbt)
   /* Wait until we're scheduled to go. */
   mylog(LOG_MAIN, 9, "emit_marker_event: waiting my turn\n");
   if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+  {
+    enum callback_type next_cb_type = scheduler_next_lcbn_type();
+    mylog(LOG_MAIN, 9, "emit_marker_event: next_cb_type %s\n", callback_type_to_string(next_cb_type));
+    assert(is_threadpool_cb(next_cb_type) || next_cb_type == cbt);
     scheduler_block_until_next(sched_lcbn);
+  }
   mylog(LOG_MAIN, 9, "emit_marker_event: done waiting my turn\n");
 
   uv_mutex_lock(&invoke_callback_lcbn_lock);
 
   /* Get an exec id, fake an execution, tell any waiters we're done. */
+  mylog(LOG_MAIN, 7, "invoke_callback: Invoking lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
   lcbn_mark_begin(lcbn);
   lcbn->global_exec_id = lcbn_next_exec_id();
   lcbn_mark_end(lcbn);
+  mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
 
   mylog(LOG_MAIN, 5, "emit_marker_event: lcbn %p (type %s); advancing the scheduler\n", lcbn, callback_type_to_string(lcbn->cb_type));
   scheduler_advance();
@@ -1534,10 +1542,3 @@ void emit_marker_event (enum callback_type cbt)
   prev_marker_event = lcbn;
   mylog(LOG_MAIN, 9, "emit_marker_event: returning\n");
 }
-
-/* TODO 
-  - Emit events in uv_run pre and post calling functions.
-  - In REPLAY mode, loop on the variable uv__run_X's (uv__run_timers, uv__io_poll)
-    until the appropriate marker event is ready.
-*/
-   

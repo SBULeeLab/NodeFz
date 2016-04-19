@@ -407,20 +407,32 @@ int uv__stream_open(uv_stream_t* stream, int fd, int flags) {
 #if defined(__APPLE__)
   int enable;
 #endif
+  int err = -1;
+
+  mylog(LOG_UV_STREAM, 9, "uv__stream_open: begin: stream %p fd %i flags %i\n", stream, fd, flags);
 
   if (!(stream->io_watcher.fd == -1 || stream->io_watcher.fd == fd))
-    return -EBUSY;
+  {
+    err = -EBUSY;
+    goto DONE;
+  }
 
   assert(fd >= 0);
   stream->flags |= flags;
 
   if (stream->type == UV_TCP) {
     if ((stream->flags & UV_TCP_NODELAY) && uv__tcp_nodelay(fd, 1))
-      return -errno;
+    {
+      err = -errno;
+      goto DONE;
+    }
 
     /* TODO Use delay the user passed in. */
     if ((stream->flags & UV_TCP_KEEPALIVE) && uv__tcp_keepalive(fd, 1, 60))
-      return -errno;
+    {
+      err = -errno;
+      goto DONE;
+    }
   }
 
 #if defined(__APPLE__)
@@ -428,19 +440,23 @@ int uv__stream_open(uv_stream_t* stream, int fd, int flags) {
   if (setsockopt(fd, SOL_SOCKET, SO_OOBINLINE, &enable, sizeof(enable)) &&
       errno != ENOTSOCK &&
       errno != EINVAL) {
-    return -errno;
+    err = -errno;
+    goto DONE;
   }
 #endif
 
   stream->io_watcher.fd = fd;
+  err = 0;
 
-  return 0;
+DONE:
+  mylog(LOG_UV_STREAM, 9, "uv__stream_open: returning err %i\n", err);
+  return err;
 }
 
 
 void uv__stream_flush_write_queue(uv_stream_t* stream, int error) {
-  uv_write_t* req;
-  QUEUE* q;
+  uv_write_t* req = NULL;
+  QUEUE* q = NULL;
   while (!QUEUE_EMPTY(&stream->write_queue)) {
     q = QUEUE_HEAD(&stream->write_queue);
     QUEUE_REMOVE(q);
@@ -618,13 +634,16 @@ any_func uv_uv__server_io_ptr (void)
 
 
 int uv_accept(uv_stream_t* server, uv_stream_t* client) {
-  int err;
+  int err = -1;
 
-  /* TODO document this */
+  mylog(LOG_UV_STREAM, 9, "uv_accept: begin: server %p client %p\n", server, client);
   assert(server->loop == client->loop);
 
   if (server->accepted_fd == -1)
-    return -EAGAIN;
+  {
+    err = -EAGAIN;
+    goto RETURN;
+  }
 
   switch (client->type) {
     case UV_NAMED_PIPE:
@@ -648,7 +667,8 @@ int uv_accept(uv_stream_t* server, uv_stream_t* client) {
       break;
 
     default:
-      return -EINVAL;
+      err = -EINVAL;
+      goto RETURN;
   }
 
 done:
@@ -678,13 +698,16 @@ done:
       uv__io_start(server->loop, &server->io_watcher, UV__POLLIN);
   }
 
+RETURN:
+  mylog(LOG_UV_STREAM, 9, "uv_accept: returning err %i\n", err);
   return err;
 }
 
 
 int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
-  int err;
+  int err = -1;
 
+  mylog(LOG_UV_STREAM, 9, "uv_listen: begin: stream %p backlog %i\n", stream, backlog);
 #ifdef UNIFIED_CALLBACK
   uv__register_callback(stream, (any_func)  cb, UV_CONNECTION_CB);
 #endif
@@ -705,13 +728,16 @@ int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
   if (err == 0)
     uv__handle_start(stream);
 
+  mylog(LOG_UV_STREAM, 9, "uv_listen: returning err %i\n", err);
   return err;
 }
 
 
 static void uv__drain(uv_stream_t* stream) {
-  uv_shutdown_t* req;
+  uv_shutdown_t* req = NULL;
   int err;
+
+  mylog(LOG_UV_STREAM, 9, "uv__drain: begin: stream %p\n", stream);
 
   assert(QUEUE_EMPTY(&stream->write_queue));
   uv__io_stop(stream->loop, &stream->io_watcher, UV__POLLOUT);
@@ -731,6 +757,7 @@ static void uv__drain(uv_stream_t* stream) {
     err = 0;
     if (shutdown(uv__stream_fd(stream), SHUT_WR))
       err = -errno;
+    mylog(LOG_UV_STREAM, 7, "uv__drain: %i = shutdown(%i)\n", err == 0 ? 0 : -1, uv__stream_fd(stream));
 
     if (err == 0)
       stream->flags |= UV_STREAM_SHUT;
@@ -744,6 +771,8 @@ static void uv__drain(uv_stream_t* stream) {
 #endif
     }
   }
+
+  mylog(LOG_UV_STREAM, 9, "uv__drain: returning\n");
 }
 
 
@@ -1660,11 +1689,16 @@ int uv_try_write(uv_stream_t* stream,
 int uv_read_start(uv_stream_t* stream,
                   uv_alloc_cb alloc_cb,
                   uv_read_cb read_cb) {
+  int rc = -1;
+  mylog(LOG_UV_STREAM, 9, "uv_read_start: begin: stream %p\n", stream);
   assert(stream->type == UV_TCP || stream->type == UV_NAMED_PIPE ||
       stream->type == UV_TTY);
 
   if (stream->flags & UV_CLOSING)
-    return -EINVAL;
+  {
+    rc = -EINVAL;
+    goto DONE;
+  }
 
 #ifdef UNIFIED_CALLBACK
   uv__register_callback(stream, (any_func)  alloc_cb, UV_ALLOC_CB);
@@ -1693,7 +1727,10 @@ int uv_read_start(uv_stream_t* stream,
   uv__handle_start(stream);
   uv__stream_osx_interrupt_select(stream);
 
-  return 0;
+  rc = 0;
+  DONE:
+    mylog(LOG_UV_STREAM, 9, "uv_read_start: returning rc %i\n", rc);
+    return rc;
 }
 
 
