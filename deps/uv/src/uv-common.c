@@ -1090,6 +1090,11 @@ void invoke_callback (callback_info_t *cbi)
     lcbn_par = tree_entry(tree_par, lcbn_t, tree_node);
     assert(lcbn_looks_valid(lcbn_par));
 
+    /* Embed any extra info. */
+    if (lcbn_cur->cb_type == UV_READ_CB)
+      /* TODO fd extraction is hack-y. See unix/internal.h: uv__stream_fd. */
+      snprintf(lcbn_cur->extra_info, sizeof lcbn_cur->extra_info, "%li = read(%i)", (ssize_t) cbi->args[1], ((uv_stream_t *) cbi->args[0])->io_watcher.fd);
+
     /* Execution parent (if nested). */
     lcbn_orig = lcbn_current_get();
     is_base_lcbn = (is_user_cb && lcbn_orig == NULL);

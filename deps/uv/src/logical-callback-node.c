@@ -111,6 +111,8 @@ static lcbn_t * lcbn_create_raw (void)
   tree_init(&lcbn->tree_node);
   lcbn->dependencies = list_create();
 
+  lcbn->extra_info[0] = '\0';
+
   assert(lcbn_looks_valid(lcbn));
   mylog(LOG_LCBN, 9, "lcbn_create_raw: returning lcbn %p\n", lcbn);
   return lcbn;
@@ -284,7 +286,7 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
     dependency_buf[len-1] = '\0';
   }
 
-  snprintf(buf, size, "<name> <%s> | <context> <%p> | <context_type> <%s> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%s> | <registration_time> <%lis %lins> | <start_time> <%lis %lins> | <end_time> <%lis %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
+  snprintf(buf, size, "<name> <%s> | <context> <%p> | <context_type> <%s> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%i> | <tree_level> <%i> | <level_entry> <%i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> <%p> | <registrar> <%p> | <tree_parent> <%s> | <registration_time> <%lis %lins> | <start_time> <%lis %lins> | <end_time> <%lis %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <extra_info> <%s> | <dependencies> <%s>",
     lcbn->name, 
     lcbn->context, callback_context_to_string(callback_type_to_context(lcbn->cb_type)), 
     callback_type_to_string(lcbn->cb_type), 
@@ -293,6 +295,7 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
     (void *) lcbn->info, (void *) tree_entry(tree_get_parent(&lcbn->tree_node), lcbn_t, tree_node), lcbn->parent_name,
     (long) lcbn->registration_time.tv_sec, lcbn->registration_time.tv_nsec, (long) lcbn->start_time.tv_sec, lcbn->start_time.tv_nsec, (long) lcbn->end_time.tv_sec, lcbn->end_time.tv_nsec, 
     (long) lcbn->executing_thread, lcbn->active, lcbn->finished,
+    lcbn->extra_info,
     dependency_buf);
 
   mylog(LOG_LCBN, 9, "lcbn_to_string: returning buf %p\n", buf);
@@ -303,7 +306,7 @@ char * lcbn_to_string (lcbn_t *lcbn, char *buf, int size)
    NOT THREAD SAFE. */
 lcbn_t * lcbn_from_string (char *buf, int size)
 {
-  static char context_str[64], cb_type_str[64], cb_behavior_str[64];
+  static char context_str[64], cb_type_str[64], cb_behavior_str[64], extra_info_str[64];
   long reg_sec, reg_nsec, start_sec, start_nsec, end_sec, end_nsec;
   long executing_thread;
 
@@ -315,18 +318,21 @@ lcbn_t * lcbn_from_string (char *buf, int size)
   
   lcbn = lcbn_create_raw();
 
-  sscanf(buf, "<name> %s | <context> %*s | <context_type> %s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%*i> | <tree_level> <%*i> | <level_entry> <%*i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %s | <registration_time> <%lis %lins> | <start_time> <%lis %lins> | <end_time> <%lis %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <dependencies> <%s>",
+  sscanf(buf, "<name> %s | <context> %*s | <context_type> %s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%*i> | <tree_level> <%*i> | <level_entry> <%*i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %s | <registration_time> <%lis %lins> | <start_time> <%lis %lins> | <end_time> <%lis %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <extra_info> %s | <dependencies> <%s>",
     lcbn->name, context_str, cb_type_str, cb_behavior_str,
     &lcbn->global_exec_id, &lcbn->global_reg_id,
     lcbn->parent_name,
     &reg_sec, &reg_nsec, &start_sec, &start_nsec, &end_sec, &end_nsec,
-    &executing_thread, &lcbn->active, &lcbn->finished, dependency_buf);
+    &executing_thread, &lcbn->active, &lcbn->finished, 
+    extra_info_str,
+    dependency_buf);
 
   str_peel_carats(lcbn->name);
   str_peel_carats(lcbn->parent_name);
   str_peel_carats(context_str);
   str_peel_carats(cb_type_str);
   str_peel_carats(cb_behavior_str);
+  str_peel_carats(extra_info_str);
   
   lcbn->cb_context = callback_context_from_string(context_str);
   lcbn->cb_type = callback_type_from_string(cb_type_str);
@@ -340,6 +346,8 @@ lcbn_t * lcbn_from_string (char *buf, int size)
   lcbn->end_time.tv_nsec = end_nsec; 
 
   lcbn->executing_thread = executing_thread;
+
+  memcpy(lcbn->extra_info, extra_info_str, sizeof lcbn->extra_info);
 
   assert(lcbn_looks_valid(lcbn));
 

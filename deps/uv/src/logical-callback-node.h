@@ -40,6 +40,8 @@ struct lcbn_s
   int active;   /* Is this LCBN currently executing? */
   int finished; /* Has this LCBN finished executing? */
 
+  char extra_info[64]; /* An extra string you want to embed. Included in toString/fromString. */
+
   pthread_t executing_thread; /* Which thread executes us? */
 };
 
