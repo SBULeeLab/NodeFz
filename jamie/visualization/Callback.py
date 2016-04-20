@@ -166,6 +166,10 @@ class CallbackNode (object):
 	def getExtraInfo (self):
 		return self.extra_info
 
+	def getChildren (self):
+		return self.children
+
+
 #############################
 # CallbackNodeTree
 #############################

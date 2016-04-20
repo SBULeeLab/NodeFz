@@ -67,6 +67,33 @@ def nodeNotExecuted (node):
 	assert(isinstance(node, CB.CallbackNode))
 	return (not node.executed())
 
+#Returns "startTime-endTime" expressed in UNIT
+#  UNIT: one of s, ms, us, ns
+def cbn_getTimeRangeStr (node, unit='ns'):
+	unitDivisors = {
+		'ns': 1,
+		'us': 1e3,
+		'ms': 1e6,
+		's':  1e9,
+	}
+	if (unit not in unitDivisors):
+		assert (not "cbn_getTimeRangeStr: Error, invalid unit '%s'; select from %s" % (unit, unitDivisors.keys()))
+	divisor = unitDivisors[unit]
+	(start, end) = (node.getStartTime(), node.getEndTime())
+	(convStart, convEnd) = (round(int(start)/divisor), round(int(end)/divisor))
+	assert(convStart < convEnd)
+	return "%i-%i" % (convStart, convEnd)
+
+def cbn_adjListStr (node):
+	return "%s:%s" % (node.getRegID(), cbn_getTimeRangeStr(node, 'us'))
+
+def walk_adjacencyList (node, arg):
+	if (nodeNotExecuted(node)):
+		return
+	myStr = cbn_adjListStr(node)
+	childStrs = [cbn_adjListStr(n) for n in node.getChildren()]
+	print "%s %s" % (myStr, ",".join(childStrs))
+
 #Returns true if node is a marker event rather than a user CB
 #For use with CallbackTree.removeNodes
 def nodeIsMarker (node):
@@ -91,6 +118,7 @@ def main():
 	parser.add_argument("--onlyExecuted", help="only display nodes that were executed", action="store_true")
 	parser.add_argument("--noMarkers", help="do not display the \"marker\" nodes that indicate uv loop progress", action="store_true")
 	parser.add_argument("--execOrder", help="vertical position indicates relative execution order", action="store_true")
+	parser.add_argument("--adjList", help="print an adjacency list representation", action="store_true")
 
 	args = parser.parse_args()
 	
@@ -114,6 +142,10 @@ def main():
 	
 	gv.write(digraph, args.outputFile)
 	logging.info("Check %s for results" % (args.outputFile))
+
+	if (args.adjList):
+		logging.info("Adjacency list:")
+		tree.walk(walk_adjacencyList, None)
 
 ###################################
 
