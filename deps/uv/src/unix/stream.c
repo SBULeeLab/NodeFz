@@ -1929,9 +1929,11 @@ static struct list * uv__ready_stream_lcbns_uv__read (uv_stream_t *stream, unsig
      NB node: StreamWrap::OnAlloc always uses the suggested_size, so we can do a bit of math. */ 
   if (stream->read_cb && (stream->flags & UV_STREAM_READING))
   {
-    /* Verify there are pending bytes. */
+#if 0
+    /* Verify there are pending bytes -- turns out there aren't always pending bytes? */
     assert(ioctl(uv__stream_fd(stream), FIONREAD, &pending_bytes) == 0);
     assert(0 < pending_bytes);
+#endif
     mylog(LOG_UV_STREAM, 9, "uv__ready_stream_lcbns_uv__read: fd %i, %i pending bytes\n", uv__stream_fd(stream), pending_bytes); 
 
     lcbn = lcbn_get(stream->cb_type_to_lcbn, UV_ALLOC_CB);
