@@ -1,0 +1,81 @@
+#!/usr/bin/env python2.7
+
+import logging, argparse
+import time
+import random
+
+import Mud
+import WordFinder
+
+logging.basicConfig(level=logging.INFO)
+
+#appName -> appInfo
+appInfo = {}
+
+#nodejs-mud info
+mudInfo = { 'driver': Mud.MudClientDriver,
+						}
+appInfo['mud'] = mudInfo
+
+#word-finder info
+wfInfo = { 'driver': WordFinder.WordFinderClientDriver,
+					 }
+appInfo['wordfinder'] = wfInfo
+
+#Input: perClientReqs: dictionary: client ID -> list of requests
+#Output: list of requests (in-order relative to clientID, but otherwise randomized)
+def randomizeRequests(perClientReqs):
+	requestOrder = []
+	nClients = len(perClientReqs.keys())
+
+	totalRequests = 0
+	initialRequests = {}
+	remainingRequests = {}
+	for id in perClientReqs.keys():
+		nReqs = len(perClientReqs[id])
+		initialRequests[id] = nReqs
+		remainingRequests[id] = nReqs
+		totalRequests += nReqs
+
+	for i in range(0, totalRequests):
+		remainingIDs = [k for k in remainingRequests.keys() if remainingRequests[k]]
+		assert(len(remainingIDs))
+		nextId = random.choice(remainingIDs)
+		reqIx = initialRequests[nextId] - remainingRequests[nextId]
+		assert(0 <= reqIx and reqIx < initialRequests[nextId])
+		requestOrder.append(perClientReqs[nextId][reqIx])
+		remainingRequests[nextId] -= 1
+
+	return requestOrder
+
+def main ():
+	parser = argparse.ArgumentParser(description="Run application clients")
+	parser.add_argument("--app", help="Which application are we running against? Choose from: %s" % (appInfo.keys()), required=True)
+	parser.add_argument("--ip", help="server ip", default='0.0.0.0')
+	parser.add_argument("--port", help="server port", type=int, required=True)
+	parser.add_argument("--numClients", help="Number of clients to run", type=int, default=1)
+	parser.add_argument("--movesPerClient", help="Number of moves to run per client", type=int, default=10)
+	parser.add_argument("--seed", help="RNG seed for reproducible results", type=int, default=time.time())
+
+	args = parser.parse_args()
+
+	logging.info("app %s ip %s port %i numClients %i movesPerClient %i seed %i" % (args.app, args.ip, args.port, args.numClients, args.movesPerClient, args.seed))
+	random.seed(args.seed)
+
+	url = 'http://%s:%s' % (args.ip, args.port)
+
+	assert(args.app in appInfo)
+	ClientDriver = appInfo[args.app]['driver']
+	clientDriver = ClientDriver(url=url, nClients=args.numClients, nRequests=args.movesPerClient + ClientDriver.NumMetaRequests())
+
+	perClientReqs = clientDriver.GenRequests()
+
+	logging.info("Launching client requests")
+	requests = randomizeRequests(perClientReqs)
+	for req in requests:
+		req()
+	logging.info("Have a nice day")
+
+######################
+
+main()
