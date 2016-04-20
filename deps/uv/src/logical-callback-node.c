@@ -62,7 +62,7 @@ static void lcbn_mark_registration_time (lcbn_t *lcbn)
   mylog(LOG_LCBN, 9, "lcbn_mark_registration_time: begin: lcbn %p\n", lcbn);
   assert(lcbn_looks_valid(lcbn));
 
-  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->registration_time) == 0);
+  assert(clock_gettime(CLOCK_REALTIME, &lcbn->registration_time) == 0);
   mylog(LOG_LCBN, 9, "lcbn_mark_registration_time: returning\n", lcbn);
 }
 
@@ -234,7 +234,7 @@ void lcbn_mark_begin (lcbn_t *lcbn)
   assert(!lcbn->active && !lcbn->finished);
 
   lcbn->active = 1;
-  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->start_time) == 0);
+  assert(clock_gettime(CLOCK_REALTIME, &lcbn->start_time) == 0);
   mylog(LOG_LCBN, 9, "lcbn_mark_begin: returning\n");
 }
 
@@ -246,7 +246,7 @@ void lcbn_mark_end (lcbn_t *lcbn)
 
   lcbn->active = 0;
   lcbn->finished = 1;
-  assert(clock_gettime(CLOCK_MONOTONIC, &lcbn->end_time) == 0);
+  assert(clock_gettime(CLOCK_REALTIME, &lcbn->end_time) == 0);
   mylog(LOG_LCBN, 9, "lcbn_mark_end: returning\n");
 }
 
