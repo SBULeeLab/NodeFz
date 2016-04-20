@@ -1149,6 +1149,18 @@ void invoke_callback (callback_info_t *cbi)
         lcbn_get_context(lcbn_cur), callback_type_to_string(lcbn_get_cb_type(lcbn_cur)), lcbn_cur);
       uv__register_callback(lcbn_get_context(lcbn_cur), lcbn_get_cb(lcbn_cur), lcbn_get_cb_type(lcbn_cur));
       lcbn_current_set(lcbn_orig);
+
+      /* READ_CBs are dependent on the associated ALLOC_CBs. 
+         The ALLOC_CB has already been invoke_callback'd and updated cb_type_to_lcbn. */
+      if (lcbn_cur->cb_type == UV_READ_CB)
+      {
+        lcbn_t *new_alloc_lcbn = lcbn_get(cb_type_to_lcbn, UV_ALLOC_CB);
+        lcbn_t *new_read_lcbn  = lcbn_get(cb_type_to_lcbn, UV_READ_CB);
+        assert(new_alloc_lcbn && !lcbn_executed(new_alloc_lcbn));
+        assert(new_read_lcbn && !lcbn_executed(new_read_lcbn));
+
+        lcbn_add_dependency(new_alloc_lcbn, new_read_lcbn);
+      }
     }
 
     /* Commit to being the active CB. */

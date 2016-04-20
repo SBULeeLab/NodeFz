@@ -546,6 +546,17 @@ int lcbn_sort_by_exec_id (struct list_elem *a, struct list_elem *b, void *aux)
   return cmp;
 }
 
+int lcbn_executed (lcbn_t *lcbn)
+{
+  int executed = 0;
+  mylog(LOG_LCBN, 9, "lcbn_executed: begin: lcbn %p\n", lcbn);
+  assert(lcbn_looks_valid(lcbn));
+
+  executed = (0 <= lcbn->global_exec_id);
+  mylog(LOG_LCBN, 9, "lcbn_executed: returning executed %i\n", executed);
+  return executed;
+}
+
 /* list_filter_func, for use with a tree_as_list list of lcbn_t's. */
 int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
 {
@@ -558,7 +569,7 @@ int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
                     lcbn_t, tree_node); 
   assert(lcbn_looks_valid(lcbn));
 
-  executed = (0 <= lcbn->global_exec_id);
+  executed = lcbn_executed(lcbn);
 
   mylog(LOG_LCBN, 9, "lcbn_remove_unexecuted: returning executed %i\n", executed);
   return executed;

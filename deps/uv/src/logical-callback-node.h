@@ -73,6 +73,9 @@ void lcbn_add_dependency (lcbn_t *pred, lcbn_t *succ);
    matching type, tree_level, and child_num.  */
 int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b);
 
+/* Returns non-zero if lcbn has been executed, else zero. */
+int lcbn_executed (lcbn_t *lcbn);
+
 /* TODO Define at the caller layer. See notes in logical-callback-node.c for details. */
 int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux);
 int lcbn_sort_by_reg_id (struct list_elem *a, struct list_elem *b, void *aux);
