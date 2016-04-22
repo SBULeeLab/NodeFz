@@ -1340,6 +1340,94 @@ Mon 18 Apr 2016
        This might simply be due to timeouts because the VNC connection is so slow.
        Need to verify this behavior when in the office.
 
+--------
+
+Tue 19 Apr 2016
+
+1. I added extra_info to track the fd on which a READ is performed.
+2. I believe I have the answer to the nodejs-mud record/replay mystery. 
+
+HTTP/1.0 is a stateless protocol. 
+This means that there are not persistent client connections; each HTTP request is done on its own connection.
+HTTP/1.1 has a keep-alive option, which is implementation dependent and lets you avoid making unnecessary connections.
+
+Issues with nodejs-mud that prevent successful record/replay:
+  It uses HTTP and encodes client information in the GET request. 
+  The GET requests may come in on a variety of sockets, with moves predominantly on the same socket,
+  because from a protocol point of view they are a series of "idempotent" unique client interactions.
+
+  It seems difficult or impossible to record and replay these by hand.
+
+  If the application itself is recorded (or automated), we might be in business, but doing it by hand
+  leaves you at the mercy of games the web browser or http server might play.
+
+  - This is why it (mostly) works with a single user -- less nondeterminism.
+  - However, even with a single user it sometimes fails. This is due to:
+    > Sometime-retrieval of favicon
+    > Non-deterministic first retrieval of board and registration
+
+3. I developed a nicer record/replay client system than the one from the Jalangi benchmarks.
+  (21:50:00) jamie@suwarna7-Lenovo-K450e ~/Desktop/node_project/node/jamie $ ls ~/PycharmProjects/ClientDriver/
+  mudClient.py
+
+  This version runs multiple clients with random queries.
+  You can provide a seed to get reproduceable results.
+
+  Once the initial "loading" queries have completed, the order of the requests are indistinguishable.
+  It looks like a single fd suffices to handle all of them, perhaps 
+    because the HTTP requests are being launched synchronously and therefore there is *never* more than
+    one pending (non-keep-alive?) request at epoll time? 
+    I'm guessing the extra sockets were spun up by the Node.js HTTP libraries in response to keep-alive connections.
+  Anyway: I can record and replay mudClient.py. Huzzah!
+
+4. I added --adjList to cbGraphVis for Arun's combining pleasure.
+
+5. I added ALLOC -> READ edges for the non-initial pairs. Before, I was only tracking the dependency for the initial pair.
+
+--------
+
+Wed 20 Apr 2016
+
+1. I abstracted my client system a bit. I defined the interface that client drivers need to support and wrote a wrapper clientDriver script.
+2. I began my study of process.nextTick.
+
+--------
+
+Thur 21 Apr 2016
+
+1. I completed my study of process.nextTick. 
+
+  It turns out I was reading the documentation a bit wrong. See node_src_notes for details, but essentially:
+    process.nextTick calls are synchronously handled after the end of the current stack.
+    You can think of them as wrapping the current stack in a larger function call that goes:
+      - call function
+      - empty any queued nextTick functions
+    This is done recursively, so if you nest nextTick calls you are basically putting your code into a while(1) loop.
+    The function name indicates that the next tick of the loop will be to run the provided function rather than to proceed as normal. 
+
+    This means that we don't need to worry about process.nextTick as a source of nondeterminism, since the nextTick functions
+      are called synchronously as "part" of the original function call.
+
+2. I completed my study of setImmediate. See node_src_notes for details.
+
+  Essentially, when you call setImmediate(CB), CB is placed in a list of 'immediate CBs'.
+  All of these are executed in a single UV_CHECK_CB when next that portion of the event loop is reached.
+  If a setImmediate CB calls setImmediate, it gets queued up for the next time through the loop (forward progress).
+
+  I updated set_immediate.js to demonstrate this behavior.
+
+  TODO: This means that the first guy to call setImmediate when there are no setImmediate CBs pending gets labeled
+        as the parent of the UV_CHECK_CB. Subsequent callers have their CBs embedded within it but the parentage information
+        gets lost.
+
+        1. I sniffed at the output of set_immediate.js, but double-check the graph.
+        2. Run examples using the various promises libraries installed in simple_node_programs/promises and examine the behavior and graph;
+            re-assure self that it works "just as I'd expect".
+        3. The loss of parentage information is bad. Replace the single wrapper with per-caller uv_check_t handles, similar to what I did
+           for timers. Use timer_wrap.cc as a template.
+
+--------
+
   VNC:
     ssh -p2000 -L 5900:localhost:5900 woody.cs.vt.edu #Set up port forwarding on 5900 to woody
     x11vnc -safer -localhost -nopw -once -display :0  #Set up a VNC server listening on localhost on woody.
@@ -1356,17 +1444,11 @@ Next steps:
 --------------------------------
 
 Next steps:
-  By Mar 31:
-    o demonstrate record/replay system for more complex applications (fs_several_stat.js; fs_several.js; httpserver_complex.js; MUD; etherpad)
-  By Apr 7:
-  By Apr 14:
-  By Apr 21:
-  By Apr 27:
+  By Apr 28:
     - May 3: OSDI abstract due
   By May 5:
     - May 10: OSDI full paper due
   By May 12:
-
 
 -----------
 

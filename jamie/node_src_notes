@@ -1,6 +1,6 @@
 Notes on ...../node/src
- - node code lives in node/src
- - 45KLOC
+ - node code lives in node/src, JS libraries in node/lib
+ - 45 KLOC
 
 node_main.cc::main() -> node.cc::Start -> StartNodeInstance 
 
@@ -385,9 +385,11 @@ If stdout is a TTY, console.log commands work as follows:
       pending requests.
 
       // if there's something in the buffer waiting, then process it
-      function clearBuffer(stream, state) {
- 
-  
+      function clearBuffer(stream, state)
+
+      clearBuffer is called by:
+        - uncork 
+        - onwrite
 
 --------------------------------------------
 
@@ -396,3 +398,140 @@ Looking for process.nextTick and friends? See node/src/node.js
 --------------------------------------------
 
 To reduce compiler optimizations, search for -O in node/common.gypi 
+
+--------------------------------------------
+
+If you make any changes to ~/Desktop/node_project/node/
+                                                       lib
+                                                       src,
+you need to recompile for it to take effect. Even if it's .js code
+
+--------------------------------------------
+
+How does process.nextTick work?
+
+Official docs:
+https://nodejs.org/api/process.html#process_process_nexttick_callback_arg
+  "Once the current event loop turn runs to completion, call the callback function."
+Emphasis on "event loop TURN" -- not the entire event loop, just the current turn in it. Basically this means that it will happen after the current function call finishes.
+"turn" seems to be synonymous with "tick", used below.
+
+API change notes:
+https://github.com/nodejs/node/wiki/API-changes-between-v0.8-and-v0.10
+  "process.nextTick happens at the end of the current tick, immediately after the current stack unwinds"
+
+SO clarification:
+http://stackoverflow.com/questions/15349733/setimmediate-vs-nexttick/15349865#15349865
+  "Use process.nextTick to effectively queue the function at the head of the event queue so that it executes immediately after the current function completes."
+
+Essentially this means that process.nextTick calls are synchronously handled after the end of the current stack.
+You can think of them as wrapping the current stack in a larger function call that goes:
+  - call function
+  - empty the nextTick queue
+The function name indicates that the next tick of the loop will be to run the provided function rather than to proceed as normal. 
+
+The synchronicity means that process.nextTick not an interesting area for study.
+However, here are some notes on how it works, just in case. 
+
+Test application: next_tick.js
+  Two timers are registered to go off after 1 ms.
+  Timer 1 calls process.nextTick recursively 3 times.
+  Timer 2 just prints to the console.
+
+  When timer 1 goes off (timer_wrap.cc::OnTimeout wrap->MakeCallback),
+  1. The timer CB itself runs to completion (async-wrap.cc::MakeCallback cb->Call)
+  2. Then env()'s tick_callback_function is called. This is where the registered nextTick functions are handled.
+
+  node.js calls startup.processNextTick at startup. This defines process.nextTick as well as the variables and helper functions needed to support it.
+  Notably, it calls into C++ via process._setupNextTick(_tickCallback, _runMicrotasks)
+    node.cc::SetupNextTick: - calls env()->set_tick_callback_function to args[1] (JS function _tickCallback (node.js))
+                            - adds method 'runMicrotasks' to args[1] (JS object _runMicrotasks, an empty object)
+
+  process.nextTick essentially puts the callback into a queue that gets resolved by _tickCallback every time an object inheriting from async-wrap calls MakeCallback
+  (which is pretty much everywhere that callbacks are called, in the various _wrap.cc files).
+
+  Here's the output from the program:
+    APP: Program begins
+    APP: Loading up some nextTicks
+    APP: Done loading up some nextTicks
+    APP: nextTick 1 begin
+    APP: nextTick 1 done
+    APP: nextTick 2 begin
+    APP: nextTick 2 done
+    APP: nextTick 3 begin
+    APP: nextTick 3 done
+    APP: Other timeout function
+  As you can see, each nextTick function runs to completion before the next one begins, and and timer 1 and all of the nextTick's it registers finish before timer 2 begins.
+
+--------------------------------------------
+
+How does setImmediate work?
+
+It's timers.setImmediate. This places the CB into the immediateQueue, a linked list of CBs that need to be invoked.
+The inverse is timers.clearImmediate, which removes the CB from immediateQueue.
+Similar to but simpler than regular timers, immediateQueue is a linked list of CBs that need to be invoked, once, "immediately" (but not as immediately as nextTick, which is semi-synchronous).
+In setImmediate, process._needImmediateCallback is true and process._immediateCallback is set to function processImmediate
+
+processImmediate is where the queue is handled. 
+On return, all callbacks are invoked and immediateQueue is empty.
+If a failure is encountered, the remaining CBs are saved and processImmediate is registered using process.nextTick,
+giving Node time to crash if needed but still calling them synchronously.
+
+When is it called?
+
+This is a bit trickier than process.nextTick. Here we go!
+
+env.h:  V(immediate_callback_string, "_immediateCallback")
+node.cc:
+  static void CheckImmediate(uv_check_t* handle) {
+    ...
+    MakeCallback(env, env->process_object(), env->immediate_callback_string());
+    ...
+  }
+
+This invokes process._immediateCallback, which is set in timers.js to be timers.js:processImmediate:
+
+  setImmediate{
+    ...
+    if (!process._needImmediateCallback) {
+      process._needImmediateCallback = true;
+      process._immediateCallback = processImmediate;
+    }
+    ...
+  }
+
+node.cc:
+  The 'check' handle for CheckImmediate is set and disabled here:
+
+  static void NeedImmediateCallbackSetter(
+    ...
+    if (active) {
+      ...
+      uv_check_stop(immediate_check_handle);
+      ...
+    } else {
+      ...
+      uv_check_start(immediate_check_handle, CheckImmediate);
+      ...
+    }
+    ...
+  }
+
+JS accesses to _needImmediateCallback are actually handled by C++ functions:
+env.h:  V(need_imm_cb_string, "_needImmediateCallback")
+node.cc:
+  process->SetAccessor(env->need_imm_cb_string(),
+                       NeedImmediateCallbackGetter,
+                       NeedImmediateCallbackSetter,
+                       env->as_external());
+
+so those changes to process._needImmediateCallback in timers.js execute the associated C++ functions,
+which ultimately can lead to calls to process._immediateCallback (aka processImmediate) via a uv_check_t handle called immediate_check_handle that lives in class Environment as immediate_check_handle_.
+
+This means that CBs registered via setImmediate are always carried out in libuv UV_CHECK_CB.
+All CBs registered via setImmediate are executed in one shot.
+
+However, unlike timers, Node documents the behavior of setImmediate carefully:
+
+https://nodejs.org/api/timers.html#timers_setimmediate_callback_arg
+  Callbacks for immediates are queued in the order in which they were created. The entire callback queue is processed every event loop iteration. If an immediate is queued from inside an executing callback, that immediate won't fire until the next event loop iteration. 
