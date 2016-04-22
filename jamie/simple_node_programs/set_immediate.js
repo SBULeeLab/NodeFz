@@ -2,16 +2,27 @@
   Simple program for setImmediate.
 */
 
-console.log("APP: Program begins\n");
+mylog = function (str) {
+  //console.log('APP: ' + str);
+  console.log('***************************************\n************************\n\n\nAPP: ' + str + '\n\n\n************************\n********************');
+}
 
-immediates = [];
+mylog("Program begins\n");
 
-immediates.push(setImmediate(function (){ 
-  console.log("APP: setImmediate 1\n");
-  clearImmediate(immediates[0]);
-}));
+/* This will go off in the subsequent loop iteration inside a CHECK_CB. */
+setImmediate(function (){ 
+  mylog("setImmediate 1\n");
 
-immediates.push(setImmediate(function (){ 
-  console.log("APP: setImmediate 2\n");
-  clearImmediate(immediates[1]);
-}));
+  /* These will go off in the subsequent loop iteration inside a single CHECK_CB. */
+  setImmediate(function (){ 
+    mylog("setImmediate 1: Nested setImmediate 1\n");
+  });
+  setImmediate(function (){ 
+    mylog("setImmediate 1: Nested setImmediate 2\n");
+  });
+});
+
+/* This will go off in a later loop iteration alone inside a CHECK_CB. */
+setTimeout(function(){
+  mylog("setImmediate 2 post-timeout\n");
+}, 250);
