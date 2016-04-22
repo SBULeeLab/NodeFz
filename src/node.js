@@ -281,9 +281,7 @@
     // calls into JS land.
     const tickInfo = process._setupNextTick(_tickCallback, _runMicrotasks);
 
-    //console.log("processNextTick: RUNNING MICROTASKS");
-    _runMicrotasks = _runMicrotasks.runMicrotasks;
-    //console.log("processNextTick: DONE RUNNING MICROTASKS");
+    _runMicrotasks = _runMicrotasks.runMicrotasks; /* Thanks to node.cc::SetupNextTick, _runMicrotasks = node.cc::RunMicrotasks. */
 
     // JD: The rest is function declarations.
     function tickDone() {
