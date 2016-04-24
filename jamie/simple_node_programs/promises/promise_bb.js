@@ -3,12 +3,37 @@
 */
 
 var Promise = require('bluebird');
+var fs = require('fs');
 
-var fs = Promise.promisifyAll(require("fs"));
+mylog = function (str) {
+  //console.log('APP: ' + str);
+  console.log('***************************************\n************************\n\n\nAPP: ' + str + '\n\n\n************************\n********************');
+};
 
-var fs = Promise.promisifyAll(require("fs"));
-fs.readFileAsync("promise_bb.js", "utf8").then(function(data) {
-  console.log("I read my own source code:\n" + data);
-});
+/* Obtain a promise-based version of fs.stat. */
+var fs_stat = Promise.promisify(fs.stat);
 
-setInterval(function (){ console.log("TIMER"); }, 5000);
+/* Stat 4 times, then finish. Same code in all Promise examples. */
+var files = ['/tmp', '/tmp', '/tmp'];
+
+statSuccess = function (data) {
+  mylog('Stat complete: Data: ' + data);
+  if (files.length == 0) {
+    return;
+  }
+  else {
+    return fs_stat(files.shift());
+  }
+};
+
+statFailure = function (err) {
+  mylog('Stat complete: Error: ' + err);
+};
+
+mylog('Before promise in code')
+fs_stat('/tmp')
+.then(statSuccess, statFailure)
+.then(statSuccess, statFailure)
+.then(statSuccess, statFailure)
+.done()
+mylog('After promise in code')

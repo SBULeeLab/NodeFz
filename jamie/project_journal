@@ -1416,15 +1416,88 @@ Thur 21 Apr 2016
 
   I updated set_immediate.js to demonstrate this behavior.
 
+--------
+
+Fri 22 Apr 2016
+
+1. I verified that setImmediate(CB) works as I thought, by examining the graph of set_immediate.js.
+2. Studying how Promises work.
+
+Reading material: 
+https://strongloop.com/strongblog/promises-in-node-js-with-q-an-alternative-to-callbacks/
+  - quick tutorial for the Q promise library
+  "If you return a promise, it will signal the next then when the asynchronous operation completes. You can also return any other value and the next onFulfilled will be passed the value as an argument"
+  This means: if you return an (asynchronous) promise, it will call the next 'then' when the async operation completes.
+              otherwise, the next 'then' will get the return value as input synchronously.
+  Therefore, from an implementation perspective, we can think of promises as a way to organize control flow,
+  but they work "just about as you'd expect". They are just glue to make sure that flow ordering is correct.
+
+https://blog.jcoglan.com/2013/03/30/callbacks-are-imperative-promises-are-functional-nodes-biggest-missed-opportunity/
+  - long, but a great explanation of callbacks vs. promises
+
+In short, I don't think we need to worry about the use of promises -- we should get a nice CB happens-before ordering from such chains.
+Promises are orthogonal to setImmediate.
+
   TODO: This means that the first guy to call setImmediate when there are no setImmediate CBs pending gets labeled
         as the parent of the UV_CHECK_CB. Subsequent callers have their CBs embedded within it but the parentage information
         gets lost.
 
-        1. I sniffed at the output of set_immediate.js, but double-check the graph.
-        2. Run examples using the various promises libraries installed in simple_node_programs/promises and examine the behavior and graph;
-            re-assure self that it works "just as I'd expect".
-        3. The loss of parentage information is bad. Replace the single wrapper with per-caller uv_check_t handles, similar to what I did
-           for timers. Use timer_wrap.cc as a template.
+        The loss of parentage information is bad. Replace the single wrapper with per-caller uv_check_t handles, similar to what I did
+        for timers. Use timer_wrap.cc as a template.
+
+--------
+
+Sun 24 Apr 2016
+
+1. I implemented promise_q.js using the BlueBird library as promise_bb.js. The two CB graphs are identical with regard to executed CBs, though
+   there is some mismatch in non-executed CBs so the schedules are not interchangeable. That's to be expected I guess.
+
+   My conclusion is that promises.then, like async.waterfall, give us clean-cut async CB graphs. No worries there.
+
+2. I studied the async module a bit.
+
+   promises:then :: async:waterfall, and you'll get the same CB chain. 
+   promises:all  :: async:each/parallel
+
+   Consider the CB graph produced by promise.all/async.each
+
+   Callers of async.each are claiming that the CBs can be invoked in any order with no negative impact.
+   The result is a graph as follows
+
+     caller of async.each
+       /   /   |   \   \
+     f1  f2   f3   f4  f5
+      .  .  .  .  .  . 
+      .  .  .  .  .  . 
+          \ 
+         last one to finish continues the thread of execution by executing the provided DoneCallback (D-CB)
+
+  Now, two comments here:
+    i.  The 'last one to finish' model means that under a modified schedule the tree may change shape but not meaning.
+        e.g. If f5 finished last and I want to make it so that f4 finishes last, we'll have f4 -> D-CB instead of f5 -> D-CB.
+
+        f4 -> D-CB and f5 -> D-CB are fundamentally the same schedule, in the sense that D-CB will be the child of 'the last one', 
+          whichever that might be, rather than of a specific one across every execution.
+
+    ii. The claim that the CBs can be invoked in any order with no negative impact bears testing. We have no reason to take the
+        developer at his word on this subject.
+
+    This leads us to the following problem:
+      - we want to re-order the CBs, and this is entirely legal
+      - re-ordering the CBs may result in a "different" schedule as far as the parentage of D-CB is concerned
+      - but we want to think of the difference between the schedules as only having flipped the work CBs, not as having 
+        moved into a new schedule and having to switch into RECORD mode.
+
+    Can we re-order the CBs and correctly infer the "rule" for how D-CB is invoked?
+      Same CB type, different parent, common ancestor; "brothers" with a shared child.
+        *and brothers with the child belonging to the most-recently-finished (i.e. the oldest child)
+      The async.each() CBs need not be identical in structure, so identifying the "brothers" could be tricky.
+
+      We can climb the tree and find the ancestor all of whose children have most recently finished, and if we were the final child
+        we could conclude that we are in an async.each-type situation.
+
+    Stated more generally, the problem is in identifying higher-level ordering constraints at the lower level.
+    Obviously there is no clean solution without having knowledge of the higher level, but we could perhaps develop some heuristics, as explored above.
 
 --------
 
