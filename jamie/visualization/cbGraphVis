@@ -81,7 +81,7 @@ def cbn_getTimeRangeStr (node, unit='ns'):
 	divisor = unitDivisors[unit]
 	(start, end) = (node.getStartTime(), node.getEndTime())
 	(convStart, convEnd) = (round(int(start)/divisor), round(int(end)/divisor))
-	assert(convStart < convEnd)
+	assert(convStart <= convEnd)
 	return "%i-%i" % (convStart, convEnd)
 
 def cbn_adjListStr (node):
