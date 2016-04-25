@@ -189,13 +189,15 @@ void mylog_buf (enum log_class log_class, int verbosity, char *buf, int len)
   mylog_persistent_print(output_stream, log_buf);
 
   /* Print the buffer itself, one char at a time in case of null bytes. */
-  snprintf(log_buf, sizeof log_buf, "mylog_buf: Buffer %p, len %i: ", buf, len);
+  snprintf(log_buf, sizeof log_buf, "mylog_buf: Buffer %p, len %i: <", buf, len);
   mylog_persistent_print(output_stream, log_buf);
   for (i = 0; i < len; i++)
   {
     snprintf(log_buf, sizeof log_buf, "%c", buf[i]);
     mylog_persistent_print(output_stream, log_buf);
   }
+  snprintf(log_buf, sizeof log_buf, ">\n");
+  mylog_persistent_print(output_stream, log_buf);
 
   uv_mutex_unlock(&log_lock);
 }

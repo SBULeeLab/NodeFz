@@ -916,7 +916,8 @@ start:
     do {
       if (iovcnt == 1) {
         n = write(uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len);
-        mylog(LOG_UV_STREAM, 1, "uv__write: stream %p, %i = write(%i, %p, %i)\n", stream, n, uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len);
+        mylog(LOG_UV_STREAM, 1, "uv__write: stream %p, %i = write(%i, %p, %i) (content hash %u)\n", stream, n, uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len, map_hash(iov[0].iov_base, n));
+        mylog_buf(LOG_UV_STREAM, 9, iov[0].iov_base, n);
       } else {
         n = writev(uv__stream_fd(stream), iov, iovcnt);
         mylog(LOG_UV_STREAM, 1, "uv__write: stream %p, %i = writev(%i, %p, %i)\n", stream, n, uv__stream_fd(stream), iov, iovcnt);
