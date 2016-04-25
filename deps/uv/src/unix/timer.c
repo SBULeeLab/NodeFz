@@ -119,10 +119,9 @@ int uv_timer_start(uv_timer_t* handle,
                    uint64_t timeout,
                    uint64_t repeat) {
   uint64_t clamped_timeout;
-  uint64_t time_from_now = timeout - handle->loop->time;
   int rc = 0;
 
-  mylog(LOG_TIMER, 9, "uv__timer_ready: begin: handle %p timeout %llu (time_from_now %llu) repeat %llu\n", handle, timeout, time_from_now, repeat);
+  mylog(LOG_TIMER, 9, "uv__timer_ready: begin: handle %p timeout %llu repeat %llu\n", handle, timeout, repeat);
 
   if (cb == NULL)
   {
@@ -134,7 +133,7 @@ int uv_timer_start(uv_timer_t* handle,
     uv_timer_stop(handle);
 
   clamped_timeout = handle->loop->time + timeout;
-  if (clamped_timeout < timeout)
+  if (clamped_timeout < timeout) /* Overflow? */
     clamped_timeout = (uint64_t) -1;
 
   handle->timer_cb = cb;
@@ -239,18 +238,18 @@ void uv__run_timers(uv_loop_t* loop) {
     goto DONE;
   }
 
-  ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
-  /* Timers are time-sensitive, so new ones may become viable after we run old ones.
-     Loop until we've no longer got a timer to run. 
-     At the top of the loop, ready_timers is up to date. */
-  for (;;)
-  {
-    mylog(LOG_TIMER, 7, "uv__run_timers: %u timers ready\n", list_size(ready_timers));
-    /* Extract the next timer to run. */
-    next_timer_context = scheduler_next_context(ready_timers);
-    if (list_empty(ready_timers) || !next_timer_context)
-      break;
+  /* Fix the ready timers. 
+     Any new timers registered by timers will not be considered until the next loop iteration. 
 
+     This is a legal transformation, as the loop time is not being updated anyway.
+     Node says 0-len timers will run in 1 ms; libuv says that 0-len timers will run in the next loop iteration. */
+  ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
+  mylog(LOG_TIMER, 7, "uv__run_timers: %u timers ready\n", list_size(ready_timers));
+
+  /* Extract the next timer to run. */
+  next_timer_context = scheduler_next_context(ready_timers);
+  while (next_timer_context)
+  {
     /* Run the next timer. */
     next_timer_lcbn = scheduler_next_lcbn(next_timer_context);
     next_timer_handle = (uv_timer_t *) next_timer_context->wrapper;
@@ -260,15 +259,17 @@ void uv__run_timers(uv_loop_t* loop) {
 
     uv_timer_stop(next_timer_handle);
     uv_timer_again(next_timer_handle);
+
 #if UNIFIED_CALLBACK
     invoke_callback_wrap((any_func) next_timer_handle->timer_cb, UV_TIMER_CB, (long) next_timer_handle);
 #else
     handle->timer_cb(next_timer_handle);
 #endif
 
-    /* Refresh the list. */
-    list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
-    ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
+    /* Clean up, extract the next timer to run. */
+    list_remove(ready_timers, &next_timer_context->elem); 
+    sched_context_destroy(next_timer_context);
+    next_timer_context = scheduler_next_context(ready_timers);
   }
 
   DONE:
