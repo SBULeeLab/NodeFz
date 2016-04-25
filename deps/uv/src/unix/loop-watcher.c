@@ -37,8 +37,8 @@
     if (uv__is_active(handle)) return 0;                                      \
     if (cb == NULL) return -EINVAL;                                           \
     uv__register_callback(handle, (any_func) cb, UV_##_type##_CB);            \
-    /* JD: anti-FIFO order, not sure why */                                   \
-    QUEUE_INSERT_HEAD(&handle->loop->_name##_handles, &handle->queue);        \
+    /* JD: FIFO order. Was LIFO order. No docs requiring this, and FIFO needed to make setImmediate-as-check work. I think LIFO order was so that uv__run_X could start at front and iterate without an infinite loop? */ \
+    QUEUE_INSERT_TAIL(&handle->loop->_name##_handles, &handle->queue);        \
     handle->_name##_cb = cb;                                                  \
     uv__handle_start(handle);                                                 \
     handle->self_parent = 0;                                                  \
@@ -111,14 +111,11 @@
     sched_lcbn_t *next_sched_lcbn = NULL;                                     \
     uv_##_name##_t *next_handle = NULL;                                       \
                                                                               \
-    lcbn_t *orig = NULL, *tmp = NULL;                                         \
-                                                                              \
     mylog(LOG_MAIN, 9, "uv__run_" #_name ": begin: loop %p\n", loop);         \
                                                                               \
     if (QUEUE_EMPTY(&loop->_name##_handles))                                  \
       goto DONE;                                                              \
                                                                               \
-    orig = lcbn_current_get();                                                \
     ready_handles = uv__ready_##_name##s(loop, EXEC_CONTEXT_UV__RUN_##_type); \
     while (ready_handles)                                                     \
     {                                                                         \
@@ -134,22 +131,14 @@
                                                                               \
       invoke_callback_wrap((any_func) next_handle->_name##_cb, UV_##_type##_CB, (long) next_handle); \
                                                                               \
-      /* "Handle inheritance": Re-register the CB with the just-executed LCBN as the new LCBN's parent. \
-          TODO Don't we do this in invoke_callback for such handles? */       \
-      tmp = lcbn_get(next_handle->cb_type_to_lcbn, UV_##_type##_CB);          \
-      assert(tmp != NULL);                                                    \
-      lcbn_current_set(tmp);                                                  \
-      uv__register_callback(next_handle, (any_func) next_handle->_name##_cb, UV_##_type##_CB); \
-                                                                              \
       /* Each handle is a candidate once per loop iter. */                    \
-      list_remove (ready_handles, &next_sched_context->elem);                 \
+      list_remove(ready_handles, &next_sched_context->elem);                  \
       sched_context_destroy(next_sched_context);                              \
     }                                                                         \
                                                                               \
     if (ready_handles)                                                        \
       list_destroy_full(ready_handles, sched_context_list_destroy_func, NULL); \
                                                                               \
-    lcbn_current_set(orig);                                                   \
     DONE:                                                                     \
       mylog(LOG_MAIN, 9, "uv__run_" #_name ": returning\n");                  \
   }                                                                           \

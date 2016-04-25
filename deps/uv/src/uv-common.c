@@ -1099,7 +1099,7 @@ void invoke_callback (callback_info_t *cbi)
     lcbn_orig = lcbn_current_get();
     is_base_lcbn = (is_user_cb && lcbn_orig == NULL);
 
-    mylog(LOG_MAIN, 3, "invoke_callback: invoking lcbn %p (type %s) context %p parent %p (type %s) lcbn_orig %p; is_user_cb %i is_base_lcbn %i\n",
+    mylog(LOG_MAIN, 3, "invoke_callback: Working with lcbn %p (type %s) context %p parent %p (type %s) lcbn_orig %p; is_user_cb %i is_base_lcbn %i\n",
       lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig, is_user_cb, is_base_lcbn);
 
     lcbn_cur->info = cbi;
@@ -1213,7 +1213,7 @@ void invoke_callback (callback_info_t *cbi)
     uv_mutex_unlock(&invoke_callback_lcbn_lock);
   }
 
-  mylog(LOG_MAIN, 7, "invoke_callback: Done with cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
+  mylog(LOG_MAIN, 7, "invoke_callback: returning\n");
 }
 
 /* Returns time in microseconds (us) relative to the time at which the first CB was invoked. */

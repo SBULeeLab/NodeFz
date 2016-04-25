@@ -208,7 +208,7 @@ int is_threadpool_cb (enum callback_type cbt)
           cbt == UV_FS_WORK_CB || cbt == UV_GETADDRINFO_WORK_CB || cbt == UV_GETNAMEINFO_WORK_CB); /* Internal threadpool users. */
 }
 
-int is_timer_cb (enum callback_type cbt)
+int is_run_timers_cb (enum callback_type cbt)
 {
   assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
   return (cbt == UV_TIMER_CB);
@@ -219,6 +219,25 @@ int is_io_poll_cb (enum callback_type cbt)
   assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
   /* return (cbt == UV_ASYNC_CB || cbt == UV_ALLOC_CB || cb == ...); */
   return (cbt != MARKER_IO_POLL_END); /* TODO Hack. */
+}
+
+int is_run_check_cb (enum callback_type cbt)
+{
+  assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
+  return (cbt == UV_CHECK_CB);
+}
+
+int is_run_idle_cb (enum callback_type cbt)
+{
+  assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
+  return (cbt == UV_IDLE_CB);
+}
+
+int is_run_pending_cb (enum callback_type cbt)
+{
+  assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
+  /* TODO Is this accurate? */
+  return (cbt == UV_WRITE_CB);
 }
 
 int is_marker_event (enum callback_type cbt)

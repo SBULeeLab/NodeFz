@@ -394,10 +394,10 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
       if (scheduler_remaining() == 0)
         goto REPLAY_NO_ITEMS_LEFT;
       next_cb_type = scheduler_next_lcbn_type();
-      if (is_threadpool_cb(next_cb_type) || is_timer_cb(next_cb_type))
+      if (is_threadpool_cb(next_cb_type) || is_run_timers_cb(next_cb_type))
       {
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (1). next_cb_type %s\n", callback_type_to_string(next_cb_type));
-        if (is_timer_cb(next_cb_type))
+        if (is_run_timers_cb(next_cb_type))
         {
           /* Sleep until the next timer is ready. */
           timeout = uv__next_timeout(loop);
@@ -414,14 +414,38 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_pending\n");
     emit_marker_event(MARKER_RUN_PENDING_BEGIN);
+    /* TODO Not sure if this is valid. */
+  RUN_PENDING:
     ran_pending = uv__run_pending(loop);
-    if (scheduler_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
+    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    {
+      if (scheduler_remaining() == 0)
+        goto REPLAY_NO_ITEMS_LEFT;
+      next_cb_type = scheduler_next_lcbn_type();
+      if (is_threadpool_cb(next_cb_type) || is_run_pending_cb(next_cb_type))
+      {
+        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_pending. next_cb_type %s\n", callback_type_to_string(next_cb_type));
+        goto RUN_PENDING;
+      }
+    }
     emit_marker_event(MARKER_RUN_PENDING_END);
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_idle\n");
     emit_marker_event(MARKER_RUN_IDLE_BEGIN);
+  /* cf. RUN_CHECK. */
+  RUN_IDLE:
     uv__run_idle(loop);
-    if (scheduler_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
+    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    {
+      if (scheduler_remaining() == 0)
+        goto REPLAY_NO_ITEMS_LEFT;
+      next_cb_type = scheduler_next_lcbn_type();
+      if (is_threadpool_cb(next_cb_type) || is_run_idle_cb(next_cb_type))
+      {
+        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_idle. next_cb_type %s\n", callback_type_to_string(next_cb_type));
+        goto RUN_IDLE;
+      }
+    }
     emit_marker_event(MARKER_RUN_IDLE_END);
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_prepare\n");
@@ -432,6 +456,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     mylog(LOG_MAIN, 1, "uv_run: uv__io_poll\n");
     emit_marker_event(MARKER_IO_POLL_BEGIN);
+  /* The ready handles depend on external input.
+     Repeat until the next looper event is not an io_poll CB. */
   RUN_IO_POLL:
     timeout = 0;
     if ((mode == UV_RUN_ONCE && !ran_pending) || mode == UV_RUN_DEFAULT)
@@ -443,6 +469,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
       if (scheduler_remaining() == 0)
         goto REPLAY_NO_ITEMS_LEFT;
       next_cb_type = scheduler_next_lcbn_type();
+                                            /* TODO is_io_poll_cb is a hack. */
       if (is_threadpool_cb(next_cb_type) || is_io_poll_cb(next_cb_type))
       {
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__io_poll. next_cb_type %s\n", callback_type_to_string(next_cb_type));
@@ -453,8 +480,21 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_check\n");
     emit_marker_event(MARKER_RUN_CHECK_BEGIN);
+  /* Any CB can produce a pending CHECK CB through a call to setImmediate.
+     Repeat until the next looper event is not a check CB. */
+  RUN_CHECK:
     uv__run_check(loop);
-    if (scheduler_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
+    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    {
+      if (scheduler_remaining() == 0)
+        goto REPLAY_NO_ITEMS_LEFT;
+      next_cb_type = scheduler_next_lcbn_type();
+      if (is_threadpool_cb(next_cb_type) || is_run_check_cb(next_cb_type))
+      {
+        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_check. next_cb_type %s\n", callback_type_to_string(next_cb_type));
+        goto RUN_CHECK;
+      }
+    }
     emit_marker_event(MARKER_RUN_CHECK_END);
 
     /* JD: This will invoke the close_cb of any closing handles that have one defined. */
@@ -475,6 +515,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
        */
       mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (2)\n");
       emit_marker_event(MARKER_RUN_TIMERS_2_BEGIN);
+    /* cf. RUN_TIMERS_1. */
     RUN_TIMERS_2: 
       uv__update_time(loop);
       uv__run_timers(loop);
@@ -483,10 +524,10 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
         if (scheduler_remaining() == 0)
           goto REPLAY_NO_ITEMS_LEFT;
         next_cb_type = scheduler_next_lcbn_type();
-        if (is_threadpool_cb(next_cb_type) || is_timer_cb(next_cb_type))
+        if (is_threadpool_cb(next_cb_type) || is_run_timers_cb(next_cb_type))
         {
           mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (2). next_cb_type %s\n", callback_type_to_string(next_cb_type));
-          if (is_timer_cb(next_cb_type))
+          if (is_run_timers_cb(next_cb_type))
           {
             /* Sleep until the next timer is ready. */
             timeout = uv__next_timeout(loop);

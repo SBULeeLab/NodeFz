@@ -22,7 +22,14 @@ setImmediate(function (){
   });
 });
 
-/* This will go off in a later loop iteration alone inside a CHECK_CB. */
 setTimeout(function(){
-  mylog("setImmediate 2 post-timeout\n");
-}, 250);
+  mylog("timeout\n");
+  setImmediate(function (){
+    mylog("setImmediate 2: 1\n");
+  });
+  var imm = setImmediate(function (){
+    mylog("setImmediate 2: 2: SHOULD NOT GO OFF\n");
+    xyz = abc
+  });
+  clearImmediate(imm);
+}, 100);

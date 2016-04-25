@@ -155,9 +155,13 @@ enum callback_context callback_context_from_string (char *str);
 char * callback_behavior_to_string (enum callback_behavior type);
 enum callback_behavior callback_behavior_from_string (char *str);
 
+/* Whether the specified cb_type could be invoked by the associated call in uv_run. */
 int is_threadpool_cb (enum callback_type cb_type);
-int is_timer_cb (enum callback_type cb_type);
+int is_run_timers_cb (enum callback_type cb_type);
 int is_io_poll_cb (enum callback_type cb_type);
+int is_run_check_cb (enum callback_type cb_type);
+int is_run_idle_cb (enum callback_type cb_type); 
+int is_run_pending_cb (enum callback_type cb_type); 
 int is_marker_event (enum callback_type cb_type);
 
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */
