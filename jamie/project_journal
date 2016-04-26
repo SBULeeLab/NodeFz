@@ -1498,6 +1498,56 @@ Sun 24 Apr 2016
 
     Stated more generally, the problem is in identifying higher-level ordering constraints at the lower level.
     Obviously there is no clean solution without having knowledge of the higher level, but we could perhaps develop some heuristics, as explored above.
+ 
+3. Initial implementation of setImmediate: I just tweaked it to use 0-length timers, since timers are no longer batched.
+   This approach has some drawbacks, namely:
+    1. Change from regular libuv order: setImmediate used to go off in CHECK, prior to uv__run_closing, and now goes off in uv__run_timers.
+    2. Lack of guarantee about 'setImmediate's go off in FIFO order'.
+
+--------
+
+Mon 25 Apr 2016
+
+1. Rework setImmediate as a proper per-call uv_check_t. Overhead up, but graph visibility up.
+   As far as I know, this is the last remaining place where CBs are batched by Node in an unexpected fashion.
+   EventEmitter listeners are similarly batched, but that is well understood.
+
+2. I explored the lighter application. Between 'start' and 'poll waiting for user input' there are plenty of CBs.
+   RECORD worked fine. REPLAY was a bit iffier. It looks like the startup phase involves some non-determinism,
+   and also that this non-determinism is somehow related to timing.
+
+   I think this is demonstrated by the following: RECORD x2 (the first one primes the caches) followed by N REPLAYs:
+
+  Terminal 1:
+    export N_RECORD=2
+    export N_REPLAY=10
+    echo "RECORD x $N_RECORD"; 
+    for i in `seq 1 $N_RECORD`; do echo "  record $i"; UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=/tmp/f.sched  /home/jamie3/bin/node server.js lighter > /tmp/rec$i 2>&1; done; 
+    echo "REPLAY x $N_REPLAY"; 
+    for i in `seq 1 $N_REPLAY`; do echo "  replay $i"; UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=/tmp/f.sched  /home/jamie3/bin/node server.js lighter > /tmp/rep$i 2>&1; done; 
+ 
+  Terminal 2:
+    export N_RECORD=2
+    for i in `seq 1 $N_RECORD`; do kill -s USR2 `tail -1 /tmp/rec$i | awk '{print $7}'`; sleep 1; done
+
+  This works every time.
+
+  Without running them in quick succession (does some daemon like mongoDB void its cache every X seconds?), the read() calls mismatch.
+  Try code like this to check that quickly (perhaps adding a '| sum' to the end if the sequence is quite long):
+    grep '= read' /tmp/rec1 | tr -s ' ' | cut -d ' ' -f12-14
+  or
+    for f in /tmp/rec /tmp/rep; do grep '= read' $f | tr -s ' ' | cut -d ' ' -f12-14 | sum; done
+
+  Conclusion: I have mixed feelings about this. 
+  On the one hand, it's cool that I record *and replay* lighter, and that's a good sign for my work.
+  On the other hand, it's unfortunate that *without any user input* there can still be replay failures due to 3rd-party modules, caching, and so on.
+  But as a targeted test tool, the developer can control any inputs using scaffolding. So I guess this might still be OK.
+
+--------
+
+Tue 26 Apr 2016
+
+1. Add --colorFile to cbGraphVis. This way when Arun says two items raced, I can visualize and think about it as needed.
 
 --------
 
