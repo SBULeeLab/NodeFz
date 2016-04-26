@@ -9,7 +9,7 @@
 
 import logging, argparse
 import Callback as CB
-import gv
+import gv # http://www.graphviz.org/pdf/gv.3python.pdf, http://www.graphviz.org/doc/info/attrs.html
 import sys
 
 logging.basicConfig(level=logging.INFO)
@@ -106,24 +106,44 @@ def addExecOrder (tree, digraph):
 		j = i + 1
 		node1, node2 = cbNodes[i], cbNodes[j]
 		#Don't draw edges for un-executed nodes
-		if (0 <= int(node1.exec_id) and 0 <= int(node2.exec_id)):
+		if (node1.executed() and node2.executed()):
 			h1, h2 = getNodeHandle(node1, digraph), getNodeHandle(node2, digraph)
 			edgeHandle = gv.edge(h1, h2)
-			gv.setv(edgeHandle, "style", "invis")			
+			gv.setv(edgeHandle, "style", "invis")
+
+def addColors (tree, digraph, coloredNodes):
+	coloredCBNodes = [n for n in tree.getExecOrder() if int(n.getRegID()) in coloredNodes]
+	for n in coloredCBNodes:
+		h = getNodeHandle(n, digraph)
+		gv.setv(h, "style", "filled")
+		gv.setv(h, "fillcolor", "red")
 
 def main():
-	parser = argparse.ArgumentParser(description="Turn a file of callback events into a .gv file compatible with GraphViz.")
+	parser = argparse.ArgumentParser(description="Turn a libuv event schedule into a graph (.gv)")
 	parser.add_argument("cbFile", help="file describing events")
 	parser.add_argument("outputFile", help="file describing events")
 	parser.add_argument("--onlyExecuted", help="only display nodes that were executed", action="store_true")
 	parser.add_argument("--noMarkers", help="do not display the \"marker\" nodes that indicate uv loop progress", action="store_true")
 	parser.add_argument("--execOrder", help="vertical position indicates relative execution order", action="store_true")
 	parser.add_argument("--adjList", help="print an adjacency list representation", action="store_true")
+	parser.add_argument("--colorFile", help="Color the nodes specified in this file (one ID per line)", type=str)
 
 	args = parser.parse_args()
 	
 	logging.info("args.cbFile %s args.outputFile %s" % (args.cbFile, args.outputFile))
 	tree = CB.CallbackNodeTree(args.cbFile)
+
+	coloredNodes = []
+	if (args.colorFile):
+		logging.info("Reading colorFile %s" % (args.colorFile))
+		try:
+			with open(args.colorFile) as f:
+				lines = f.readlines()
+				coloredNodes = [int(l.rstrip()) for l in lines]
+				logging.debug("coloredNodes: %s" % (coloredNodes))
+		except IOError:
+			logging.error("Reading colorFile %s failed" % (args.colorFile))
+			assert(0 == 1)
 
 	if (args.onlyExecuted):
 		logging.info("Removing unexecuted nodes")
@@ -139,6 +159,10 @@ def main():
 	if (args.execOrder):
 		logging.info("Tweaking graph so it displays in execution order")
 		addExecOrder(tree, digraph)
+
+	if (args.colorFile):
+		logging.info("Adding colors")
+		addColors(tree, digraph, coloredNodes)
 	
 	gv.write(digraph, args.outputFile)
 	logging.info("Check %s for results" % (args.outputFile))
