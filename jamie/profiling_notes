@@ -1,0 +1,170 @@
+Profiling libuv-under-Node.js:
+
+gprof:
+ http://web.eecs.umich.edu/~sugih/pointers/gprof_quick.html
+
+ Tried gprof, but Node wipes signal handlers, overriding whatever gcc inserts when you compile/link with -pg
+ Result: program exits when it receives SIGPROF, presumably meaning that gprof is a sampling profiler
+
+ This seems to be a wildly unusual issue, since google returns almost nothing useful.
+   http://stackoverflow.com/questions/2146082/valgrind-profiling-timer-expired
+   http://adam.rosi-kessel.org/weblog/2010/08/14/lazyweb-request-profiling-timer-expired
+
+callgrind:
+ http://baptiste-wicht.com/posts/2011/09/profile-c-application-with-callgrind-kcachegrind.html
+
+(12:24:23) jamie@suwarna7-Lenovo-K450e /tmp $ cat sample.c 
+void func1 ()
+{
+  return;
+}
+
+void func2 ()
+{
+  return;
+}
+
+int main()
+{
+  int i;
+  for (i = 0; i < 1000; i++)
+    func1();
+  for (i = 0; i < 10; i++)
+    func2();
+  return 0;
+}
+
+------
+
+gprof:
+  g++ -pg sample.c -o sample
+
+callgrind:
+  valgrind --tool=callgrind ./sample
+  kcachegrind callgrind.out.3715
+
+  On to the real mccoy:
+    UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=/tmp/f.sched valgrind --tool=callgrind `which node` fs_nondet.js
+    (failed the first time because I was still compiling+linking with -pg, and Profiling timer expired like the SO post)
+
+1. 20% mylog: an enormous number of calls, and even short ones are too heavy
+  Suggested solution:
+	http://stackoverflow.com/a/1644898
+	-  mylog(LOG_LIST, 9, "list_elem_looks_valid: begin: list_elem %p\n", e);
+	+  DEBUG_ENTRY_EXIT_LOG((LOG_LIST, 9, "list_elem_looks_valid: begin: list_elem %p\n", e));
+
+2. 20% list_size calculated by iterating over the list: O(n)
+   Replace with a size variable: O(1)
+
+3. 5% list_looks_valid including pthread_mutex_lock/unlock
+   Replace with a simpler test
+
+4. 1% Excessive memset'ing
+   Unneeded, just remove it
+
+5. 7% snprintf
+
+Q: Any difference between sprintf and snprintf?
+
+#include <string.h>
+
+#define NITER 10000
+
+void sprintf_func (char *buf, int size)
+{
+  sprintf(buf, "this %i is %i my %i loooooong %s format %s string %i\n",
+    1, 2, 3, "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbb", 4);
+}
+
+void snprintf_func (char *buf, int size)
+{
+  snprintf(buf, size, "this %i is %i my %i loooooong %s format %s string %i\n",
+    1, 2, 3, "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbb", 4);
+}
+
+int main ()
+{
+  char buf[2048];
+  int i;
+
+  for (i = 0; i < NITER; i++)
+  {
+    sprintf_func(buf, sizeof buf);
+    snprintf_func(buf, sizeof buf);
+  }
+
+  return 0;
+}
+
+gcc -O0 -o printf_race printf_race.c; valgrind --tool=callgrind --callgrind-out-file=callgrind_out ./printf_race
+
+A: Nope. 49.86% vs. 49.72% runtime over 10000 iterations. Not a significant difference.
+
+Q: What about using a more minimal version of printf?
+  http://www.sparetimelabs.com/tinyprintf/tinyprintf.php
+
+#include <stdio.h>
+#include <string.h>
+#include "tprintf.h"
+
+#define NITER 10000
+
+void sprintf_func (char *buf, int size)
+{
+  sprintf(buf, "this %d is %ld my %d loooooong %s format %s string %d\n",
+    1, (long int) 2, 3, "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbb", 4); 
+}
+
+void snprintf_func (char *buf, int size)
+{
+  snprintf(buf, size, "this %d is %ld my %d loooooong %s format %s string %d\n",
+    1, (long int) 2, 3, "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbb", 4); 
+}
+
+void tfp_sprintf_func (char *buf, int size)
+{
+  tfp_sprintf(buf, "this %d is %ld my %d loooooong %s format %s string %d\n",
+    1, (long int) 2, 3, "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbb", 4); 
+}
+
+int main ()
+{
+  char buf[2048];
+  int i;
+
+  for (i = 0; i < NITER; i++)
+  {
+    sprintf_func(buf, sizeof buf);
+    snprintf_func(buf, sizeof buf);
+    tfp_sprintf_func(buf, sizeof buf);
+  }
+
+  return 0;
+}
+
+Result:
+  tfp_sprintf_func: 39%
+  snprintf_func:   30%
+  sprintf_func:    29%
+Well, that didn't go well...
+
+I tried with a longer string:
+  tfp_sprintf(buf, "<name> <%s> | <context> <%p> | <context_type> <%s> | <cb_type> <%s> | <cb_behavior> <%s> | <tree_number> <%d> | <tree_level> <%d> | <level_entry> <%d> | <exec_id> <%d> | <reg_id> <%d> | <callback_info> <%p> | <registrar> <%p>",
+    str, ptr, str, str, str, 1, 1, 1, 1, 1, ptr, ptr);
+
+Results became:
+  tfp_sprintf_func: 46%
+  snprintf_func:   26%
+  sprintf_func:    26%
+
+With -O2 instead of -O0, things improved in favor of tfp_sprintf_func:
+  tfp_sprintf_func: 29%
+  snprintf_func:   35%
+  sprintf_func:    35%
+
+With -O3 the function names are gone. Not sure why.
+
+So, even with -O2, we're still talking about a 10% improvement.
+Nice, but not enough of a gain for my desires.
+
+Q: What about 

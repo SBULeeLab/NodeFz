@@ -1520,7 +1520,7 @@ Mon 25 Apr 2016
 
   Terminal 1:
     export N_RECORD=2
-    export N_REPLAY=10
+    export N_REPLAY=100
     echo "RECORD x $N_RECORD"; 
     for i in `seq 1 $N_RECORD`; do echo "  record $i"; UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=/tmp/f.sched  /home/jamie3/bin/node server.js lighter > /tmp/rec$i 2>&1; done; 
     echo "REPLAY x $N_REPLAY"; 
@@ -1548,6 +1548,66 @@ Mon 25 Apr 2016
 Tue 26 Apr 2016
 
 1. Add --colorFile to cbGraphVis. This way when Arun says two items raced, I can visualize and think about it as needed.
+2. I observed that 'npm install X' now takes far longer than when using the distribution version 'PATH=/usr/bin:$PATH npm install X'.
+   I spent most of the day profiling my code and eliminating hot spots.
+
+   Results at end of day:
+
+   Using http_closed_system_huge.js with nclients = 1000:
+    Mine:
+    real	0m15.284s
+    user	0m15.035s
+    sys	0m0.265s
+    (all clients submit requests synchronously, then server tries to handle one of them and it times out)
+
+    Distr:
+    Runs for 30 seconds, successfully handling all of the clients
+
+    Why don't the distr clients time out?
+
+                    Time solely to submit requests for varying num clients (use 'time', and put invalid JS code at the bottom of the file, to be executed after submitting the requests)
+    Node version	 1000			 2000
+      mine		      11.9 s		14.2 s
+      distr		      5.7 s		  6.9 s
+
+    This suggests that my version of node handles client requests at a rate roughly twice as slow as the distr. version.
+    With n_clients = 100, my version doesn't time out, though of course it's still slower.
+    Notes on the profiling process are in profiling_notes.
+
+    Now, of course *some* slowdown is expected. Recording every user CB adds overhead.
+    However, 'npm install sqlite3' still takes forever.
+
+3. For an immediate workaround, I added a process.hrtimeWall function. 
+   This exposes us-granularity timestamps to JS, with the same interface as process.hrtime. 
+   It should allow us to test the combined system using native Node.js APIs and JS-only modules until I figure out why I can't npm install using my own version of node.
+
+--------
+
+Wed 27 Apr 2016
+
+1. profiling: I compiled the notes and reflected on my experience on my blog.
+
+  Short version:
+  valgrind --tool=callgrind --callgrind-out-file=callgrind_out COMMAND
+
+2. Since the schedule is emitted atexit:
+    - I updated the test programs to exit by default, with '--forever' suggesting they block on stdin
+    - I updated my regressiontest tool to work much more quickly because can just wait until the RECORD exits instead of sleeping for 10-30 seconds and then signaling to dump
+
+   I ran regressiontest for 100 iters to check for regressions introduced by my performance improvements. Got 'em all.
+
+3. Profiling 'npm install' in search of performance issues, as follows:
+
+  rm -rf node_modules/sqlite3
+  UV_SCHEDULE_MODE=RECORD UV_SCHEDULE_FILE=/tmp/f.sched valgrind --tool=callgrind --callgrind-out-file=callgrind_install_mine npm install sqlite3
+
+  sleep 30
+  ctrl-C it
+
+    Next steps:
+      1. I'd like to profile whatever 'npm install' does while it's running. That may shed some light on the expensive part of the use case.
+      2. How to compile modules from source? Can I avoid the use of npm?
+        e.g. http://stackoverflow.com/questions/5786433/how-to-install-a-node-js-module-without-using-npm
 
 --------
 
@@ -1557,10 +1617,7 @@ Tue 26 Apr 2016
     xtightvncviewer localhost:5900                    #Connect to it
 
 Next steps:
-  - Write a "test suite" for my record/replay system to make regression testing easy. Something like this:
-    ./run_tests  --niter 10 fs_nest_many.js fs_nest.js dns_lookup.js dns_lookup_many.js timer_repeat.js  timer_tree.js
-    Make sure we verify program output, too, not just libuv-level record/replay.
-  - Study process.nextTick and setImmediate to see what they do and what I should do about them
+  - regressiontest: Make sure we verify program output, too, not just libuv-level record/replay.
   - Incorporate DB example
   - Incorporate Promises example
   
