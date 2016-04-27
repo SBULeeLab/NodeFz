@@ -7,6 +7,7 @@ var fs = require("fs");
 
 var nQueries = 5;
 var nRun = 0;
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
 
 for (var i = 0; i < nQueries; i++)
 {
@@ -28,5 +29,8 @@ for (var i = 0; i < nQueries; i++)
   });
 }
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

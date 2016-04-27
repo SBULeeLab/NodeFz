@@ -4,9 +4,15 @@
 */
 
 const dns = require('dns');
+
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
+
 dns.lookupService('127.0.0.1', 22, (err, hostname, service) => {
   console.log('APP: hostname ' + hostname + ', service (port 22) ' + service); // localhost, ssh
 });
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

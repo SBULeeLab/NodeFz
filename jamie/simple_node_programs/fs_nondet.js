@@ -12,6 +12,7 @@ var dns = require('dns');
 /* Globals. */
 var i = 0;
 var host = 'www.google.com';
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
 
 /* Helper functions. */
 
@@ -33,6 +34,7 @@ fs.readFile("/tmp/foo", function(err, data) {
 });
 
 /* Variable race on i. */
+/*
 dns.lookup(host, { family: 6 }, function onLookup(err, address, family) {
   mylog('looked up ' + host + '; i: ' + i);
   i++;
@@ -42,6 +44,10 @@ dns.lookup(host, { family: 6 }, function onLookup(err, address, family) {
   mylog('looked up ' + host + '; i: ' + i);
   i++;
 });
+*/
 
-//Start reading from stdin so we don't exit.
-//process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

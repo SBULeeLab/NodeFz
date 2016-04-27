@@ -7,6 +7,8 @@
 
 var timer_invocations = 0;
 
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
+
 var intervalObj;
 
 var timerFunc = function(){
@@ -21,5 +23,8 @@ var timerFunc = function(){
 
 intervalObj = setInterval(timerFunc, 50);
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

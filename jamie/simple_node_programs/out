@@ -1,1 +1,0 @@
-APP: unlinkSync: caught exception Error: ENOENT: no such file or directory, unlink '/tmp/hello'

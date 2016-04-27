@@ -10,6 +10,7 @@ var fs = require("fs");
 
 var fname = "/tmp/ad_hoc_sync_test";
 var created = 0;
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
 
 /* Helper functions. */
 
@@ -51,5 +52,8 @@ setTimeout(function() {
   }); 
 }, 1000);
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

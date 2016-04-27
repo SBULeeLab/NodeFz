@@ -84,10 +84,13 @@ sub run_test
   my ($cmd, $cpid, $nodePid, $exists);
   my (@allProcesses, @nodeProcesses);
   my $nodeProcess;
+  my $coreGlob = "core.node.*";
+
+  my $timeout = 30;
 
   my (@origCoreFiles, @newCoreFiles);
 
-  @origCoreFiles = glob 'core.node.*';
+  @origCoreFiles = glob $coreGlob;
   for (my $i = 0; $i < $niter; $i++) {
     &log("run_test: test '$test' iter $i");
 
@@ -109,41 +112,23 @@ sub run_test
       }
       exec $cmd;
     }
-    #TODO Automatically detect when child is done?
-    sleep 10;
+    sleep 1; #Let child get started (fork/ps race)
 
-    #Identify node process
-    @allProcesses = &ps();
-    @nodeProcesses = grep { $_->{CMD} eq "$node $test" } @allProcesses;
-    &assert((scalar(@nodeProcesses) == 1), "run_test: Record: Error, did not find 1 node process. I found <@nodeProcesses>");
-    $nodeProcess = shift @nodeProcesses;
-    &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
+    if (&waitForProcessToFinish($cpid, $timeout, "$node $test")) {
+      &log("run_test: timed out waiting for record to finish");
+      return 1;
+    }
+    if (&anyNewCoreFiles($coreGlob, @origCoreFiles)) {
+      &log("run_test: New core file (record) suggests failure");
+      return 1;
+    }
 
-    #Signal process dump its schedule and exit
-    $nodePid = $nodeProcess->{PID};
-    $exists = kill 0, $nodePid;
-    &assert(($exists), "run_test: Error, record node child (pid $nodePid) does not exist");
-    &log("Sending USR2 to $nodePid");
-    kill 'USR2', $nodePid;
-
+    #Locate the schedule file
     while (not (-f $sched_file and -s $sched_file > 0)) {
       &log("Waiting for $sched_file");
       sleep 1;
-      my @ps = &ps();
-      my @nodeProcess = grep { $_->{PID} eq $nodePid } @ps;
-      if (not @nodeProcess) {
-        &assert((-f $sched_file and -s $sched_file > 0), "Error, node process is gone (pid $nodePid) but sched_file <$sched_file> does not exist or is empty");
-      }
     }
     &assert((-f $sched_file and -s $sched_file > 0), "Error, after record, sched_file <$sched_file> does not exist or is empty");
-
-    @newCoreFiles = glob 'core.node.*';
-    &assert((scalar(@origCoreFiles) <= scalar(@newCoreFiles)), "Error, some core files disappeared? before <@origCoreFiles> after <@newCoreFiles>");
-    if (scalar(@origCoreFiles) < scalar(@newCoreFiles)) {
-      my @new = grep { not &in($_, \@origCoreFiles) } @newCoreFiles;
-      &log("run_test: test '$test' iter $i: Record: Error, new core file(s) have been generated: <@new>. Something has gone wrong!");
-      return 1;
-    }
 
     #Replay
     $cmd = "UV_SCHEDULE_MODE=REPLAY UV_SCHEDULE_FILE=$sched_file $node $test 2>/tmp/run_tests_stderr";
@@ -160,39 +145,14 @@ sub run_test
       }
       exec $cmd;
     }
-    sleep 1; #Let child get started
+    sleep 1; #Let child get started (fork/ps race)
 
-    #Wait up to $timeout seconds for the replay to finish.
-    my $timeout = 30;
-    &waitForReplay($timeout, "$node $test");
-
-    #Identify node process
-    @allProcesses = &ps();
-    @nodeProcesses = grep { $_->{CMD} eq "$node $test" } @allProcesses;
-    &assert((scalar(@nodeProcesses) <= 1), "run_test: Replay: Error, found too many node processes. I found <@nodeProcesses>, wanted 0 or 1.");
-    if (scalar(@nodeProcesses)) {
-      #If replay is still running, it hasn't exited by itself
-      $nodeProcess = shift @nodeProcesses;
-      &assert(($nodeProcess->{PPID} eq $cpid), "Error, node process PPID is $nodeProcess->{PPID} != cpid $cpid");
-
-      #Ask it to emit its schedule.
-      &log("run_test: test '$test' iter $i: Sending node process USR2 so it will dump its schedule to date");
-      kill 'USR2', $nodeProcess->{PID};
-      sleep 3;
-
-      #Kill it dead.
-      kill 'KILL', $nodeProcess->{PID};
-      kill 'KILL', $nodeProcess->{PPID};
-
-      &log("run_test: test '$test' iter $i: Error, replay did not exit by itself.");
+    if (&waitForProcessToFinish($cpid, $timeout, "$node $test")) {
+      &log("run_test: Timed out waiting for replay to finish");
       return 1;
     }
-
-    @newCoreFiles = glob 'core.node.*';
-    &assert((scalar(@origCoreFiles) <= scalar(@newCoreFiles)), "Error, some core files disappeared? before <@origCoreFiles> after <@newCoreFiles>");
-    if (scalar(@origCoreFiles) < scalar(@newCoreFiles)) {
-      my @new = grep { not &in($_, \@origCoreFiles) } @newCoreFiles;
-      &log("run_test: test '$test' iter $i: Replay: Error, new core file(s) have been generated: <@new>. Something has gone wrong!");
+    if (&anyNewCoreFiles($coreGlob, @origCoreFiles)) {
+      &log("run_test: New core file (replay) suggests failure");
       return 1;
     }
   }
@@ -211,12 +171,12 @@ Example: $0 --niter 5 fs_several.js fs_several_stat.js
 ";
 }
 
-#input: ($timeout, $processMatchStr)
+#input: ($ppid, $timeout, $processMatchStr)
 #output: ($rc) 0 on success, 1 on timeout
 #Wait until the first of {timeout, ps does not report a process with command eq $processMatchStr}
-sub waitForReplay
+sub waitForProcessToFinish
 {
-  my ($timeout, $matchStr) = @_;
+  my ($ppid, $timeout, $matchStr) = @_;
   eval
   {
     local $SIG{ALRM} = sub { die "alarm\n" }; # NB: \n required
@@ -240,6 +200,29 @@ sub waitForReplay
   {
     die unless $@ eq "alarm\n";   # propagate unexpected errors
     $rc = 1; 
+
+    #Kill the process, forcing it to dump its schedule to date. 
+
+    #Identify node process
+    my @allProcesses = &ps();
+    my @nodeProcesses = grep { $_->{CMD} eq $matchStr } @allProcesses;
+    &assert((scalar(@nodeProcesses) == 1), "waitForProcessToFinish: Error, did not find exactly 1 node process. I found nodeProcesses <@nodeProcesses>");
+    if (scalar(@nodeProcesses)) {
+      my $nodeProcess = shift @nodeProcesses;
+      &assert(($nodeProcess->{PPID} eq $ppid), "waitForProcessToFinishError, node process PPID is $nodeProcess->{PPID} != ppid $ppid");
+
+      #Ask it to emit its schedule.
+      &log("waitForProcessToFinish: Sending node process USR2 so it will dump its schedule to date");
+      kill 'USR2', $nodeProcess->{PID};
+      sleep 3;
+
+      #Kill it dead.
+      kill 'KILL', $nodeProcess->{PID};
+      kill 'KILL', $nodeProcess->{PPID};
+
+      &log("waitForProcessToFinish: Error, process did not exit by itself.");
+      return 1;
+    }
   }
   else
   {
@@ -247,6 +230,23 @@ sub waitForReplay
   }
 
   return $rc;
+}
+
+#input: ($globStr, @origCoreFiles)
+#output: ($anyNewCoreFiles) -- 0 or 1
+sub anyNewCoreFiles
+{
+  my ($globStr, @origCoreFiles) = @_;
+
+  my @newCoreFiles = glob $globStr;
+  &assert((scalar(@origCoreFiles) <= scalar(@newCoreFiles)), "Error, some core files disappeared? Before <@origCoreFiles> after <@newCoreFiles>");
+
+  if (scalar(@origCoreFiles) < scalar(@newCoreFiles)) {
+    my @new = grep { not &in($_, \@origCoreFiles) } @newCoreFiles;
+    &log("anyNewCoreFiles: Error, new core file(s) have been generated: <@new>. Something has gone wrong!");
+    return 1;
+  }
+  return 0;
 }
 
 ####################################

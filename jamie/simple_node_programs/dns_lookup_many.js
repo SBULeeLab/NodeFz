@@ -6,6 +6,8 @@
 var dns = require('dns');
 var fs = require('fs');
 
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
+
 /* 1: success
    2: success
    3: success
@@ -36,5 +38,8 @@ for (var i = 0; i < nQueries; i++)
   });
 }
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

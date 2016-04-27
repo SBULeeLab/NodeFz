@@ -15,8 +15,9 @@ var fs = require('fs');
 /* Globals. */
 var port = 8000;
 var n_clients = 10;
-
 var client_count = 0;
+var clients_handled = 0;
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
 
 /* Helper functions. */
 
@@ -27,7 +28,7 @@ var mylog = function (str) {
 /* Program code. */
 
 /* Server listens. */
-http.createServer(function (request, response) {
+var server = http.createServer(function (request, response) {
   var client_id = client_count;
   client_count++;
 
@@ -39,6 +40,14 @@ http.createServer(function (request, response) {
     response.write('In /tmp I found files: ' + files.toString() + '\n');
     response.end('Goodbye client ' + client_id + '!\n');
     mylog('Server: finished client ' + client_id);
+
+    clients_handled += 1;
+    mylog('clients_handled: ' + clients_handled);
+    if (clients_handled == n_clients && !runForever)
+    {
+      mylog('Server closing'); 
+      server.close(); 
+    }
   });
 }).listen(port, function (){ 
   mylog('Server listening'); 

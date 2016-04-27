@@ -6,6 +6,8 @@
 var dns = require('dns');
 var fs = require('fs');
 
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
+
 //var host = 'woody.cs.vt.edu';
 var host = 'google.com';
 
@@ -27,5 +29,8 @@ dns.lookup(host, { family: 6 }, function onLookup(err, address, family) {
   }
 });
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

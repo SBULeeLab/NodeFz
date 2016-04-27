@@ -10,6 +10,8 @@ var timer_invocations = 0;
 var n_timers = 0;
 var max_timers = 20;
 
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
+
 var timerFunc = function(){
   timer_invocations++;
   console.log("APP: Timer " + timer_invocations + " n_timers " + n_timers + " went off");
@@ -26,5 +28,8 @@ var timerFunc = function(){
 n_timers++;
 setTimeout(timerFunc, 50);
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

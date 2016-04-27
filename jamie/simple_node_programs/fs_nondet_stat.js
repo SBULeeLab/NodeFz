@@ -5,6 +5,8 @@
 
 var fs = require("fs");
 
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
+
 fs.writeFileSync("/tmp/foo", "AAAAAA");
 console.log('APP: Started file with AAAAAA');
 
@@ -22,5 +24,8 @@ fs.unlink("/tmp/foo", function (err) {
   console.log("APP: unlink finished");
 });
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

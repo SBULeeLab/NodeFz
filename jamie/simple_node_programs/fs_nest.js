@@ -5,6 +5,8 @@
 
 var fs = require("fs");
 
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
+
 fs.writeFile("/tmp/foo", "AAAAAA", function(){
   console.log("APP: Level 1");
   fs.readFile("/tmp/foo", function(){
@@ -18,5 +20,8 @@ fs.writeFile("/tmp/foo", "AAAAAA", function(){
   });
 });
 
-//Start reading from stdin so we don't exit.
-process.stdin.resume();
+if (runForever)
+{
+  //Start reading from stdin so we don't exit.
+  process.stdin.resume();
+}

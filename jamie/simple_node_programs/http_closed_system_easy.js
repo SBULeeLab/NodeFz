@@ -13,6 +13,8 @@ var http = require('http');
 /* Globals. */
 var port = 8000;
 var n_clients = 10;
+var client_count = 0;
+var runForever = (process.argv[2] && process.argv[2] == '--forever');
 
 /* Helper functions. */
 
@@ -23,14 +25,20 @@ var mylog = function (str) {
 /* Program code. */
 
 /* Server listens. */
-http.createServer(function (request, response) {
+var server = http.createServer(function (request, response) {
   response.writeHead(200, {'Content-Type': 'text/plain'});
   response.write('1\n');
   response.write('2\n');
   response.write('3\n');
-  /* response.write('3\n', function(){ console.log('APP: Just wrote 3\n'); }); */
   response.end('Hello World\n');
-  /* console.log('APP: Server handled a client!'); */
+
+  client_count += 1;
+  if (client_count == n_clients && !runForever)
+  {
+    mylog('Server closing'); 
+    server.close(); 
+  }
+
 }).listen(port, function (){ 
   mylog('Server listening'); 
 });
@@ -45,11 +53,15 @@ var options = {
   method : 'POST'
 };
 
+
 var clientNums = new Array();
 for (var i = 0; i < n_clients; i++) {
   clientNums.push(i);
 }
+
+mylog('Clients sending requests');
 clientNums.forEach(function (clientNum) {
+  mylog('Client ' + clientNum);
   http.request(options, function log_response (response) {
     mylog('Client ' + clientNum + ': I got response ' + response);
     response.on('data', function(chunk) { 
