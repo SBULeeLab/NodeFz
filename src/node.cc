@@ -72,6 +72,7 @@ typedef int mode_t;
 #if defined(__POSIX__) && !defined(__ANDROID__)
 #include <pwd.h>  // getpwnam()
 #include <grp.h>  // getgrnam()
+#include <sys/time.h> // gettimeofday()
 #endif
 
 #ifdef __APPLE__
@@ -2004,6 +2005,22 @@ void Hrtime(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(tuple);
 }
 
+// HrtimeWall returns the current time of day ("wall clock") to us granularity.
+// This function instead returns an Array with 2 entries representing seconds
+// and microseconds, to avoid any integer overflow possibility.
+// JD: Clearly this is wildly unportable, which is why Hrtime relies on libuv.
+void HrtimeWall(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+
+  struct timeval tv;
+  assert(!gettimeofday(&tv, NULL));
+
+  Local<Array> tuple = Array::New(env->isolate(), 2);
+  tuple->Set(0, Integer::NewFromUnsigned(env->isolate(), (uint64_t) tv.tv_sec));
+  tuple->Set(1, Integer::NewFromUnsigned(env->isolate(), (uint64_t) tv.tv_usec));
+  args.GetReturnValue().Set(tuple);
+}
+
 extern "C" void node_module_register(void* m) {
   struct node_module* mp = reinterpret_cast<struct node_module*>(m);
 
@@ -2900,6 +2917,7 @@ void SetupProcessObject(Environment* env,
   env->SetMethod(process, "_debugEnd", DebugEnd);
 
   env->SetMethod(process, "hrtime", Hrtime);
+  env->SetMethod(process, "hrtimeWall", HrtimeWall);
 
   env->SetMethod(process, "dlopen", DLOpen);
 
