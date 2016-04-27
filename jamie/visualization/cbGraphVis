@@ -87,12 +87,12 @@ def cbn_getTimeRangeStr (node, unit='ns'):
 def cbn_adjListStr (node):
 	return "%s:%s" % (node.getRegID(), cbn_getTimeRangeStr(node, 'us'))
 
-def walk_adjacencyList (node, arg):
+def walk_adjacencyList (node, f):
 	if (nodeNotExecuted(node)):
 		return
 	myStr = cbn_adjListStr(node)
 	childStrs = [cbn_adjListStr(n) for n in node.getChildren()]
-	print "%s %s" % (myStr, ",".join(childStrs))
+	f.write("%s %s\n" % (myStr, ",".join(childStrs)))
 
 #Returns true if node is a marker event rather than a user CB
 #For use with CallbackTree.removeNodes
@@ -119,57 +119,74 @@ def addColors (tree, digraph, coloredNodes):
 		gv.setv(h, "fillcolor", "red")
 
 def main():
-	parser = argparse.ArgumentParser(description="Turn a libuv event schedule into a graph (.gv)")
-	parser.add_argument("cbFile", help="file describing events")
-	parser.add_argument("outputFile", help="file describing events")
-	parser.add_argument("--onlyExecuted", help="only display nodes that were executed", action="store_true")
-	parser.add_argument("--noMarkers", help="do not display the \"marker\" nodes that indicate uv loop progress", action="store_true")
-	parser.add_argument("--execOrder", help="vertical position indicates relative execution order", action="store_true")
-	parser.add_argument("--adjList", help="print an adjacency list representation", action="store_true")
-	parser.add_argument("--colorFile", help="Color the nodes specified in this file (one ID per line)", type=str)
+	parser = argparse.ArgumentParser(description="Turn a libuv event schedule into a graph in .gv and/or adjacency list format")
+	parser.add_argument("--schedFile", help="file containing libuv event schedule", required=True, type=str)
+
+	parser.add_argument("--noMarkers", help="do not include the \"marker\" nodes that indicate uv loop progress in the schedule",	action="store_true")
+
+	parser.add_argument("--gv", help="generate gv output (provide --gvF)", action="store_true")
+	parser.add_argument("--gvF", help="gv output file", type=str)
+	parser.add_argument("--gvOnlyExecuted", help="only include nodes that were executed", action="store_true")
+	parser.add_argument("--gvExecOrder", help="vertical position indicates relative execution order in the gv graph", action="store_true")
+	parser.add_argument("--gvColorFile", help="color the nodes specified in this file (one ID per line)", type=str)
+
+	parser.add_argument("--adj", help="generate adjacency list output (provide --adjF). includes only executed nodes", action="store_true")
+	parser.add_argument("--adjF", help="adjacency list output file", type=str)
 
 	args = parser.parse_args()
-	
-	logging.info("args.cbFile %s args.outputFile %s" % (args.cbFile, args.outputFile))
-	tree = CB.CallbackNodeTree(args.cbFile)
 
-	coloredNodes = []
-	if (args.colorFile):
-		logging.info("Reading colorFile %s" % (args.colorFile))
-		try:
-			with open(args.colorFile) as f:
-				lines = f.readlines()
-				coloredNodes = [int(l.rstrip()) for l in lines]
-				logging.debug("coloredNodes: %s" % (coloredNodes))
-		except IOError:
-			logging.error("Reading colorFile %s failed" % (args.colorFile))
-			assert(0 == 1)
-
-	if (args.onlyExecuted):
-		logging.info("Removing unexecuted nodes")
-		tree.removeNodes(nodeNotExecuted)
+	logging.info("main: schedFile %s" % (args.schedFile))
+	tree = CB.CallbackNodeTree(args.schedFile)
 
 	if (args.noMarkers):
 		logging.info("Removing marker nodes")
 		tree.removeNodes(nodeIsMarker)
+
+	if (args.gv):
+		assert(args.gvF)
+		logging.info("graphviz: Generating graphviz version of schedule")
+
+		coloredNodes = []
+		if (args.gvColorFile):
+			logging.info("graphviz: Reading colorFile %s" % (args.colorFile))
+			try:
+				with open(args.gvColorFile) as f:
+					lines = f.readlines()
+					coloredNodes = [int(l.rstrip()) for l in lines]
+					logging.debug("graphviz: coloredNodes: %s" % (coloredNodes))
+			except IOError:
+				logging.error("graphviz: Reading colorFile %s failed" % (args.colorFile))
+				assert(0 == 1)
+
+		if (args.gvOnlyExecuted):
+			logging.info("graphviz: Removing unexecuted nodes")
+			tree.removeNodes(nodeNotExecuted)
+
+		digraph = gv.digraph("graphviz: Creating gv graph from tree")
+		tree.walk(addNodeAndChildren, digraph)
+
+		if (args.gvExecOrder):
+			logging.info("graphviz: Tweaking graph so it displays in execution order")
+			addExecOrder(tree, digraph)
+
+		if (args.gvColorFile):
+			logging.info("graphviz: Adding colors")
+			addColors(tree, digraph, coloredNodes)
 	
-	digraph = gv.digraph("Creating gv graph from tree")
-	tree.walk(addNodeAndChildren, digraph)
+		gv.write(digraph, args.gvF)
+		logging.info("graphviz: Examine %s for the graphviz format" % (args.gvF))
 
-	if (args.execOrder):
-		logging.info("Tweaking graph so it displays in execution order")
-		addExecOrder(tree, digraph)
+	if (args.adj):
+		assert(args.adjF)
+		logging.info("adj: Generating adjacency list")
 
-	if (args.colorFile):
-		logging.info("Adding colors")
-		addColors(tree, digraph, coloredNodes)
-	
-	gv.write(digraph, args.outputFile)
-	logging.info("Check %s for results" % (args.outputFile))
+		try:
+			with open(args.adjF, 'w') as f:
+				tree.walk(walk_adjacencyList, f)
+		except IOError:
+			logging.error("adj: Writing to %s failed" % (args.adjF))
+		logging.info("adj: Examine %s for the adjacency list" % (args.adjF))
 
-	if (args.adjList):
-		logging.info("Adjacency list:")
-		tree.walk(walk_adjacencyList, None)
 
 ###################################
 
