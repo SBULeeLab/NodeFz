@@ -1604,10 +1604,123 @@ Wed 27 Apr 2016
   sleep 30
   ctrl-C it
 
-    Next steps:
-      1. I'd like to profile whatever 'npm install' does while it's running. That may shed some light on the expensive part of the use case.
-      2. How to compile modules from source? Can I avoid the use of npm?
-        e.g. http://stackoverflow.com/questions/5786433/how-to-install-a-node-js-module-without-using-npm
+4. Tweaked cbGraphVis for Arun. Can now obtain only an adjacency list, without the expense of producing the .gv file if not needed.
+
+5. Compared the install behavior using /tmp/node_basis vs. ~/Desktop/node_project/node.
+
+   Latest version of my node:                               /usr/bin/node-devel
+   Version of node from 'master' when I checked it out:     /usr/bin/node-devel-orig
+   Distribution version of node:                            /usr/bin/node-distr
+
+   Use something like
+     sudo unlink /usr/bin/node; sudo ln -s /usr/bin/node-devel /usr/bin/node
+     sudo unlink /usr/local/bin/node; sudo ln -s /usr/bin/node /usr/local/bin/node
+   to change which version of node is used.
+     (npm uses /usr/local/bin/node)
+
+   Then npm install like:
+     export UV_SCHEDULE_MODE=RECORD; export UV_SCHEDULE_FILE=/tmp/f.sched
+
+     export MOD=sqlite3; rm -rf node_modules; npm --loglevel verbose install $MOD
+     export MOD=async; rm -rf node_modules; npm --loglevel verbose install $MOD
+     export MOD=commander; rm -rf node_modules; npm --loglevel verbose install $MOD
+
+   Recipe:
+
+    REDIRECTED:
+     set -x
+     cd /tmp/bb
+     for NODE_VERS in node-devel-orig node-devel; do
+       for MOD in sqlite3 async commander; do
+         echo "NODE_VERS $NODE_VERS MOD $MOD"
+         sudo unlink /usr/bin/node; sudo ln -s /usr/bin/$NODE_VERS /usr/bin/node
+         sudo unlink /usr/local/bin/node 
+         sudo ln -s /usr/bin/node /usr/local/bin/node 
+         export UV_SCHEDULE_MODE=RECORD; export UV_SCHEDULE_FILE=/tmp/f.sched
+         rm -rf node_modules;
+         npm install $MOD --loglevel verbose > /tmp/$NODE_VERS-$MOD 2>&1
+       done;
+     done;
+     set +x
+
+    NOT REDIRECTED:
+     sudo script
+     set -x
+     cd /tmp/bb
+     for NODE_VERS in node-devel-orig node-devel; do
+       for MOD in sqlite3 async commander; do
+         echo "NODE_VERS $NODE_VERS MOD $MOD"
+         sudo unlink /usr/bin/node; sudo ln -s /usr/bin/$NODE_VERS /usr/bin/node;
+         sudo unlink /usr/local/bin/node 
+         export UV_SCHEDULE_MODE=RECORD; export UV_SCHEDULE_FILE=/tmp/f.sched
+         rm -rf node_modules;
+         npm install $MOD --loglevel verbose
+       done;
+     done;
+     set +x
+
+     ctrl-d to exit
+     examine file 'typescript'
+
+   Result:
+    - The devel versions seem to go through a different sequence than the distribution version.
+      It looks like the distro version copies a local version from ~/.npm, while the devel versions pull it from online.
+
+    When output is redirected
+      - node-devel-orig and node-devel both work fine
+    When output is NOT redirected (i.e. goes to stdout)
+      - node-devel-orig works fine
+      - node-devel errors out with what looks like a race condition?
+
+        npm verb gentlyRm don't care about contents; nuking /tmp/bb/node_modules/async
+        npm verb tar unpack /home/jamie3/.npm/async/1.5.2/package.tgz
+        npm verb tar unpacking to /tmp/bb/node_modules/async
+        npm verb gentlyRm don't care about contents; nuking /tmp/bb/node_modules/async
+        npm verb stack TypeError: Cannot read property 'call' of null
+        npm verb stack     at Timer.wrapper (timers.js:279:18)
+        npm verb cwd /tmp/bb
+        npm ERR! Linux 3.13.0-79-generic
+        npm ERR! argv "/home/jamie3/Desktop/node_project/node/out/Release/node" "/usr/local/bin/npm" "--loglevel" "verbose" "install" "async"
+        npm ERR! node v5.0.0-pre
+        npm ERR! npm  v2.14.3
+
+        npm ERR! Cannot read property 'call' of null
+        ...
+        npm verb stack Error: Callback called more than once.
+        ...
+
+      This smells like a null pointer dereference.
+      I'm pretty confident that my version of node doesn't do anything illegal.
+      Perhaps, then, the changes in execution order resulting from my tweaks are triggering a race.
+      If so, that would be a swell example of a race that our project can find and help fix.
+        However, it happens every time, so it's not like I can brag about record/replay playing a role here...
+
+6. Installed sqlite3, then ran my sqlite_simple.js app. Success!
+
+    With /usr/bin/node -> node-devel-orig
+      rm -rf node_modules/; npm install sqlite3 --build-from-source --nodedir=~/Desktop/node_project/node 2>&1 | tee /tmp/out 
+
+    I'm still having trouble getting my version of node to install things properly. 
+    The bug above (my fault?) happens sometimes, and other times it crashes in uv__register_callback with no current LCBN (my fault!).
+
+    Ah well. The best workaround is, as stated above, to set the system version of node to a working copy with the same version (i.e. based on /tmp/node_basis).
+
+    The --build-from-source flag is undocumented in the npm manual and is recommended in the README.md for the sqlite3 module.
+    Without it, it appears that version of sqlite3 'appropriate' to your version of node will be downloaded from the web.
+    When used in conjunction with --nodedir, it says 'build from source, and link against the specified version of node'.
+    For comparison, if you run 
+      rm -rf node_modules/; npm install sqlite3 --build-from-source --nodedir=/tmp/node_basis 2>&1 | tee /tmp/out 
+    and then node-devel, it segfaults.
+
+    It is not clear how reliable the --build-from-source flag is, but given the experience with microtime (which doesn't even support development builds),
+      it looks like only well-maintained C++-based modules will work. However, I wouldn't expect things like ghost or etherpad to use anything else.
+
+    With --nodedir=~/Desktop/node_project/node, '/usr/bin/node-devel sqlite_simple.js' runs as expected.
+
+
+   NEXT STEPS:
+     1. Emit the OnExit event, similar to the initial stack LCBN.
+     2. Investigate the 0-0 
 
 --------
 
