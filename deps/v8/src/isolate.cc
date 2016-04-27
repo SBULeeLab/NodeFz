@@ -2627,9 +2627,29 @@ void Isolate::EnqueueMicrotask(Handle<Object> microtask) {
   set_pending_microtask_count(num_tasks + 1);
 }
 
+static void mylog_0 (char *fmt)
+{
+#ifndef JD_SILENT_NODE
+  fprintf(stderr, fmt);
+#endif
+}
+
+static void mylog_1 (char *fmt, int arg1)
+{
+#ifndef JD_SILENT_NODE
+  fprintf(stderr, fmt, arg1);
+#endif
+}
+
+static void mylog_2 (char *fmt, int arg1, int arg2)
+{
+#ifndef JD_SILENT_NODE
+  fprintf(stderr, fmt, arg1, arg2);
+#endif
+}
 
 void Isolate::RunMicrotasks() {
-  fprintf(stderr, "Isolate::RunMicrotasks: begin\n");
+  mylog_0("Isolate::RunMicrotasks: begin\n");
   // %RunMicrotasks may be called in mjsunit tests, which violates
   // this assertion, hence the check for --allow-natives-syntax.
   // TODO(adamk): However, this also fails some layout tests.
@@ -2641,9 +2661,9 @@ void Isolate::RunMicrotasks() {
   v8::Isolate::SuppressMicrotaskExecutionScope suppress(
       reinterpret_cast<v8::Isolate*>(this));
 
-  fprintf(stderr, "Isolate::RunMicrotasks: pending_microtask_count %i\n", pending_microtask_count());
+  mylog_1("Isolate::RunMicrotasks: pending_microtask_count %i\n", pending_microtask_count());
   while (pending_microtask_count() > 0) {
-    fprintf(stderr, "Isolate::RunMicrotasks: loop: pending_microtask_count %i\n", pending_microtask_count());
+    mylog_1("Isolate::RunMicrotasks: loop: pending_microtask_count %i\n", pending_microtask_count());
     HandleScope scope(this);
     int num_tasks = pending_microtask_count();
     Handle<FixedArray> queue(heap()->microtask_queue(), this);
@@ -2652,7 +2672,7 @@ void Isolate::RunMicrotasks() {
     heap()->set_microtask_queue(heap()->empty_fixed_array());
 
     for (int i = 0; i < num_tasks; i++) {
-      fprintf(stderr, "Isolate::RunMicrotasks: Running task %i/%i\n", i+1, num_tasks);
+      mylog_2("Isolate::RunMicrotasks: Running task %i/%i\n", i+1, num_tasks);
       /* JD: Any microtasks are fatal for now -- not included in record/replay system. Have not yet considered how to deal with them. 
              I also don't understand what kinds of things might be put into this microtask queue. Node.js stuff? Or just V8 stuff? */
       assert(!"Isolate::RunMicrotasks: Not yet supported");

@@ -127,6 +127,10 @@ void mylog_init (void)
 {
   int i = 0;
 
+#ifdef JD_SILENT_LIBUV
+  return;
+#endif
+
   if (initialized)
     return;
   initialized = 1;
@@ -162,6 +166,10 @@ void mylog (enum log_class log_class, int verbosity, const char *format, ...)
 {
   va_list args;
 
+#ifdef JD_SILENT_LIBUV
+  return;
+#endif
+
   assert(log_initialized());
   assert(is_log_class_valid(log_class));
   assert(format);
@@ -188,6 +196,10 @@ void mylog (enum log_class log_class, int verbosity, const char *format, ...)
 void mylog_buf (enum log_class log_class, int verbosity, char *buf, int len)
 {
   int i = 0;
+
+#ifdef JD_SILENT_LIBUV
+  return;
+#endif
 
   assert(log_initialized());
   assert(is_log_class_valid(log_class));

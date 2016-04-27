@@ -56,6 +56,12 @@ void Environment::PrintSyncTrace() const {
   fflush(stderr);
 }
 
+static void mylog_0 (char *fmt)
+{
+#ifndef JD_SILENT_NODE
+  fprintf(stderr, fmt);
+#endif
+}
 
 bool Environment::KickNextTick() {
   TickInfo* info = tick_info();
@@ -75,14 +81,14 @@ bool Environment::KickNextTick() {
 
   info->set_in_tick(true);
 
-  fprintf(stderr, "Environment::KickNextTick: Calling tick_callback_function\n");
+  mylog_0("Environment::KickNextTick: Calling tick_callback_function\n");
 
   // process nextTicks after call
   TryCatch try_catch;
   try_catch.SetVerbose(true);
   tick_callback_function()->Call(process_object(), 0, nullptr);
 
-  fprintf(stderr, "Environment::KickNextTick: Done calling tick_callback_function\n");
+  mylog_0("Environment::KickNextTick: Done calling tick_callback_function\n");
 
   info->set_in_tick(false);
 

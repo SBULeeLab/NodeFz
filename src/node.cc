@@ -152,14 +152,27 @@ static uv_async_t dispatch_debug_messages_async;
 static Isolate* node_isolate = nullptr;
 static v8::Platform* default_platform;
 
+static void mylog_0 (char *fmt)
+{
+#ifndef JD_SILENT_NODE
+  fprintf(stderr, fmt);
+#endif
+}
+
+static void mylog_1 (char *fmt, int arg1)
+{
+#ifndef JD_SILENT_NODE
+  fprintf(stderr, fmt, arg1);
+#endif
+}
 
 static void CheckImmediate(uv_check_t* handle) {
   Environment* env = Environment::from_immediate_check_handle(handle);
   HandleScope scope(env->isolate());
   Context::Scope context_scope(env->context());
-  fprintf(stderr, "node::CheckImmediate: MakeCallback\n");
+  mylog_0("node::CheckImmediate: MakeCallback\n");
   MakeCallback(env, env->process_object(), env->immediate_callback_string());
-  fprintf(stderr, "node::CheckImmediate: MakeCallback done\n");
+  mylog_0("node::CheckImmediate: MakeCallback done\n");
 }
 
 
@@ -944,9 +957,9 @@ void SetupDomainUse(const FunctionCallbackInfo<Value>& args) {
 }
 
 void RunMicrotasks(const FunctionCallbackInfo<Value>& args) {
-  fprintf(stderr, "node::RunMicrotasks: Running tasks\n");
+  mylog_0("node::RunMicrotasks: Running tasks\n");
   args.GetIsolate()->RunMicrotasks();
-  fprintf(stderr, "node::RunMicrotasks: Done running tasks\n");
+  mylog_0("node::RunMicrotasks: Done running tasks\n");
 }
 
 
@@ -3033,9 +3046,9 @@ void LoadEnvironment(Environment* env) {
   env->SetMethod(env->process_object(), "_rawDebug", RawDebug);
 
   Local<Value> arg = env->process_object();
-  fprintf(stderr, "node::LoadEnvironment: f->Call\n");
+  mylog_0("node::LoadEnvironment: f->Call\n");
   f->Call(global, 1, &arg);
-  fprintf(stderr, "node::LoadEnvironment: Done with f\n");
+  mylog_0("node::LoadEnvironment: Done with f\n");
 }
 
 static void PrintHelp();
@@ -3957,9 +3970,9 @@ static void StartNodeInstance(void* arg) {
     if (instance_data->use_debug_agent())
       StartDebug(env, debug_wait_connect);
 
-    fprintf(stderr, "node::StartNodeInstance: Loading the environment\n");
+    mylog_0("node::StartNodeInstance: Loading the environment\n");
     LoadEnvironment(env);
-    fprintf(stderr, "node::StartNodeInstance: Done loading the environment\n");
+    mylog_0("node::StartNodeInstance: Done loading the environment\n");
 
     env->set_trace_sync_io(trace_sync_io);
 
@@ -3990,19 +4003,19 @@ static void StartNodeInstance(void* arg) {
 #endif
 
       uv_mark_init_stack_end();
-      fprintf(stderr, "node::StartNodeInstance: Initial stack is definitely over now\n");
+      mylog_0("node::StartNodeInstance: Initial stack is definitely over now\n");
       do {
-        fprintf(stderr, "node::StartNodeInstance: beginning of loop\n");
+        mylog_0("node::StartNodeInstance: beginning of loop\n");
 
-        fprintf(stderr, "node::StartNodeInstance: pumping message loop\n");
+        mylog_0("node::StartNodeInstance: pumping message loop\n");
         v8::platform::PumpMessageLoop(default_platform, isolate);
-        fprintf(stderr, "node::StartNodeInstance: done pumping message loop\n");
+        mylog_0("node::StartNodeInstance: done pumping message loop\n");
 
-        fprintf(stderr, "node::StartNodeInstance: uv_run\n");
+        mylog_0("node::StartNodeInstance: uv_run\n");
         uv_mark_main_uv_run_begin();
         more = uv_run(env->event_loop(), UV_RUN_ONCE);
         uv_mark_main_uv_run_end();
-        fprintf(stderr, "node::StartNodeInstance: uv_run done (more %i)\n", more);
+        mylog_1("node::StartNodeInstance: uv_run done (more %i)\n", more ? 1 : 0);
 
         if (more == false) {
           v8::platform::PumpMessageLoop(default_platform, isolate);
@@ -4011,14 +4024,14 @@ static void StartNodeInstance(void* arg) {
           // Emit `beforeExit` if the loop became alive either after emitting
           // event, or after running some callbacks.
           more = uv_loop_alive(env->event_loop());
-          fprintf(stderr, "node::StartNodeInstance: uv_run after EmitBeforeExit\n");
+          mylog_0("node::StartNodeInstance: uv_run after EmitBeforeExit\n");
           uv_mark_main_uv_run_begin();
           if (uv_run(env->event_loop(), UV_RUN_NOWAIT) != 0)
             more = true;
           uv_mark_main_uv_run_end();
-          fprintf(stderr, "node::StartNodeInstance: uv_run after EmitBeforeExit done (more %i)\n", more);
+          mylog_1("node::StartNodeInstance: uv_run after EmitBeforeExit done (more %i)\n", more ? 1 : 0);
         }
-        fprintf(stderr, "node::StartNodeInstance: end of loop\n");
+        mylog_0("node::StartNodeInstance: end of loop\n");
       } while (more == true);
     }
 
@@ -4050,7 +4063,7 @@ static void StartNodeInstance(void* arg) {
 }
 
 int Start(int argc, char** argv) {
-  fprintf(stderr, "node::Start: Initial stack code will run soon\n");
+  mylog_0("node::Start: Initial stack code will run soon\n");
   uv_mark_init_stack_begin();
   PlatformInit();
 
@@ -4071,7 +4084,7 @@ int Start(int argc, char** argv) {
   V8::SetEntropySource(crypto::EntropySource);
 #endif
 
-  fprintf(stderr, "node::Start: Initializing V8\n");
+  mylog_0("node::Start: Initializing V8\n");
   const int thread_pool_size = 4;
   default_platform = v8::platform::CreateDefaultPlatform(thread_pool_size);
   V8::InitializePlatform(default_platform);
@@ -4086,10 +4099,10 @@ int Start(int argc, char** argv) {
                                    exec_argc,
                                    exec_argv,
                                    use_debug_agent);
-    fprintf(stderr, "node::Start: Calling StartNodeInstance\n");
+    mylog_0("node::Start: Calling StartNodeInstance\n");
     StartNodeInstance(&instance_data);
     exit_code = instance_data.exit_code();
-    fprintf(stderr, "node::Start: node instance exited with %i\n", exit_code);
+    mylog_1("node::Start: node instance exited with %i\n", exit_code);
   }
   V8::Dispose();
 

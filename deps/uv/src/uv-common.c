@@ -997,10 +997,6 @@ void unified_callback_init (void)
   scheduler_UT();
 #endif
 
-#if JD_SILENT_LIBUV
-  mylog_set_all_verbosity(0);
-#endif
-
   schedule_modeP = getenv("UV_SCHEDULE_MODE");
   schedule_fileP = getenv("UV_SCHEDULE_FILE");
   assert(schedule_modeP && schedule_fileP);
