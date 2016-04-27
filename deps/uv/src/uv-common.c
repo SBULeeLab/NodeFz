@@ -1274,23 +1274,13 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
   /* Identify the origin of the callback. */
   lcbn_cur = lcbn_current_get();
   /* TODO -- happens during 'npm install' after 'end of loop' is printed by Node. During exit I guess. */
-#if 0
   assert(lcbn_cur); /* All callbacks are registered by application or library code. */
-#else
-  if (!lcbn_cur)
-    mylog(LOG_MAIN, 0, "uv__register_callback: New CB that I'm not tracking, TODO!\n");
-#endif
 
   /* Create a new LCBN. */
   lcbn_new = lcbn_create(context, cb, cb_type);
   /* Register it in its context. */
   lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
-#if 0
   lcbn_add_child(lcbn_cur, lcbn_new);
-#else
-  if (lcbn_cur)
-    lcbn_add_child(lcbn_cur, lcbn_new);
-#endif
 
   /* Add to metadata structures. */
   lcbn_new->global_reg_id = lcbn_next_reg_id();
