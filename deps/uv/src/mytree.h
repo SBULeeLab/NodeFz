@@ -19,6 +19,7 @@ struct tree_node_s
   struct list *children;
 
   unsigned child_num; /* Which entry am I in my parent's list of children? Begins with 0. */
+  unsigned depth;     /* How deep in the tree am I? root's depth is 0. */
   struct list_elem parent_child_list_elem;
 
   /* For tree_as_list. */
@@ -47,7 +48,7 @@ void tree_init (tree_node_t *node);
 void tree_add_child (tree_node_t *parent, tree_node_t *child);
 
 /* How far from NODE to root? root is 0, its children are 1, etc. */
-int tree_depth (tree_node_t *node);
+unsigned tree_depth (tree_node_t *node);
 
 tree_node_t * tree_get_parent (tree_node_t *node);
 tree_node_t * tree_get_root (tree_node_t *node);

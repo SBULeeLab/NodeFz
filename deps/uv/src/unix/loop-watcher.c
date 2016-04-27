@@ -111,7 +111,7 @@
     sched_lcbn_t *next_sched_lcbn = NULL;                                     \
     uv_##_name##_t *next_handle = NULL;                                       \
                                                                               \
-    mylog(LOG_MAIN, 9, "uv__run_" #_name ": begin: loop %p\n", loop);         \
+    ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": begin: loop %p\n", loop)); \
                                                                               \
     if (QUEUE_EMPTY(&loop->_name##_handles))                                  \
       goto DONE;                                                              \
@@ -140,7 +140,7 @@
       list_destroy_full(ready_handles, sched_context_list_destroy_func, NULL); \
                                                                               \
     DONE:                                                                     \
-      mylog(LOG_MAIN, 9, "uv__run_" #_name ": returning\n");                  \
+      ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": returning\n"));       \
   }                                                                           \
                                                                               \
   void uv__##_name##_close(uv_##_name##_t* handle) {                          \

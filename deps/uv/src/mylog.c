@@ -27,7 +27,19 @@ char *log_class_strings[] = {
   "UV_IO"
 };
 
-int verbosity_levels[LOG_CLASS_MAX];
+int verbosity_levels[LOG_CLASS_MAX] = {
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0
+};
+
 uv_mutex_t log_lock;
 int initialized = 0;
 FILE *output_stream = NULL;
@@ -53,14 +65,17 @@ static int get_verbosity (enum log_class log_class)
 /* Store a mylog prefix in BUF with space for at least LEN chars.
    If you want monotonically increasing timestamps, hold log_lock before you call. 
    Returns BUF for your chaining convenience. */
+pid_t my_pid = -1;
 static char * mylog_gen_prefix (enum log_class log_class, int verbosity, char *buf, int len)
 {
-  pid_t my_pid = getpid();
   long my_tid = (long) uv_thread_self();
 
   struct timespec now;
   char now_s[64];
   struct tm t;
+
+  if (my_pid == -1)
+    my_pid = getpid();
 
   assert(log_initialized());
   assert(buf);
@@ -73,7 +88,6 @@ static char * mylog_gen_prefix (enum log_class log_class, int verbosity, char *b
   strftime(now_s, sizeof now_s, "%a %b %d %H:%M:%S", &t);
   snprintf(now_s + strlen(now_s), sizeof(now_s) - strlen(now_s), ".%09ld", now.tv_nsec);
 
-  memset(buf, 0, len);
   snprintf(buf, len, "%-10s %-3i %-32s %-7i %-20li ", log_class_strings[log_class], verbosity, now_s, my_pid, (long) my_tid);
   return buf;
 }
@@ -149,11 +163,11 @@ void mylog (enum log_class log_class, int verbosity, const char *format, ...)
   va_list args;
 
   assert(log_initialized());
-
   assert(is_log_class_valid(log_class));
+  assert(format);
+
   if (get_verbosity(log_class) < verbosity)
     return;
-  assert(format);
 
   uv_mutex_lock(&log_lock); /* Thread safety; monotonically increasing log timestamps. */
 
@@ -176,8 +190,8 @@ void mylog_buf (enum log_class log_class, int verbosity, char *buf, int len)
   int i = 0;
 
   assert(log_initialized());
-
   assert(is_log_class_valid(log_class));
+
   if (get_verbosity(log_class) < verbosity)
     return;
 

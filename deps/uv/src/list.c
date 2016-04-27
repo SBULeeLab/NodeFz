@@ -29,7 +29,7 @@ static int list_elem_looks_valid (struct list_elem *e)
 {
   int valid = 1;
 
-  mylog(LOG_LIST, 9, "list_elem_looks_valid: begin: list_elem %p\n", e);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_elem_looks_valid: begin: list_elem %p\n", e));
   if (!e)
   {
     valid = 0;
@@ -44,7 +44,7 @@ static int list_elem_looks_valid (struct list_elem *e)
 
   valid = 1;
   DONE:
-    mylog(LOG_LIST, 9, "list_elem_looks_valid: returning valid %i\n", valid);
+    ENTRY_EXIT_LOG((LOG_LIST, 9, "list_elem_looks_valid: returning valid %i\n", valid));
     return valid;
 }
 
@@ -53,13 +53,15 @@ struct list * list_create (void)
 {
   struct list *ret = (struct list *) uv__malloc(sizeof *ret);
 
-  mylog(LOG_LIST, 9, "list_create: begin\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_create: begin\n"));
 
   assert(ret);
+#if JD_DEBUG_FULL
   memset(ret, 0, sizeof *ret);
+#endif
 
   list_init(ret);
-  mylog(LOG_LIST, 9, "list_create: returning list %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_create: returning list %p\n", ret));
   return ret;
 }
 
@@ -68,7 +70,7 @@ static void list_init (struct list *list)
 {
   pthread_mutexattr_t attr;
 
-  mylog(LOG_LIST, 9, "list_init: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_init: begin: list %p\n", list));
   assert(list);
 
   /* mylog ("list_init: Initializing list %p (done_list %p)\n", list, &done_list); */
@@ -91,14 +93,14 @@ static void list_init (struct list *list)
   pthread_mutexattr_destroy(&attr);
 
   list->n_elts = 0;
-  mylog(LOG_LIST, 9, "list_init: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_init: returning\n"));
 }
 
 /* Cleans up LIST. Does not modify any nodes contained in LIST. 
    You must call list_init again if you wish to re-use LIST. */
 void list_destroy (struct list *list)
 {
-  mylog(LOG_LIST, 9, "list_destroy: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_destroy: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   list__lock(list);
@@ -116,14 +118,14 @@ void list_destroy (struct list *list)
 
   memset(list, 'a', sizeof *list);
   uv__free(list);
-  mylog(LOG_LIST, 9, "list_destroy: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_destroy: returning\n"));
 }
 
 void list_destroy_full (struct list *list, list_destroy_func f, void *aux)
 {
   struct list_elem *e = NULL;
 
-  mylog(LOG_LIST, 9, "list_destroy_full: begin: list %p aux %p\n", list, aux);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_destroy_full: begin: list %p aux %p\n", list, aux));
   assert(list_looks_valid(list));
   if (f)
   {
@@ -136,7 +138,7 @@ void list_destroy_full (struct list *list, list_destroy_func f, void *aux)
   }
 
   list_destroy(list);
-  mylog(LOG_LIST, 9, "list_destroy_full: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_destroy_full: returning\n"));
 }
 
 /* Insert NEW just before NEXT. */
@@ -152,7 +154,7 @@ static void list_insert (struct list_elem *new_elem, struct list_elem *next)
   assert(list_elem_looks_valid(new_elem));
   assert(list_elem_looks_valid(next));
 
-  mylog(LOG_LIST, 9, "list_insert: begin: new_elem %p next %p\n", new_elem, next);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_insert: begin: new_elem %p next %p\n", new_elem, next));
 
   next->prev->next = new_elem;
 
@@ -160,7 +162,7 @@ static void list_insert (struct list_elem *new_elem, struct list_elem *next)
   new_elem->next = next;
 
   next->prev = new_elem;
-  mylog(LOG_LIST, 9, "list_insert: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_insert: returning\n"));
 }
 
 /* Remove ELEM from its current list. */
@@ -168,7 +170,7 @@ struct list_elem * list_remove (struct list *list, struct list_elem *elem)
 {
   struct list_elem *pred = NULL, *succ = NULL; 
 
-  mylog(LOG_LIST, 9, "list_remove: begin: list %p elem %p\n", list, elem);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_remove: begin: list %p elem %p\n", list, elem));
   assert(list_looks_valid(list));
   assert(list_elem_looks_valid(elem));
 
@@ -186,14 +188,14 @@ struct list_elem * list_remove (struct list *list, struct list_elem *elem)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_remove: returning elem %p\n", elem);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_remove: returning elem %p\n", elem));
   return elem;
 }
 
 /* Put ELEM at the end of the list. ELEM must not be NULL. */
 void list_push_back (struct list *list, struct list_elem *elem)
 {
-  mylog(LOG_LIST, 9, "list_push_back: begin: list %p elem %p\n", list, elem);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_push_back: begin: list %p elem %p\n", list, elem));
   assert(list_looks_valid(list));
   assert(elem);
 
@@ -204,13 +206,13 @@ void list_push_back (struct list *list, struct list_elem *elem)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_push_back: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_push_back: returning\n"));
 }
 
 /* Put ELEM at the front of the list. ELEM must not be NULL. */
 void list_push_front (struct list *list, struct list_elem *elem)
 {
-  mylog(LOG_LIST, 9, "list_push_front: begin: list %p elem %p\n", list, elem);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_push_front: begin: list %p elem %p\n", list, elem));
   assert(list_looks_valid(list));
   assert(elem);
 
@@ -220,7 +222,7 @@ void list_push_front (struct list *list, struct list_elem *elem)
   list->n_elts++;
 
   list__unlock(list);
-  mylog(LOG_LIST, 9, "list_push_front: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_push_front: returning\n"));
 }
 
 /* Return the element after ELEM. */
@@ -228,11 +230,11 @@ struct list_elem * list_next (struct list_elem *elem)
 {
   struct list_elem *n = NULL;
 
-  mylog(LOG_LIST, 9, "list_next: begin: elem %p\n", elem);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_next: begin: elem %p\n", elem));
   assert(list_elem_looks_valid(elem));
   n = elem->next;
   assert(list_elem_looks_valid(n));
-  mylog(LOG_LIST, 9, "list_next: returning next %p\n", n);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_next: returning next %p\n", n));
   return n;
 }
 
@@ -244,7 +246,7 @@ struct list_elem * list_front (struct list *list)
 {
   struct list_elem *node = NULL;
 
-  mylog(LOG_LIST, 9, "list_front: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_front: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   list__lock(list);
@@ -256,7 +258,7 @@ struct list_elem * list_front (struct list *list)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_front: returning front %p\n", node);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_front: returning front %p\n", node));
   return node;
 }
 
@@ -268,7 +270,7 @@ struct list_elem * list_back (struct list *list)
 {
   struct list_elem *node = NULL;
 
-  mylog(LOG_LIST, 9, "list_back: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_back: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   list__lock(list);
@@ -279,7 +281,7 @@ struct list_elem * list_back (struct list *list)
     node = NULL;
 
   list__unlock(list);
-  mylog(LOG_LIST, 9, "list_back: returning node %p\n", node);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_back: returning node %p\n", node));
   return node;
 }
 
@@ -288,7 +290,7 @@ struct list_elem * list_pop_front (struct list *list)
 {
   struct list_elem *ret = NULL;
 
-  mylog(LOG_LIST, 9, "list_pop_front: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_pop_front: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   list__lock(list);
@@ -303,7 +305,7 @@ struct list_elem * list_pop_front (struct list *list)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_pop_front: returning front %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_pop_front: returning front %p\n", ret));
   return ret;
 }
 
@@ -313,7 +315,7 @@ struct list_elem * list_pop_back (struct list *list)
   struct list_elem *ret = NULL;
 
   assert(list_looks_valid(list));
-  mylog(LOG_LIST, 9, "list_pop_back: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_pop_back: begin: list %p\n", list));
 
   list__lock(list);
 
@@ -327,7 +329,7 @@ struct list_elem * list_pop_back (struct list *list)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_pop_back: returning back %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_pop_back: returning back %p\n", ret));
   return ret;
 }
 
@@ -341,7 +343,7 @@ struct list * list_split (struct list *list, unsigned split_size)
   struct list *front_list = NULL;
   unsigned orig_size = 0;
 
-  mylog(LOG_LIST, 9, "list_split: begin: list %p size %u\n", list, split_size);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_split: begin: list %p size %u\n", list, split_size));
   assert(list_looks_valid(list));
   list__lock(list);
 
@@ -367,7 +369,7 @@ struct list * list_split (struct list *list, unsigned split_size)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_split: returning front_list %p\n", front_list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_split: returning front_list %p\n", front_list));
   return front_list;
 }
 
@@ -376,7 +378,7 @@ void list_concat (struct list *front, struct list *back)
   struct list_elem *e = NULL;
   unsigned expected_front_size = 0; 
 
-  mylog(LOG_LIST, 9, "list_concat: begin: front %p back %p\n", front, back);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_concat: begin: front %p back %p\n", front, back));
   assert(list_looks_valid(front));
   assert(list_looks_valid(back));
   assert(front != back);
@@ -397,7 +399,7 @@ void list_concat (struct list *front, struct list *back)
   assert(list_size(front) == expected_front_size);
 
   list_destroy(back);
-  mylog(LOG_LIST, 9, "list_concat: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_concat: returning\n"));
 }
 
 /* In a non-empty list, returns the first element.
@@ -406,7 +408,7 @@ struct list_elem * list_begin (struct list *list)
 {
   struct list_elem *ret = NULL;
 
-  mylog(LOG_LIST, 9, "list_begin: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_begin: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   list__lock(list);
@@ -416,7 +418,7 @@ struct list_elem * list_begin (struct list *list)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_begin: returning begin %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_begin: returning begin %p\n", ret));
   return ret;
 }
 
@@ -425,13 +427,13 @@ struct list_elem * list_end (struct list *list)
 {
   struct list_elem *ret = NULL;
 
-  mylog(LOG_LIST, 9, "list_create: begin\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_end: begin\n"));
   assert(list_looks_valid(list));
 
   ret = list_tail(list);
   assert(list_elem_looks_valid(ret));
 
-  mylog(LOG_LIST, 9, "list_create: returning end %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_end: returning end %p\n", ret));
   return ret;
 }
 
@@ -440,12 +442,12 @@ struct list_elem * list_head (struct list *list)
 {
   struct list_elem *ret = NULL;
 
-  mylog(LOG_LIST, 9, "list_head: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_head: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   ret = &list->head;
   assert(list_elem_looks_valid(ret));
-  mylog(LOG_LIST, 9, "list_head: returning head %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_head: returning head %p\n", ret));
   return ret;
 }
 
@@ -454,12 +456,12 @@ static struct list_elem * list_tail (struct list *list)
 {
   struct list_elem *ret = NULL;
 
-  mylog(LOG_LIST, 9, "list_tail: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_tail: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   ret = &list->tail;
   assert(list_elem_looks_valid(ret));
-  mylog(LOG_LIST, 9, "list_tail: returning tail %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_tail: returning tail %p\n", ret));
   return ret;
 }
 
@@ -467,31 +469,30 @@ static struct list_elem * list_tail (struct list *list)
 unsigned list_size (struct list *list)
 {
   unsigned size = 0;
-#ifdef JD_DEBUG
-  struct list_elem *e = NULL;
-#endif
 
-  mylog(LOG_LIST, 9, "list_size: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_size: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   list__lock(list);
 
-#ifdef JD_DEBUG
-  /* DEBUG: Verify LIST->N_ELTS is correct. */
-  size = 0;
-  for (e = list_begin(list); e != list_end(list); e = list_next(e))
+#if JD_DEBUG_FULL
   {
-    assert(list_elem_looks_valid(e));
-    size++;
+    struct list_elem *e = NULL;
+    /* DEBUG: Verify LIST->N_ELTS is correct. */
+    size = 0;
+    for (e = list_begin(list); e != list_end(list); e = list_next(e))
+    {
+      assert(list_elem_looks_valid(e));
+      size++;
+    }
+    assert(size == list->n_elts);
   }
-  assert(size == list->n_elts);
-#else
-  size = list->n_elts;
 #endif
+  size = list->n_elts;
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_size: returning size %u\n", size);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_size: returning size %u\n", size));
   return size;
 }
 
@@ -500,7 +501,7 @@ int list_empty (struct list *list)
 {
   int empty = 0;
 
-  mylog(LOG_LIST, 9, "list_empty: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_empty: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   list__lock(list);
@@ -513,7 +514,7 @@ int list_empty (struct list *list)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_empty: returning empty %i\n", empty);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_empty: returning empty %i\n", empty));
   return empty;
 }
 
@@ -523,7 +524,7 @@ int list_looks_valid (struct list *list)
 {
   int is_valid = 0;
 
-  mylog(LOG_LIST, 9, "list_looks_valid: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_looks_valid: begin: list %p\n", list));
 
   if (!list)
   {
@@ -537,8 +538,7 @@ int list_looks_valid (struct list *list)
     goto DONE;
   }
 
-  list__lock(list);
-
+  /* These tests are thread safe unless the list is concurrently list_destroy'd. */
   is_valid = 1;
   /* Head's next and tail's prev should not be null. */
   if (list->head.next == NULL || list->tail.prev == NULL)
@@ -547,60 +547,51 @@ int list_looks_valid (struct list *list)
   if (list->head.prev != NULL || list->tail.next != NULL)
     is_valid = 0;
 
-  /* Empty list? head <-> tail. */ 
-  if (list->n_elts == 0 &&
-      (list->head.next != &list->tail || list->tail.prev != &list->head))
-  {
-    is_valid = 0;
-  }
-
-  list__unlock(list);
-
   DONE:
-    mylog(LOG_LIST, 9, "list_looks_valid: returning is_valid %i\n", is_valid);
+    ENTRY_EXIT_LOG((LOG_LIST, 9, "list_looks_valid: returning is_valid %i\n", is_valid));
     return is_valid;
 }
 
 /* For external locking. */
 void list_lock (struct list *list)
 {
-  mylog(LOG_LIST, 9, "list_lock: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_lock: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   pthread_mutex_lock(&list->lock);
-  mylog(LOG_LIST, 9, "list_lock: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_lock: returning\n"));
 }
 
 /* For external locking. */
 void list_unlock (struct list *list)
 {
-  mylog(LOG_LIST, 9, "list_unlock: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_unlock: begin: list %p\n", list));
   assert(list_looks_valid(list));
 
   pthread_mutex_unlock (&list->lock);
-  mylog(LOG_LIST, 9, "list_unlock: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_unlock: returning\n"));
 }
 
 /* For internal locking. */
 static void list__lock (struct list *list)
 {
-  mylog(LOG_LIST, 9, "list__lock: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list__lock: begin: list %p\n", list));
   assert(list);
   assert(list->magic == LIST_MAGIC);
 
   pthread_mutex_lock(&list->_lock);
-  mylog(LOG_LIST, 9, "list__lock: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list__lock: returning\n"));
 }
 
 /* For internal locking. */
 static void list__unlock (struct list *list)
 {
-  mylog(LOG_LIST, 9, "list__unlock: begin: list %p\n", list);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list__unlock: begin: list %p\n", list));
   assert(list);
   assert(list->magic == LIST_MAGIC);
 
   pthread_mutex_unlock (&list->_lock);
-  mylog(LOG_LIST, 9, "list__unlock: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list__unlock: returning\n"));
 }
 
 /* Apply F to each element in LIST. */
@@ -608,7 +599,7 @@ void list_apply (struct list *list, list_apply_func apply_func, void *aux)
 {
   struct list_elem *e = NULL;
 
-  mylog(LOG_LIST, 9, "list_apply: begin: list %p aux %p\n", list, aux);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_apply: begin: list %p aux %p\n", list, aux));
   assert(list_looks_valid(list));
   assert(apply_func);
 
@@ -622,7 +613,7 @@ void list_apply (struct list *list, list_apply_func apply_func, void *aux)
 
   list__unlock(list);
 
-  mylog(LOG_LIST, 9, "list_apply: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_apply: returning\n"));
 }
 
 void list_sort (struct list *list, list_sort_func sort_func, void *aux)
@@ -630,7 +621,7 @@ void list_sort (struct list *list, list_sort_func sort_func, void *aux)
   struct list_elem *a = NULL, *b = NULL;
   int sorted = 0;
 
-  mylog(LOG_LIST, 9, "list_sort: begin: list %p aux %p\n", list, aux);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_sort: begin: list %p aux %p\n", list, aux));
   assert(list_looks_valid(list));
   assert(sort_func);
 
@@ -668,7 +659,7 @@ void list_sort (struct list *list, list_sort_func sort_func, void *aux)
   assert(list__sorted(list, sort_func, aux));
 
   list__unlock(list);
-  mylog(LOG_LIST, 9, "list_sort: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_sort: returning\n"));
 }
 
 struct list * list_filter (struct list *list, list_filter_func filter_func, void *aux)
@@ -676,7 +667,7 @@ struct list * list_filter (struct list *list, list_filter_func filter_func, void
   struct list *filtered_nodes = NULL;
   struct list_elem *e = NULL, *next = NULL;
 
-  mylog(LOG_LIST, 9, "list_filter: begin: list %p aux %p\n", list, aux);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_filter: begin: list %p aux %p\n", list, aux));
   assert(list_looks_valid(list));
   assert(filter_func);
 
@@ -696,7 +687,7 @@ struct list * list_filter (struct list *list, list_filter_func filter_func, void
   list__unlock(list);
 
   assert(list_looks_valid(filtered_nodes));
-  mylog(LOG_LIST, 9, "list_filter: returning filtered-out nodes %p\n", filtered_nodes);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_filter: returning filtered-out nodes %p\n", filtered_nodes));
   return filtered_nodes;
 }
 
@@ -707,7 +698,7 @@ static int list__sorted (struct list *list, list_sort_func sort_func, void *aux)
   struct list_elem *a = NULL, *b = NULL;
   int sorted = 1;
 
-  mylog(LOG_LIST, 9, "list__sorted: begin: list %p aux %p\n", list, aux);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list__sorted: begin: list %p aux %p\n", list, aux));
   assert(list_looks_valid(list));
   assert(sort_func);
 
@@ -734,7 +725,7 @@ static int list__sorted (struct list *list, list_sort_func sort_func, void *aux)
   }
 
   DONE:
-    mylog(LOG_LIST, 9, "list__sorted: returning sorted %i\n", sorted);
+    ENTRY_EXIT_LOG((LOG_LIST, 9, "list__sorted: returning sorted %i\n", sorted));
     return sorted;
 }
 
@@ -746,7 +737,7 @@ static void list__swap (struct list_elem *a, struct list_elem *b)
   struct list_elem *orig_a_next = NULL, *orig_a_prev = NULL, *orig_b_next = NULL, *orig_b_prev = NULL, *e = NULL;
   int neighbors = 0;
 
-  mylog(LOG_LIST, 9, "list__swap: begin: a %p b %p\n", a, b);
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list__swap: begin: a %p b %p\n", a, b));
   assert(list_elem_looks_valid(a));
   assert(list_elem_looks_valid(b));
 
@@ -799,7 +790,7 @@ static void list__swap (struct list_elem *a, struct list_elem *b)
     b->next = orig_a_next;
   }
 
-  mylog(LOG_LIST, 9, "list__swap: returning\n");
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list__swap: returning\n"));
 }
 
 /* UNIT TESTING */
@@ -980,7 +971,6 @@ void list_UT (void)
     e = list_pop_back(l);
     entry = list_entry(e, list_UT_elem_t, elem);
 
-    /* mylog(LOG_LIST, 1, "i %i entry %p info %u expected %u\n", i, (void *) entry, entry->info, expected_value); */
     assert(entry->info == expected_value);
     assert(entry == &entries[i]);
     i++;

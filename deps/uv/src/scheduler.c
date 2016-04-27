@@ -44,24 +44,24 @@ static struct list * uv__ready_req_lcbns_wrap (void *wrapper, enum execution_con
 static int scheduler_initialized (void)
 {
   int initialized = 0;
-  mylog(LOG_SCHEDULER, 9, "scheduler_initialized: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_initialized: begin\n"));
   initialized = (scheduler.magic == SCHEDULER_MAGIC);
-  mylog(LOG_SCHEDULER, 9, "scheduler_initialized: returning initialized %i\n", initialized);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_initialized: returning initialized %i\n", initialized));
   return initialized;
 }
 
 static void scheduler_uninitialize (void)
 {
-  mylog(LOG_SCHEDULER, 9, "scheduler_uninitialize: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_uninitialize: begin\n"));
   memset(&scheduler, 0, sizeof scheduler);
-  mylog(LOG_SCHEDULER, 9, "scheduler_uninitialize: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_uninitialize: returning\n"));
 }
 
 static int sched_lcbn_looks_valid (sched_lcbn_t *sched_lcbn)
 {
   int valid = 1;
 
-  mylog(LOG_SCHEDULER, 9, "sched_lcbn_looks_valid: begin: sched_lcbn %p\n", sched_lcbn);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_looks_valid: begin: sched_lcbn %p\n", sched_lcbn));
   if (!sched_lcbn)
   {
     valid = 0;
@@ -82,7 +82,7 @@ static int sched_lcbn_looks_valid (sched_lcbn_t *sched_lcbn)
 
   valid = 1;
   DONE:
-    mylog(LOG_SCHEDULER, 9, "sched_lcbn_looks_valid: returning valid %i\n", valid);
+    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_looks_valid: returning valid %i\n", valid));
     return valid;
 }
 
@@ -90,7 +90,7 @@ static int sched_context_looks_valid (sched_context_t *sched_context)
 {
   int valid = 1;
 
-  mylog(LOG_SCHEDULER, 9, "sched_context_looks_valid: begin: sched_context %p\n", sched_context);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_looks_valid: begin: sched_context %p\n", sched_context));
   if (!sched_context)
   {
     valid = 0;
@@ -105,7 +105,7 @@ static int sched_context_looks_valid (sched_context_t *sched_context)
 
   valid = 1;
   DONE:
-    mylog(LOG_SCHEDULER, 9, "sched_context_looks_valid: returning valid %i\n", valid);
+    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_looks_valid: returning valid %i\n", valid));
     return valid;
 }
 
@@ -119,7 +119,7 @@ static void scheduler__lock (void)
   int had_to_lock_mutex = 0;
   uv_thread_t lock_aspirant = uv_thread_self();
 
-  mylog(LOG_SCHEDULER, 9, "scheduler__lock: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__lock: begin\n"));
   assert(scheduler_initialized());
   assert(uv_thread_self() != (uv_thread_t) NO_HOLDER);
 
@@ -147,12 +147,12 @@ static void scheduler__lock (void)
   assert(current_holder == uv_thread_self());
   assert(1 <= lock_depth);
 
-  mylog(LOG_SCHEDULER, 9, "scheduler__lock: returning (lock_depth %i)\n", lock_depth);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__lock: returning (lock_depth %i)\n", lock_depth));
 }
 
 static void scheduler__unlock (void)
 {
-  mylog(LOG_SCHEDULER, 9, "scheduler__unlock: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__unlock: begin\n"));
   assert(scheduler_initialized());
 
   assert(1 <= lock_depth && current_holder == uv_thread_self());
@@ -163,7 +163,7 @@ static void scheduler__unlock (void)
     uv_mutex_unlock(&scheduler.lock);
   }
 
-  mylog(LOG_SCHEDULER, 9, "scheduler__unlock: returning (lock_depth %i)\n", lock_depth);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__unlock: returning (lock_depth %i)\n", lock_depth));
 }
 
 /* Public APIs. */
@@ -171,7 +171,7 @@ lcbn_t * scheduler_next_scheduled_lcbn (void)
 {
   lcbn_t *next_lcbn = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_next_scheduled_lcbn: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_scheduled_lcbn: begin\n"));
   assert(scheduler_initialized());
 
   if (scheduler.mode != SCHEDULE_MODE_REPLAY)
@@ -192,7 +192,7 @@ lcbn_t * scheduler_next_scheduled_lcbn (void)
   scheduler__unlock();
 
   DONE:
-    mylog(LOG_SCHEDULER, 9, "scheduler_next_scheduled_lcbn: returning next_lcbn %p\n", next_lcbn);
+    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_scheduled_lcbn: returning next_lcbn %p\n", next_lcbn));
     return next_lcbn;
 }
 
@@ -201,7 +201,7 @@ enum callback_type scheduler_next_lcbn_type (void)
   lcbn_t *next_lcbn = NULL;
   enum callback_type cb_type = CALLBACK_TYPE_ANY;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_next_lcbn_type: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_lcbn_type: begin\n"));
   assert(scheduler_initialized());
 
   scheduler__lock();
@@ -215,7 +215,7 @@ enum callback_type scheduler_next_lcbn_type (void)
 
   scheduler__unlock();
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_next_lcbn_type: returning type %i (%s)\n", cb_type, callback_type_to_string(cb_type));
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_lcbn_type: returning type %i (%s)\n", cb_type, callback_type_to_string(cb_type)));
   return cb_type;
 }
 
@@ -261,7 +261,7 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
 
   DONE:
     scheduler__unlock();
-    mylog(LOG_SCHEDULER, 9, "sched_lcbn_is_next: returning is_next %i\n", is_next);
+    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_is_next: returning is_next %i\n", is_next));
     return is_next;
 }
 
@@ -269,7 +269,7 @@ sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn)
 {
   sched_lcbn_t *sched_lcbn = (sched_lcbn_t *) uv__malloc(sizeof *sched_lcbn);
 
-  mylog(LOG_SCHEDULER, 9, "sched_lcbn_create: begin: lcbn %p\n", lcbn);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_create: begin: lcbn %p\n", lcbn));
   assert(lcbn_looks_valid(lcbn));
 
   assert(sched_lcbn);
@@ -279,13 +279,13 @@ sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn)
   sched_lcbn->lcbn = lcbn;
 
   assert(sched_lcbn_looks_valid(sched_lcbn));
-  mylog(LOG_SCHEDULER, 9, "sched_lcbn_create: returning sched_lcbn %p\n", sched_lcbn);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_create: returning sched_lcbn %p\n", sched_lcbn));
   return sched_lcbn;
 } 
 
 void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn)
 {
-  mylog(LOG_SCHEDULER, 9, "sched_lcbn_destroy: begin: sched_lcbn %p\n", sched_lcbn);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_destroy: begin: sched_lcbn %p\n", sched_lcbn));
   assert(sched_lcbn_looks_valid(sched_lcbn));
 
 #ifdef JD_DEBUG
@@ -293,28 +293,28 @@ void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn)
 #endif
   uv__free(sched_lcbn);
 
-  mylog(LOG_SCHEDULER, 9, "sched_lcbn_destroy: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_destroy: returning\n"));
 }
 
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux)
 {
   sched_lcbn_t *sched_lcbn = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "sched_lcbn_list_destroy_func: begin: e %p aux %p\n", e, aux);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_list_destroy_func: begin: e %p aux %p\n", e, aux));
 
   assert(e);
   sched_lcbn = list_entry(e, sched_lcbn_t, elem);
   assert(sched_lcbn_looks_valid(sched_lcbn));
   sched_lcbn_destroy(sched_lcbn);
 
-  mylog(LOG_SCHEDULER, 9, "sched_lcbn_list_destroy_func: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_lcbn_list_destroy_func: returning\n"));
 }
 
 sched_context_t *sched_context_create (enum execution_context exec_context, enum callback_context cb_context, void *wrapper)
 {
   sched_context_t *sched_context = (sched_context_t *) uv__malloc(sizeof *sched_context);
 
-  mylog(LOG_SCHEDULER, 9, "sched_context_create: begin: exec_context %i cb_context %i wrapper %p\n", exec_context, cb_context, wrapper);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_create: begin: exec_context %i cb_context %i wrapper %p\n", exec_context, cb_context, wrapper));
   assert(wrapper);
 
   assert(sched_context);
@@ -326,13 +326,13 @@ sched_context_t *sched_context_create (enum execution_context exec_context, enum
   sched_context->wrapper = wrapper;
 
   assert(sched_context_looks_valid(sched_context));
-  mylog(LOG_SCHEDULER, 9, "sched_context_create: returning sched_context %p\n", sched_context);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_create: returning sched_context %p\n", sched_context));
   return sched_context;
 }
 
 void sched_context_destroy (sched_context_t *sched_context)
 {
-  mylog(LOG_SCHEDULER, 9, "sched_context_destroy: begin: sched_context %p\n", sched_context);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_destroy: begin: sched_context %p\n", sched_context));
   assert(sched_context_looks_valid(sched_context));
 
 #ifdef JD_DEBUG
@@ -340,20 +340,20 @@ void sched_context_destroy (sched_context_t *sched_context)
 #endif
   uv__free(sched_context);
 
-  mylog(LOG_SCHEDULER, 9, "sched_context_destroy: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_destroy: returning\n"));
 }
 
 void sched_context_list_destroy_func (struct list_elem *e, void *aux)
 {
   sched_context_t *sched_context = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "sched_context_list_destroy_func: begin: e %p aux %p\n", e, aux);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_list_destroy_func: begin: e %p aux %p\n", e, aux));
   assert(e);
   sched_context = list_entry(e, sched_context_t, elem);
   assert(sched_context_looks_valid(sched_context));
 
   sched_context_destroy(sched_context);
-  mylog(LOG_SCHEDULER, 9, "sched_context_list_destroy_func: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "sched_context_list_destroy_func: returning\n"));
 }
 
 /* Not thread safe. */
@@ -362,7 +362,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 {
   lcbn_t *lcbn = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "dump_lcbn_tree_list_func: begin: e %p aux %p\n", e, aux);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "dump_lcbn_tree_list_func: begin: e %p aux %p\n", e, aux));
   assert(e);
 
   lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem), 
@@ -373,7 +373,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
   lcbn_to_string(lcbn, dump_buf, sizeof dump_buf);
   fprintf(stderr, "%p: %s\n", (void *) lcbn, dump_buf);
 
-  mylog(LOG_SCHEDULER, 9, "dump_lcbn_tree_list_func: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "dump_lcbn_tree_list_func: returning\n"));
 }
 
 /* Not thread safe. */
@@ -385,7 +385,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   struct list *filtered_nodes = NULL;
   char *line = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_init: begin: mode %i schedule_file %p (%s)\n", mode, schedule_file, schedule_file);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_init: begin: mode %i schedule_file %p (%s)\n", mode, schedule_file, schedule_file));
   assert(schedule_file);
   assert(!scheduler_initialized());
   memset(&scheduler, 0, sizeof scheduler);
@@ -480,23 +480,23 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
   } /* REPLAY mode. */
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_init: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_init: returning\n"));
 }
 
 enum schedule_mode scheduler_get_mode (void)
 {
   enum schedule_mode mode = scheduler.mode;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_get_mode: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_get_mode: begin\n"));
   assert(scheduler_initialized());
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_get_mode: returning mode %i\n", mode);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_get_mode: returning mode %i\n", mode));
   return mode;
 }
 
 void scheduler_register_lcbn (sched_lcbn_t *sched_lcbn)
 {
-  mylog(LOG_SCHEDULER, 9, "scheduler_register_lcbn: begin: sched_lcbn %p\n", sched_lcbn);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_register_lcbn: begin: sched_lcbn %p\n", sched_lcbn));
   assert(scheduler_initialized());
   assert(sched_lcbn_looks_valid(sched_lcbn));
 
@@ -504,7 +504,7 @@ void scheduler_register_lcbn (sched_lcbn_t *sched_lcbn)
   list_push_back(scheduler.registration_schedule, &sched_lcbn->elem);
   scheduler__unlock();
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_register_lcbn: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_register_lcbn: returning\n"));
 }
 
 /* Not thread safe. */
@@ -516,7 +516,7 @@ void scheduler_emit (void)
   sched_lcbn_t *sched_lcbn = NULL;
   struct list_elem *e = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_emit: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_emit: begin\n"));
   assert(scheduler_initialized());
 
   if (scheduler.mode == SCHEDULE_MODE_REPLAY)
@@ -545,7 +545,7 @@ void scheduler_emit (void)
 
   scheduler__unlock();
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_emit: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_emit: returning\n"));
 }
 
 sched_context_t * scheduler_next_context (struct list *sched_context_list)
@@ -553,7 +553,7 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
   struct list_elem *e = NULL;
   sched_context_t *next_sched_context = NULL, *sched_context = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_next_context: begin: sched_context_list %p\n", sched_context_list);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_context: begin: sched_context_list %p\n", sched_context_list));
   assert(scheduler_initialized());
   assert(list_looks_valid(sched_context_list));
 
@@ -597,7 +597,7 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
 
   DONE:
     scheduler__unlock();
-    mylog(LOG_SCHEDULER, 9, "scheduler_next_context: returning next_sched_context %p\n", next_sched_context);
+    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_context: returning next_sched_context %p\n", next_sched_context));
     return next_sched_context;
 }
 
@@ -651,7 +651,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
   struct list_elem *e = NULL;
   sched_lcbn_t *sched_lcbn = NULL, *next_sched_lcbn = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_get_mode: begin: sched_context %p\n", sched_context);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_get_mode: begin: sched_context %p\n", sched_context));
   assert(scheduler_initialized());
   assert(sched_context_looks_valid(sched_context));
   assert(sched_context->wrapper);
@@ -757,7 +757,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
        REPLAY: we may not have found it. */
     assert(next_sched_lcbn || scheduler.mode == SCHEDULE_MODE_REPLAY);
 
-    mylog(LOG_SCHEDULER, 9, "scheduler_next_lcbn: returning next_sched_lcbn %p\n", next_sched_lcbn);
+    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_lcbn: returning next_sched_lcbn %p\n", next_sched_lcbn));
 
     return next_sched_lcbn;
 }
@@ -766,7 +766,7 @@ void scheduler_advance (void)
 {
   lcbn_t *lcbn = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_advance: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_advance: begin\n"));
   assert(scheduler_initialized());
 
   scheduler__lock();
@@ -806,7 +806,7 @@ void scheduler_advance (void)
   scheduler.n_executed++;
 
   scheduler__unlock();
-  mylog(LOG_SCHEDULER, 9, "scheduler_advance: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_advance: returning\n"));
 }
 
 struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context)
@@ -815,7 +815,7 @@ struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context
   uv_handle_t *handle = NULL;
   ready_lcbns_func func = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "uv__ready_handle_lcbns_wrap: begin: wrapper %p context %i\n", wrapper, context);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "uv__ready_handle_lcbns_wrap: begin: wrapper %p context %i\n", wrapper, context));
   assert(wrapper);
   handle = (uv_handle_t *) wrapper;
   assert(handle->magic == UV_HANDLE_MAGIC);
@@ -827,7 +827,7 @@ struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context
   ret = (*func)(handle, context);
   assert(list_looks_valid(ret));
 
-  mylog(LOG_SCHEDULER, 9, "uv__ready_handle_lcbns_wrap: returning ret %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "uv__ready_handle_lcbns_wrap: returning ret %p\n", ret));
   return ret;
 }
 
@@ -837,7 +837,7 @@ static struct list * uv__ready_req_lcbns_wrap (void *wrapper, enum execution_con
   uv_req_t *req = NULL;
   ready_lcbns_func func = NULL;
 
-  mylog(LOG_SCHEDULER, 9, "uv__ready_req_lcbns_wrap: begin: wrapper %p context %i\n", wrapper, context);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "uv__ready_req_lcbns_wrap: begin: wrapper %p context %i\n", wrapper, context));
   assert(wrapper);
   req = (uv_req_t *) wrapper;
   assert(req->magic == UV_REQ_MAGIC);
@@ -847,7 +847,7 @@ static struct list * uv__ready_req_lcbns_wrap (void *wrapper, enum execution_con
 
   ret = (*func)(req, context);
   assert(list_looks_valid(ret));
-  mylog(LOG_SCHEDULER, 9, "uv__ready_req_lcbns_wrap: returning ret %p\n", ret);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "uv__ready_req_lcbns_wrap: returning ret %p\n", ret));
   return ret;
 }
 
@@ -855,7 +855,7 @@ int scheduler_already_run (void)
 {
   int n_already_run = 0;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_already_run: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_already_run: begin\n"));
   assert(scheduler_initialized());
 
   scheduler__lock();
@@ -864,7 +864,7 @@ int scheduler_already_run (void)
 
   scheduler__unlock();
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_already_run: returning n_already_run %i\n", n_already_run);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_already_run: returning n_already_run %i\n", n_already_run));
   return n_already_run;
 }
 
@@ -872,7 +872,7 @@ int scheduler_remaining (void)
 {
   int n_remaining = 0;
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_remaining: begin\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_remaining: begin\n"));
   assert(scheduler_initialized());
 
   scheduler__lock();
@@ -886,7 +886,7 @@ int scheduler_remaining (void)
 
   scheduler__unlock();
 
-  mylog(LOG_SCHEDULER, 9, "scheduler_remaining: returning n_remaining %i\n", n_remaining);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_remaining: returning n_remaining %i\n", n_remaining));
   return n_remaining;
 }
 
@@ -983,9 +983,9 @@ void scheduler_UT (void)
 
 void scheduler_block_until_next (sched_lcbn_t *sched_lcbn)
 {
-  mylog(LOG_SCHEDULER, 9, "scheduler_block_until_next: begin: sched_lcbn %p\n", sched_lcbn);
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_block_until_next: begin: sched_lcbn %p\n", sched_lcbn));
   assert(sched_lcbn_looks_valid(sched_lcbn));
   while (!sched_lcbn_is_next(sched_lcbn))
     uv_thread_yield();
-  mylog(LOG_SCHEDULER, 9, "scheduler_block_until_next: returning\n");
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_block_until_next: returning\n"));
 }

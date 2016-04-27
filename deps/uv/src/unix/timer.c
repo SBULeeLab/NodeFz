@@ -39,11 +39,11 @@ static int uv__timer_ready(uv_timer_t *handle)
 {
   int ready = 0;
 
-  mylog(LOG_TIMER, 9, "uv__timer_ready: begin: handle %p\n", handle);
+  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__timer_ready: begin: handle %p\n", handle));
   assert(handle);
 
   ready = (handle->timeout < handle->loop->time);
-  mylog(LOG_TIMER, 9, "uv__timer_ready: returning ready %i (timeout %llu time %llu)\n", ready, handle->timeout, handle->loop->time);
+  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__timer_ready: returning ready %i (timeout %llu time %llu)\n", ready, handle->timeout, handle->loop->time));
   return ready;
 }
 
@@ -121,7 +121,7 @@ int uv_timer_start(uv_timer_t* handle,
   uint64_t clamped_timeout;
   int rc = 0;
 
-  mylog(LOG_TIMER, 9, "uv__timer_ready: begin: handle %p timeout %llu repeat %llu\n", handle, timeout, repeat);
+  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__timer_ready: begin: handle %p timeout %llu repeat %llu\n", handle, timeout, repeat));
 
   if (cb == NULL)
   {
@@ -154,7 +154,7 @@ int uv_timer_start(uv_timer_t* handle,
 
   rc = 0;
   DONE:
-    mylog(LOG_TIMER, 9, "uv_timer_start: returning rc %i\n", rc);
+    ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv_timer_start: returning rc %i\n", rc));
     return rc;
 }
 
@@ -230,7 +230,7 @@ void uv__run_timers(uv_loop_t* loop) {
   sched_lcbn_t *next_timer_lcbn = NULL;
   uv_timer_t* next_timer_handle = NULL;
 
-  mylog(LOG_TIMER, 9, "uv__run_timers: begin: loop %p\n", loop);
+  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__run_timers: begin: loop %p\n", loop));
 
   if (heap_empty((struct heap *) &loop->timer_heap))
   {
@@ -275,7 +275,7 @@ void uv__run_timers(uv_loop_t* loop) {
   DONE:
     if (ready_timers)
       list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
-    mylog(LOG_TIMER, 9, "uv__run_timers: returning\n");
+    ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__run_timers: returning\n"));
 }
 
 /* Returns a list of sched_lcbn_t's describing the ready LCBNs associated with HANDLE.

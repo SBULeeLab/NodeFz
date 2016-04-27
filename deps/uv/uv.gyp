@@ -131,6 +131,11 @@
             '-Werror',
             '-fstack-protector-all',
             '-fstack-protector-strong',
+            '-DJD_DEBUG',
+            #'-DJD_DEBUG_FULL',
+            #'-DJD_UT',
+            #'-DJD_LOG_EE',
+            '-DJD_SILENT_LIBUV',
             '-Wno-unused-parameter',
           ],
           'sources': [

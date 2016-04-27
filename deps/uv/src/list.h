@@ -66,6 +66,7 @@ void list_destroy_full (struct list *list, list_destroy_func f, void *aux);
 
 unsigned list_size (struct list *list);
 int list_empty (struct list *list);
+/* Not thread safe if the list might be concurrently list_destroy'd. */
 int list_looks_valid (struct list *list);
 
 struct list * list_split (struct list *list, unsigned split_size);

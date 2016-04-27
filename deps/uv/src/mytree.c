@@ -21,7 +21,7 @@ int tree_looks_valid (tree_node_t *node)
 {
   int valid = 1;
 
-  mylog(LOG_TREE, 9, "tree_looks_valid: begin: node %p\n", node);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_looks_valid: begin: node %p\n", node));
   if (!node)
   {
     valid = 0;
@@ -42,7 +42,7 @@ int tree_looks_valid (tree_node_t *node)
 
   valid = 1;
   DONE:
-    mylog(LOG_TREE, 9, "tree_looks_valid: returning valid %i\n", valid);
+    ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_looks_valid: returning valid %i\n", valid));
     return valid;
 }
 
@@ -50,23 +50,26 @@ int tree_looks_valid (tree_node_t *node)
 /* Create/destroy APIs. */
 void tree_init (tree_node_t *node)
 {
-  mylog(LOG_TREE, 9, "tree_init: begin\n");
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_init: begin\n"));
   assert(node);
+#ifdef JD_DEBUG_FULL
   memset(node, 0, sizeof *node);
+#endif
 
   node->magic = TREE_NODE_MAGIC;
   node->parent = NULL;
   node->child_num = 0;
+  node->depth = 0;
   node->children = list_create();
 
   assert(tree_looks_valid(node));
-  mylog(LOG_TREE, 9, "tree_init: returning\n");
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_init: returning\n"));
 }
 
 /* Interactions. */
 void tree_add_child (tree_node_t *parent, tree_node_t *child)
 {
-  mylog(LOG_TREE, 9, "tree_add_child: begin: parent %p child %p\n", parent, child);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_add_child: begin: parent %p child %p\n", parent, child));
   assert(tree_looks_valid(parent));
   assert(tree_looks_valid(child));
 
@@ -75,21 +78,34 @@ void tree_add_child (tree_node_t *parent, tree_node_t *child)
   list_push_back(parent->children, &child->parent_child_list_elem);
   child->parent = parent;
   list_unlock(parent->children);
-  mylog(LOG_TREE, 9, "tree_add_child: returning\n");
+
+  child->depth = parent->depth + 1;
+
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_add_child: returning\n"));
 }
 
-int tree_depth (tree_node_t *node)
+unsigned tree_depth (tree_node_t *node)
 {
-  int depth = -1;
+  unsigned depth = 0;
 
-  mylog(LOG_TREE, 9, "tree_depth: begin: node %p\n", node);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_depth: begin: node %p\n", node));
   assert(tree_looks_valid(node));
 
-  depth = -1;
-  tree_apply_up(node, tree__count, &depth);
-  assert(0 <= depth);
+#if JD_DEBUG_FULL
+  {
+    tree_node_t *nodeP = node;
+    unsigned depth = 0;
+    while (nodeP->parent)
+    {
+      depth++;
+      nodeP = nodeP->parent;
+    }
+    assert(depth == node->depth);
+  }
+#endif
+  depth = node->depth;
 
-  mylog(LOG_TREE, 9, "tree_depth: returning depth %i\n", depth);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_depth: returning depth %i\n", depth));
   return depth;
 }
 
@@ -97,21 +113,21 @@ int tree_depth (tree_node_t *node)
 int tree_is_root (tree_node_t *node)
 {
   int is_root = 0;
-  mylog(LOG_TREE, 9, "tree_is_root: begin: node %p\n", node);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_is_root: begin: node %p\n", node));
   assert(tree_looks_valid(node));
 
   is_root = (node->parent == NULL);
 
-  mylog(LOG_TREE, 9, "tree_is_root: returning is_root %i\n", is_root);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_is_root: returning is_root %i\n", is_root));
   return is_root;
 }
 
 unsigned tree_get_child_num (tree_node_t *node)
 {
-  mylog(LOG_TREE, 9, "tree_get_child_num: begin: node %p\n", node);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_get_child_num: begin: node %p\n", node));
   assert(tree_looks_valid(node));
 
-  mylog(LOG_TREE, 9, "tree_get_child_num: returning child_num %u\n", node->child_num);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_get_child_num: returning child_num %u\n", node->child_num));
   return node->child_num;
 }
 
@@ -120,7 +136,7 @@ void tree_apply (tree_node_t *root, tree_apply_func f, void *aux)
   struct list_elem *e = NULL;
   tree_node_t *n = NULL;
 
-  mylog(LOG_TREE, 9, "tree_apply: begin: root %p aux %p\n", root, aux);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_apply: begin: root %p aux %p\n", root, aux));
   if (!root)
     return;
   assert(tree_looks_valid(root));
@@ -133,12 +149,12 @@ void tree_apply (tree_node_t *root, tree_apply_func f, void *aux)
     tree_apply(n, f, aux);
   }
 
-  mylog(LOG_TREE, 9, "tree_apply: returning\n");
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_apply: returning\n"));
 }
 
 void tree_apply_up (tree_node_t *node, tree_apply_func f, void *aux)
 {
-  mylog(LOG_TREE, 9, "tree_apply_up: begin: node %p aux %p\n", node, aux);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_apply_up: begin: node %p aux %p\n", node, aux));
   if (!node)
     return;
   assert(tree_looks_valid(node));
@@ -146,14 +162,14 @@ void tree_apply_up (tree_node_t *node, tree_apply_func f, void *aux)
 
   (*f)(node, aux);
   tree_apply_up(node->parent, f, aux);
-  mylog(LOG_TREE, 9, "tree_apply_up: returning\n");
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_apply_up: returning\n"));
 }
 
 tree_node_t * tree_get_root (tree_node_t *node)
 {
   tree_node_t *root = NULL;
 
-  mylog(LOG_TREE, 9, "tree_get_root: begin: node %p\n", node);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_get_root: begin: node %p\n", node));
   assert(tree_looks_valid(node));
 
   if (tree_is_root(node))
@@ -165,17 +181,17 @@ tree_node_t * tree_get_root (tree_node_t *node)
     root = tree_get_root(par);
   }
 
-  mylog(LOG_TREE, 9, "tree_init: returning root %p\n", root);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_init: returning root %p\n", root));
   assert(tree_looks_valid(root));
   return root;
 }
 
 tree_node_t * tree_get_parent (tree_node_t *node)
 {
-  mylog(LOG_TREE, 9, "tree_get_parent: begin: node %p\n", node);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_get_parent: begin: node %p\n", node));
   assert(tree_looks_valid(node));
 
-  mylog(LOG_TREE, 9, "tree_get_parent: returning parent %p\n", node->parent);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_get_parent: returning parent %p\n", node->parent));
   return (node->parent);
 }
 
@@ -183,26 +199,26 @@ static void tree__count (tree_node_t *node, void *aux)
 {
   unsigned *counter = (unsigned *) aux;
 
-  mylog(LOG_TREE, 9, "tree__count: begin: node %p aux %p counter %u\n", node, aux, *counter);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree__count: begin: node %p aux %p counter %u\n", node, aux, *counter));
   assert(tree_looks_valid(node));
 
   *counter = *counter + 1;
 
-  mylog(LOG_TREE, 9, "tree__count: returning (counter %u)\n", *counter);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree__count: returning (counter %u)\n", *counter));
 }
 
 unsigned tree_size (tree_node_t *root)
 {
   unsigned size = 0;
 
-  mylog(LOG_TREE, 9, "tree_size: begin: root %p\n", root);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_size: begin: root %p\n", root));
   assert(tree_looks_valid(root));
 
   size = 0;
   tree_apply(root, tree__count, &size);
   assert(1 <= size);
 
-  mylog(LOG_TREE, 9, "tree_size: returning size %u\n", size);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_size: returning size %u\n", size));
   return size;
 }
 
@@ -211,7 +227,7 @@ struct list * tree_as_list (tree_node_t *root)
   struct list *list = NULL;
   unsigned size = 0;
 
-  mylog(LOG_TREE, 9, "tree_as_list: begin: root %p\n", root);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_as_list: begin: root %p\n", root));
   assert(tree_looks_valid(root));
 
   list = list_create();
@@ -222,7 +238,7 @@ struct list * tree_as_list (tree_node_t *root)
   size = tree_size(root);
   assert(size == list_size(list));
 
-  mylog(LOG_TREE, 9, "tree_as_list: returning list %p (size %u)\n", list, size);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_as_list: returning list %p (size %u)\n", list, size));
   return list;
 }
 
@@ -230,12 +246,12 @@ static void tree__add_node_to_list (tree_node_t *node, void *aux)
 {
   struct list *list = (struct list *) aux;
 
-  mylog(LOG_TREE, 9, "tree__add_node_to_list: begin: node %p aux %p\n", node, aux);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree__add_node_to_list: begin: node %p aux %p\n", node, aux));
   assert(tree_looks_valid(node));
   assert(list_looks_valid(list));
 
   list_push_back(list, &node->tree_as_list_elem);
-  mylog(LOG_TREE, 9, "tree__add_node_to_list: returning\n");
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree__add_node_to_list: returning\n"));
 }
 
 typedef struct tree__find_info_s
@@ -249,7 +265,7 @@ tree_node_t * tree_find (tree_node_t *root, tree_find_func f, void *aux)
 {
   tree__find_info_t tree__find_info;
 
-  mylog(LOG_TREE, 9, "tree_find: begin: root %p aux %p\n", root, aux);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_find: begin: root %p aux %p\n", root, aux));
 
   assert(tree_looks_valid(root));
   assert(f);
@@ -260,7 +276,7 @@ tree_node_t * tree_find (tree_node_t *root, tree_find_func f, void *aux)
 
   tree_apply(root, tree__find_helper, &tree__find_info);
 
-  mylog(LOG_TREE, 9, "tree_find: returning match %p\n", tree__find_info.match);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_find: returning match %p\n", tree__find_info.match));
   return tree__find_info.match;
 }
 
@@ -269,7 +285,7 @@ static void tree__find_helper (tree_node_t *node, void *aux)
   tree__find_info_t *tree__find_infoP = (tree__find_info_t *) aux;
   int is_match = 0;
 
-  mylog(LOG_TREE, 9, "tree__find_helper: begin: node %p aux %p\n", node, aux);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree__find_helper: begin: node %p aux %p\n", node, aux));
   assert(tree_looks_valid(node));
 
   /* Already a match -- nothing to do. */
@@ -280,7 +296,7 @@ static void tree__find_helper (tree_node_t *node, void *aux)
   if (is_match)
     tree__find_infoP->match = node;
 
-  mylog(LOG_TREE, 9, "tree__find_helper: returning (match %p)\n", tree__find_infoP->match);
+  ENTRY_EXIT_LOG((LOG_TREE, 9, "tree__find_helper: returning (match %p)\n", tree__find_infoP->match));
   return;
 }
 

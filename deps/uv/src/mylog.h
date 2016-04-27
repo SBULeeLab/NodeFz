@@ -1,6 +1,14 @@
 #ifndef UV_MYLOG_H
 #define UV_MYLOG_H
 
+#ifdef JD_LOG_EE
+  #define ENTRY_EXIT_LOG(x) \
+    mylog x;
+#else
+  #define ENTRY_EXIT_LOG(x) \
+    do { if (0) mylog x; } while (0)
+#endif
+
 enum log_class
 {
   LOG_MAIN = 0,

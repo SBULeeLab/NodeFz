@@ -178,7 +178,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   struct list *pending_wrappers = NULL;
   sched_context_t *sched_context = NULL;
 
-  mylog(LOG_MAIN, 9, "uv__io_poll: begin: loop %p timeout %i\n", loop, timeout);
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__io_poll: begin: loop %p timeout %i\n", loop, timeout));
 
   if (loop->nfds == 0) {
     assert(QUEUE_EMPTY(&loop->watcher_queue));
@@ -233,7 +233,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   real_timeout = timeout;
 
   for (;;) {
-    mylog(LOG_MAIN, 9, "uv__io_poll: Top of the loop\n");
+    mylog(LOG_MAIN, 7, "uv__io_poll: Top of the loop\n");
     /* See the comment for max_safe_timeout for an explanation of why
      * this is necessary.  Executive summary: kernel bug workaround.
      */
@@ -526,7 +526,7 @@ update_timeout:
   }
 
   DONE:
-    mylog(LOG_MAIN, 9, "uv__io_poll: returning\n");
+    ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__io_poll: returning\n"));
 }
 
 

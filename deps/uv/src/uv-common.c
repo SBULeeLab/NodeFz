@@ -87,7 +87,7 @@ char* uv__strndup(const char* s, size_t n) {
 
 void* uv__malloc(size_t size) {
   void *ret = uv__allocator.local_malloc(size);
-#ifdef JD_DEBUG
+#ifdef JD_DEBUG_FULL
   memset(ret, 'c', size);
 #endif
   return ret;
@@ -383,7 +383,7 @@ void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
     h = QUEUE_DATA(q, uv_handle_t, handle_queue);
     if (h->flags & UV__HANDLE_INTERNAL) continue;
 #ifdef UNIFIED_CALLBACK
-    invoke_callback_wrap ((any_func) walk_cb, UV_WALK_CB, (long) h, (long) arg); 
+    invoke_callback_wrap((any_func) walk_cb, UV_WALK_CB, (long) h, (long) arg); 
 #else
     walk_cb(h, arg);
 #endif
@@ -750,7 +750,7 @@ static void cbi_execute_callback (callback_info_t *cbi)
   assert(cbi);
   assert(cbi->cb);
 
-  mylog(LOG_MAIN, 3, "cbi_execute_callback: Begin: cbi %p\n", cbi);
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "cbi_execute_callback: Begin: cbi %p\n", cbi));
 
   /* Invoke the callback. */
   switch (cbi->type)
@@ -902,7 +902,7 @@ static void cbi_execute_callback (callback_info_t *cbi)
       assert(!"cbi_execute_callback: ERROR, unsupported type");
   }
 
-  mylog(LOG_MAIN, 3, "cbi_execute_callback: End\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "cbi_execute_callback: returning\n"));
 }
 
 
@@ -971,17 +971,22 @@ void unified_callback_init (void)
 
   mylog_init();
   mylog_set_verbosity(LOG_MAIN, 9);
-  mylog_set_verbosity(LOG_LCBN, 5);
+  mylog_set_verbosity(LOG_LCBN, 7);
   mylog_set_verbosity(LOG_SCHEDULER, 5);
   mylog_set_verbosity(LOG_THREADPOOL, 9);
   mylog_set_verbosity(LOG_TIMER, 9);
 
-  mylog_set_verbosity(LOG_LIST, 5);
+  mylog_set_verbosity(LOG_LIST, 9);
   mylog_set_verbosity(LOG_MAP, 5);
   mylog_set_verbosity(LOG_TREE, 5);
 
   mylog_set_verbosity(LOG_UV_STREAM, 9);
   mylog_set_verbosity(LOG_UV_IO, 9);
+
+  /* TODO DEBUG. */
+#if 0
+  mylog_set_all_verbosity(0);
+#endif
 
 #ifdef JD_UT
   list_UT();
@@ -992,7 +997,9 @@ void unified_callback_init (void)
   scheduler_UT();
 #endif
 
-/* mylog_set_all_verbosity(0); */
+#if JD_SILENT_LIBUV
+  mylog_set_all_verbosity(0);
+#endif
 
   schedule_modeP = getenv("UV_SCHEDULE_MODE");
   schedule_fileP = getenv("UV_SCHEDULE_FILE");
@@ -1039,7 +1046,7 @@ void invoke_callback (callback_info_t *cbi)
 
   assert(cbi);
 
-  mylog(LOG_MAIN, 7, "invoke_callback: Begin: cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: Begin: cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type)));
 
   cb_context = callback_type_to_context(cbi->type);
   is_logical_cb = (cb_context != CALLBACK_CONTEXT_UNKNOWN);
@@ -1130,15 +1137,15 @@ void invoke_callback (callback_info_t *cbi)
     {
       if (is_active_user_cb && is_base_lcbn)
       {
-        mylog(LOG_MAIN, 9, "invoke_callback: is_active_user_cb %i is_base_lcbn %i; Waiting for exclusive LCBN execution\n", is_active_user_cb, is_base_lcbn);
+        mylog(LOG_MAIN, 7, "invoke_callback: is_active_user_cb %i is_base_lcbn %i; Waiting for exclusive LCBN execution\n", is_active_user_cb, is_base_lcbn);
         while (is_active_user_cb && is_base_lcbn)
           uv_cond_wait(&no_active_lcbn, &invoke_callback_lcbn_lock);
-        mylog(LOG_MAIN, 9, "invoke_callback: Done waiting for exclusive LCBN execution\n");
+        mylog(LOG_MAIN, 7, "invoke_callback: Done waiting for exclusive LCBN execution\n");
       }
       is_active_user_cb = 1;
     }
 
-    mylog(LOG_MAIN, 9, "invoke_callback: I am going to invoke LCBN %p (type %s). is_user_cb %i is_active_user_cb %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), is_user_cb, is_active_user_cb);
+    mylog(LOG_MAIN, 5, "invoke_callback: I am going to invoke LCBN %p (type %s). is_user_cb %i is_active_user_cb %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), is_user_cb, is_active_user_cb);
 
     if (callback_type_to_behavior(lcbn_cur->cb_type) == CALLBACK_BEHAVIOR_RESPONSE)
     {
@@ -1213,7 +1220,7 @@ void invoke_callback (callback_info_t *cbi)
     uv_mutex_unlock(&invoke_callback_lcbn_lock);
   }
 
-  mylog(LOG_MAIN, 7, "invoke_callback: returning\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: returning\n"));
 }
 
 /* Returns time in microseconds (us) relative to the time at which the first CB was invoked. */
@@ -1270,13 +1277,24 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
 
   /* Identify the origin of the callback. */
   lcbn_cur = lcbn_current_get();
+  /* TODO -- happens during 'npm install' after 'end of loop' is printed by Node. During exit I guess. */
+#if 0
   assert(lcbn_cur); /* All callbacks are registered by application or library code. */
+#else
+  if (!lcbn_cur)
+    mylog(LOG_MAIN, 0, "uv__register_callback: New CB that I'm not tracking, TODO!\n");
+#endif
 
   /* Create a new LCBN. */
   lcbn_new = lcbn_create(context, cb, cb_type);
   /* Register it in its context. */
   lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
+#if 0
   lcbn_add_child(lcbn_cur, lcbn_new);
+#else
+  if (lcbn_cur)
+    lcbn_add_child(lcbn_cur, lcbn_new);
+#endif
 
   /* Add to metadata structures. */
   lcbn_new->global_reg_id = lcbn_next_reg_id();
@@ -1310,7 +1328,7 @@ void uv__mark_init_stack_begin (void)
   lcbn_current_set(init_stack_lcbn);
   lcbn_mark_begin(init_stack_lcbn);
 
-  mylog(LOG_MAIN, 9, "uv__mark_init_stack_begin: inital stack has begun\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_begin: inital stack has begun\n"));
 }
 
 /* Note that we've finished the initial application stack. 
@@ -1327,7 +1345,7 @@ void uv__mark_init_stack_end (void)
   lcbn_mark_end(init_stack_lcbn);
   lcbn_current_set(NULL);
 
-  mylog(LOG_MAIN, 9, "uv__mark_init_stack_end: inital stack has ended\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_end: inital stack has ended\n"));
 }
 
 /* Returns non-zero if we're in the application's initial stack, else 0. */
@@ -1339,17 +1357,17 @@ int uv__init_stack_active (void)
 /* Note that we've entered Node's "main" uv_run loop. */
 void uv__mark_main_uv_run_begin (void)
 {
-  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_begin: begin\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_begin: begin\n"));
   emit_marker_event(MARKER_UV_RUN_BEGIN);
-  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_begin: returning\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_begin: returning\n"));
 }
 
 /* Note that we've exited Node's "main" uv_run loop. */
 void uv__mark_main_uv_run_end (void)
 {
-  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_end: begin\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_end: begin\n"));
   emit_marker_event(MARKER_UV_RUN_END);
-  mylog(LOG_MAIN, 9, "uv__mark_main_uv_run_end: returning\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_end: returning\n"));
 }
 
 /* Tracking whether or not we're in uv__run_pending. */
@@ -1361,7 +1379,7 @@ void uv__mark_uv__run_pending_begin (void)
   assert(!uv__run_pending_active);
   uv__run_pending_active = 1;
   uv__uv__run_pending_set_active_cb(NULL);
-  mylog(LOG_MAIN, 9, "uv__mark_uv__run_pending_begin: uv__run_pending has begun\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_uv__run_pending_begin: uv__run_pending has begun\n"));
 }
 
 /* Note that we've finished the libuv uv__run_pending loop.
@@ -1371,7 +1389,7 @@ void uv__mark_uv__run_pending_end (void)
   assert(uv__run_pending_active);
   uv__run_pending_active = 0;
   uv__uv__run_pending_set_active_cb(NULL);
-  mylog(LOG_MAIN, 9, "uv__mark_uv__run_pending_end: uv__run_pending has ended\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_uv__run_pending_end: uv__run_pending has ended\n"));
 }
 
 /* Returns non-zero if we're in uv__run_pending, else 0. */
@@ -1502,7 +1520,7 @@ void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
   invoke_callback(cbi);
 }
 
-/* Metronome events are in a registration chain. 
+/* Marker events are in a registration chain. 
    The first uv_run is a child of the initial stack.
    Each subsequent marker event is a child of the previous one. */
 lcbn_t *prev_marker_event = NULL;
@@ -1511,7 +1529,7 @@ void emit_marker_event (enum callback_type cbt)
   lcbn_t *lcbn = lcbn_create(NULL, NULL, cbt), *parent = NULL;
   sched_lcbn_t *sched_lcbn = sched_lcbn_create(lcbn);
 
-  mylog(LOG_MAIN, 9, "emit_marker_event: begin: cbt %s\n", callback_type_to_string(cbt));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: begin: cbt %s\n", callback_type_to_string(cbt)));
   assert(is_marker_event(cbt));
 
   /* Register as child of the parent. */
@@ -1526,16 +1544,18 @@ void emit_marker_event (enum callback_type cbt)
   lcbn->global_reg_id = lcbn_next_reg_id();
   scheduler_register_lcbn(sched_lcbn);
 
-  /* Wait until we're scheduled to go. */
-  mylog(LOG_MAIN, 9, "emit_marker_event: waiting my turn\n");
   if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
   {
+    /* Wait until we're scheduled to go. */
     enum callback_type next_cb_type = scheduler_next_lcbn_type();
-    mylog(LOG_MAIN, 9, "emit_marker_event: next_cb_type %s\n", callback_type_to_string(next_cb_type));
     assert(is_threadpool_cb(next_cb_type) || next_cb_type == cbt);
-    scheduler_block_until_next(sched_lcbn);
+    if (next_cb_type != cbt)
+    {
+      mylog(LOG_MAIN, 7, "emit_marker_event: waiting my turn; next_cb_type %s\n", callback_type_to_string(next_cb_type));
+      scheduler_block_until_next(sched_lcbn);
+      mylog(LOG_MAIN, 7, "emit_marker_event: done waiting my turn\n");
+    }
   }
-  mylog(LOG_MAIN, 9, "emit_marker_event: done waiting my turn\n");
 
   uv_mutex_lock(&invoke_callback_lcbn_lock);
 
@@ -1557,5 +1577,5 @@ void emit_marker_event (enum callback_type cbt)
   uv_mutex_unlock(&invoke_callback_lcbn_lock);
 
   prev_marker_event = lcbn;
-  mylog(LOG_MAIN, 9, "emit_marker_event: returning\n");
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: returning\n"));
 }
