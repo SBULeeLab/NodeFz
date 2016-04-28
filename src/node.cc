@@ -1963,10 +1963,13 @@ static void JSEmitExit(const FunctionCallbackInfo<Value>& args){
   return;
 }
 
+static void _Exit (int code) {
+  uv_mark_exit_end();
+  exit(code);
+}
 
 void Exit(const FunctionCallbackInfo<Value>& args) {
-  uv_mark_exit_end();
-  exit(args[0]->Int32Value());
+  _Exit(args[0]->Int32Value());
 }
 
 
@@ -4139,6 +4142,9 @@ int Start(int argc, char** argv) {
   delete[] exec_argv;
   exec_argv = nullptr;
 
+  _Exit(exit_code); /* This will call exit(exit_code). */
+  /* Shouldn't get here. */
+  assert(0 == 1);
   return exit_code;
 }
 
