@@ -9,10 +9,12 @@
 
 import logging, argparse
 import Callback as CB
+import Palette
 import gv # http://www.graphviz.org/pdf/gv.3python.pdf, http://www.graphviz.org/doc/info/attrs.html
 import sys
+import re
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 sys.setrecursionlimit(10000)
 
 #input: (node, graph)
@@ -43,12 +45,11 @@ def addNodeAndChildren (node, graph):
 	
 	#assign shape based on behavior
 	behavior = node.getBehavior()
-	if (behavior == "ACTION"):
-		shape = "diamond"
-	elif (behavior == "RESPONSE"):
-		shape = "circle"
-	else:
+	if (behavior == "ACTION" or behavior == "RESPONSE"):
+		# All user code is put in squares so that the 'striped' style works
 		shape = "square"
+	else:
+		shape = "diamond"
 	gv.setv(nodeHandle, "shape", shape)
 	
 	#Edges: parent -> children
@@ -117,12 +118,67 @@ def addExecOrder (tree, digraph):
 			edgeHandle = gv.edge(h1, h2)
 			gv.setv(edgeHandle, "style", "invis")
 
+# input: (rgb) tuple (R,G,B)
+# output: (colorStr) a color string for graphviz
+def rgbToGVColor (rgb):
+	return "#%2x%2x%2x" % (rgb[0], rgb[1], rgb[2])
+
 def addColors (tree, digraph, coloredNodes):
-	coloredCBNodes = [n for n in tree.getExecOrder() if int(n.getRegID()) in coloredNodes]
-	for n in coloredCBNodes:
+	allColoredNodes = {}
+	palette = Palette.Palette(len(coloredNodes))
+
+	for colorGroup in coloredNodes:
+		rgb = palette.nextColor()
+		colorGroupNodes = [n for n in tree.getExecOrder() if int(n.getRegID()) in colorGroup]
+		for n in colorGroupNodes:
+			colors = getattr(n, "_colors", [])
+			colors.append(rgb)
+			setattr(n, "_colors", colors)
+			allColoredNodes[n.getRegID()] = n # Avoids duplicate entries
+
+	for n in allColoredNodes.values():
 		h = getNodeHandle(n, digraph)
-		gv.setv(h, "style", "filled")
-		gv.setv(h, "fillcolor", "red")
+		gv.setv(h, "style", "striped")
+		gv.setv(h, "fillcolor", ':'.join([rgbToGVColor(rgb) for rgb in n._colors]))
+		del n._colors
+
+# input: (colorFile)
+#		Sample file contents:
+# Color 1
+# 2
+# 3
+# Color 2
+# 4
+# 7
+# 9
+# Color 3
+# ...
+# output: List of lists. Each list corresponds to a new set of nodes to color. Each list should be colored differently.
+# Throws any errors it encounters during file IO
+def parseColorFile (colorFile):
+	nodeLists = []
+	foundGroup = 0
+	with open(colorFile) as f:
+		colorGroup = []
+		for line in f:
+			if (re.match('^Color \d', line)):
+				foundGroup = 1
+				# New colorGroup
+				if (colorGroup):
+					logging.debug("parseColorFile: colorGroup <%s>" % (colorGroup))
+					nodeLists.append(colorGroup)
+				colorGroup = []
+			else:
+				# Add to colorGroup
+				assert(re.match('^\d+\\n$', line))
+				colorGroup.append(int(line.rstrip()))
+
+		if (colorGroup):
+			logging.debug("parseColorFile: colorGroup <%s>" % (colorGroup))
+			nodeLists.append(colorGroup)
+
+	assert(foundGroup)
+	return nodeLists
 
 def main():
 	parser = argparse.ArgumentParser(description="Turn a libuv event schedule into a graph in .gv and/or adjacency list format")
@@ -135,7 +191,7 @@ def main():
 	parser.add_argument("--gvF", help="gv output file", type=str)
 	parser.add_argument("--gvOnlyExecuted", help="only include nodes that were executed", action="store_true")
 	parser.add_argument("--gvExecOrder", help="vertical position indicates relative execution order in the gv graph", action="store_true")
-	parser.add_argument("--gvColorFile", help="color the nodes specified in this file (one ID per line)", type=str)
+	parser.add_argument("--gvColorFile", help="color the nodes specified in this file (format: one ID per line. If multiple colors, add lines like 'color i' for integer 0 <= N)", type=str)
 
 	parser.add_argument("--adj", help="generate adjacency list output (provide --adjF). includes only executed nodes", action="store_true")
 	parser.add_argument("--adjF", help="adjacency list output file", type=str)
@@ -157,14 +213,11 @@ def main():
 		assert(args.gvF)
 		logging.info("graphviz: Generating graphviz version of schedule")
 
-		coloredNodes = []
+		coloredNodes = [] # list of lists of grouped nodes
 		if (args.gvColorFile):
 			logging.info("graphviz: Reading gvColorFile %s" % (args.gvColorFile))
 			try:
-				with open(args.gvColorFile) as f:
-					lines = f.readlines()
-					coloredNodes = [int(l.rstrip()) for l in lines]
-					logging.debug("graphviz: coloredNodes: %s" % (coloredNodes))
+				coloredNodes = parseColorFile(args.gvColorFile)
 			except IOError:
 				logging.error("graphviz: Reading gvColorFile %s failed" % (args.gvColorFile))
 				assert(0 == 1)
