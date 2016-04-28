@@ -216,7 +216,7 @@
         try {
           if (!process._exiting) {
             process._exiting = true;
-            process.emit('exit', 1);
+            process.emitExit(1);
           }
         } catch (er) {
           // nothing to be done about it at this point.
@@ -735,7 +735,7 @@
 
       if (!process._exiting) {
         process._exiting = true;
-        process.emit('exit', process.exitCode || 0);
+        process.emitExit(process.exitCode || 0);
       }
       process.reallyExit(process.exitCode || 0);
     };

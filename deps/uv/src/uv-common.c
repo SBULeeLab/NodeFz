@@ -665,6 +665,8 @@ void uv_loop_delete(uv_loop_t* loop) {
 
 /* JD: New functions. */
 static lcbn_t * get_init_stack_lcbn (void);
+static lcbn_t * get_exit_lcbn (void);
+
 static void dump_lcbn_globalorder (void);
 
 static void dump_lcbn_globalorder(void)
@@ -959,6 +961,24 @@ static lcbn_t * get_init_stack_lcbn (void)
   return init_stack_lcbn;
 }
 
+static lcbn_t * get_exit_lcbn (void)
+{
+  static lcbn_t *exit_lcbn = NULL;
+  if (!exit_lcbn)
+  {
+    exit_lcbn = lcbn_create(NULL, NULL, 0);
+
+    exit_lcbn->cb_type = EXIT;
+
+    exit_lcbn->global_exec_id = lcbn_next_exec_id();
+    exit_lcbn->global_reg_id = lcbn_next_reg_id();
+    scheduler_register_lcbn(sched_lcbn_create(exit_lcbn));
+  }
+
+  assert(lcbn_looks_valid(exit_lcbn));
+  return exit_lcbn;
+}
+
 /* Initialize the data structures for the unified callback code. */
 void unified_callback_init (void)
 {
@@ -1140,18 +1160,23 @@ void invoke_callback (callback_info_t *cbi)
     assert(sched_lcbn_is_next(sched_lcbn));
     sched_lcbn_destroy(sched_lcbn);
 
-    /* Only allow one (possibly nested) user CB is allowed at a time. 
+    /* Only one (possibly nested) user CB is allowed at a time. 
        Wait for any currently-active user CB to finish. */
     if (is_user_cb)
     {
-      if (is_active_user_cb && is_base_lcbn)
+      if (is_base_lcbn)
       {
-        mylog(LOG_MAIN, 7, "invoke_callback: is_active_user_cb %i is_base_lcbn %i; Waiting for exclusive LCBN execution\n", is_active_user_cb, is_base_lcbn);
-        while (is_active_user_cb && is_base_lcbn)
-          uv_cond_wait(&no_active_lcbn, &invoke_callback_lcbn_lock);
-        mylog(LOG_MAIN, 7, "invoke_callback: Done waiting for exclusive LCBN execution\n");
+        if (is_active_user_cb)
+        {
+          mylog(LOG_MAIN, 7, "invoke_callback: is_active_user_cb %i is_base_lcbn %i; Waiting for exclusive LCBN execution\n", is_active_user_cb, is_base_lcbn);
+          while (is_active_user_cb && is_base_lcbn)
+            uv_cond_wait(&no_active_lcbn, &invoke_callback_lcbn_lock);
+          mylog(LOG_MAIN, 7, "invoke_callback: Done waiting for exclusive LCBN execution\n");
+          is_active_user_cb = 1;
+        }
+        is_active_user_cb = 1;
       }
-      is_active_user_cb = 1;
+      assert(is_active_user_cb);
     }
 
     mylog(LOG_MAIN, 5, "invoke_callback: I am going to invoke LCBN %p (type %s). is_user_cb %i is_active_user_cb %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), is_user_cb, is_active_user_cb);
@@ -1354,6 +1379,11 @@ int uv__init_stack_active (void)
   return lcbn_is_active(get_init_stack_lcbn());
 }
 
+int uv__exit_active (void)
+{
+  return lcbn_is_active(get_exit_lcbn());
+}
+
 /* Note that we've entered Node's "main" uv_run loop. */
 void uv__mark_main_uv_run_begin (void)
 {
@@ -1368,6 +1398,58 @@ void uv__mark_main_uv_run_end (void)
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_end: begin\n"));
   emit_marker_event(MARKER_UV_RUN_END);
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_end: returning\n"));
+}
+
+void uv__mark_exit_begin (void)
+{
+  lcbn_t *active_lcbn = NULL, *exit_lcbn = NULL;
+
+  /* Can legally be called more than once, just ignore subsequent calls.
+       process.on('exit', function(){ process.exit(1); }); */
+  static int here = 0;
+  if (here)
+    return;
+  here = 1;
+
+  exit_lcbn = get_exit_lcbn();
+  assert(lcbn_looks_valid(exit_lcbn));
+
+  exit_lcbn->executing_thread = pthread_self_internal();
+  active_lcbn = lcbn_current_get();
+
+  /* exit lcbn is the *synchronous* child of the caller (if any), or the child of the initial stack. 
+     NB Its immediate children are invoked *synchronously*, just like INITIAL_STACK's children.
+        We treat it as a separate event for visibility purposes. */
+  if (active_lcbn)
+  {
+    /* TODO Race with threadpool (or what if it's emitted by the threadpool?)? */
+    lcbn_add_child(active_lcbn, exit_lcbn);
+    lcbn_mark_end(active_lcbn);
+  }
+  else
+    lcbn_add_child(get_init_stack_lcbn(), exit_lcbn);
+
+  lcbn_current_set(exit_lcbn);
+  lcbn_mark_begin(exit_lcbn);
+
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_begin: inital stack has begun\n"));
+}
+
+/* Note that we've finished the initial application stack. 
+   Call once after the initial stack is complete. 
+   Pair with uv__mark_exit_begin. */
+void uv__mark_exit_end (void)
+{
+  lcbn_t *exit_lcbn = NULL;
+
+  assert(uv__exit_active()); 
+
+  exit_lcbn = get_exit_lcbn();
+  assert(lcbn_looks_valid(exit_lcbn));
+  lcbn_mark_end(exit_lcbn);
+  lcbn_current_set(NULL);
+
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: inital stack has ended\n"));
 }
 
 /* Tracking whether or not we're in uv__run_pending. */

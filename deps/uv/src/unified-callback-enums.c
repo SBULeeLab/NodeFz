@@ -22,6 +22,7 @@ static char *callback_type_strings[] = {
   "UV__WORK_WORK", "UV__WORK_DONE", 
 
   "INITIAL_STACK",
+  "EXIT",
 
   /* Internal libuv loop events. */
   "MARKER_UV_RUN_BEGIN",

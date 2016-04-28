@@ -1480,12 +1480,14 @@ static Local<Value> ExecuteString(Environment* env,
   Local<v8::Script> script = v8::Script::Compile(source, filename);
   if (script.IsEmpty()) {
     ReportException(env, try_catch);
+    /* TODO Need to uv_mark_exit_end() ? */
     exit(3);
   }
 
   Local<Value> result = script->Run();
   if (result.IsEmpty()) {
     ReportException(env, try_catch);
+    /* TODO Need to uv_mark_exit_end() ? */
     exit(4);
   }
 
@@ -1931,7 +1933,39 @@ static void InitGroups(const FunctionCallbackInfo<Value>& args) {
 #endif  // __POSIX__ && !defined(__ANDROID__)
 
 
+/* JSEmitExit and EmitExit both come here.
+   From node.js, we may call process.emitExit without actually setting process.exitCode. 
+   However, EmitExit is an external function, so presumably sometimes the caller
+   has set process.exitCode. */
+static int _EmitExit(Environment *env, int code) {
+  // process.emit('exit')
+  HandleScope handle_scope(env->isolate());
+  Context::Scope context_scope(env->context());
+  Local<Object> process_object = env->process_object();
+  process_object->Set(env->exiting_string(), True(env->isolate()));
+
+  Local<Value> args[] = {
+    env->exit_string(),
+    Integer::New(env->isolate(), code)
+  };
+
+  mylog_1("_EmitExit: process.emit('exit', %i)\n", code);
+  uv_mark_exit_begin();
+  MakeCallback(env, process_object, "emit", ARRAY_SIZE(args), args);
+
+  // Reload exit code, it may be changed by `emit('exit')`
+  Local<String> exitCode = env->exit_code_string();
+  return process_object->Get(exitCode)->Int32Value();
+}
+
+static void JSEmitExit(const FunctionCallbackInfo<Value>& args){
+  _EmitExit(Environment::GetCurrent(args), args[0]->Int32Value());
+  return;
+}
+
+
 void Exit(const FunctionCallbackInfo<Value>& args) {
+  uv_mark_exit_end();
   exit(args[0]->Int32Value());
 }
 
@@ -2194,6 +2228,7 @@ void FatalException(Isolate* isolate,
     // failed before the process._fatalException function was added!
     // this is probably pretty bad.  Nothing to do but report and exit.
     ReportException(env, error, message);
+    uv_mark_exit_end();
     exit(6);
   }
 
@@ -2209,6 +2244,7 @@ void FatalException(Isolate* isolate,
   if (fatal_try_catch.HasCaught()) {
     // the fatal exception function threw, so we must exit
     ReportException(env, fatal_try_catch);
+    uv_mark_exit_end();
     exit(7);
   }
 
@@ -2217,6 +2253,7 @@ void FatalException(Isolate* isolate,
     if (abort_on_uncaught_exception) {
       ABORT();
     } else {
+      uv_mark_exit_end();
       exit(1);
     }
   }
@@ -2900,6 +2937,7 @@ void SetupProcessObject(Environment* env,
                  StopProfilerIdleNotifier);
   env->SetMethod(process, "_getActiveRequests", GetActiveRequests);
   env->SetMethod(process, "_getActiveHandles", GetActiveHandles);
+  env->SetMethod(process, "emitExit", JSEmitExit);
   env->SetMethod(process, "reallyExit", Exit);
   env->SetMethod(process, "abort", Abort);
   env->SetMethod(process, "chdir", Chdir);
@@ -3007,6 +3045,7 @@ void LoadEnvironment(Environment* env) {
   Local<Value> f_value = ExecuteString(env, MainSource(env), script_name);
   if (try_catch.HasCaught())  {
     ReportException(env, try_catch);
+    /* TODO Need to uv_mark_exit_end() ? */
     exit(10);
   }
   CHECK(f_value->IsFunction());
@@ -3776,25 +3815,16 @@ void EmitBeforeExit(Environment* env) {
 }
 
 
-int EmitExit(Environment* env) {
-  // process.emit('exit')
+int EmitExit(Environment *env) {
+  /* Extract process.exitCode */
   HandleScope handle_scope(env->isolate());
   Context::Scope context_scope(env->context());
   Local<Object> process_object = env->process_object();
   process_object->Set(env->exiting_string(), True(env->isolate()));
-
   Local<String> exitCode = env->exit_code_string();
   int code = process_object->Get(exitCode)->Int32Value();
 
-  Local<Value> args[] = {
-    env->exit_string(),
-    Integer::New(env->isolate(), code)
-  };
-
-  MakeCallback(env, process_object, "emit", ARRAY_SIZE(args), args);
-
-  // Reload exit code, it may be changed by `emit('exit')`
-  return process_object->Get(exitCode)->Int32Value();
+  return _EmitExit(env, code);
 }
 
 
@@ -4037,9 +4067,6 @@ static void StartNodeInstance(void* arg) {
 
     env->set_trace_sync_io(false);
 
-    /* TODO This emits the 'exit' event. Applications may have registered process.on('exit') listeners,
-       which will now be invoked. Need to tell libuv that we're running a dummy "exit" stack, just like
-       the dummy "initial" stack. */
     int exit_code = EmitExit(env);
     if (instance_data->is_main())
       instance_data->set_exit_code(exit_code);

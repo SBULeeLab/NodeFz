@@ -83,7 +83,9 @@ enum callback_type
   UV__WORK_WORK,
   UV__WORK_DONE,
 
+  /* External events. */
   INITIAL_STACK,
+  EXIT,
 
   /* Internal libuv loop events. TODO The scheduler should probably work on events, not callbacks. And there are 'callback' events and 'internal marker' events. */
   MARKER_UV_RUN_BEGIN,

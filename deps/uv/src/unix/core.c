@@ -591,6 +591,15 @@ void uv_mark_main_uv_run_end (void)
   uv__mark_main_uv_run_end(); 
 }
 
+void uv_mark_exit_begin (void)
+{
+  uv__mark_exit_begin();
+}
+
+void uv_mark_exit_end (void)
+{
+  uv__mark_exit_end();
+}
 
 void uv_update_time(uv_loop_t* loop) {
   uv__update_time(loop);
