@@ -14,8 +14,8 @@ import gv # http://www.graphviz.org/pdf/gv.3python.pdf, http://www.graphviz.org/
 import sys
 import re
 
-logging.basicConfig(level=logging.DEBUG)
-sys.setrecursionlimit(10000)
+logging.basicConfig(level=logging.INFO)
+sys.setrecursionlimit(20000)
 
 #input: (node, graph)
 #output: nodeHandle corresponding to node
