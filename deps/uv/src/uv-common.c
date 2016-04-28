@@ -1073,7 +1073,8 @@ void invoke_callback (callback_info_t *cbi)
     else
       assert(!"invoke_callback: Error, unexpected cb_context type");
 
-    /* The threadpool uses the async cb to signal pending 'done' items. Don't include this in the schedule. */
+    /* Mark non-user CBs.
+       The threadpool uses the async cb to signal pending 'done' items. */
     if (cb_context == CALLBACK_CONTEXT_HANDLE && context_handle->type == UV_ASYNC && ((uv_async_t *) context_handle)->async_cb == uv__work_done)
       is_user_cb = 0;
     else
@@ -1095,8 +1096,20 @@ void invoke_callback (callback_info_t *cbi)
 
     /* Embed any extra info. */
     if (lcbn_cur->cb_type == UV_READ_CB)
+    {
+      size_t size      = sizeof(lcbn_cur->extra_info),
+             len       = strnlen(lcbn_cur->extra_info, size),
+             remaining = size - len; 
       /* TODO fd extraction is hack-y. See unix/internal.h: uv__stream_fd. */
-      snprintf(lcbn_cur->extra_info, sizeof lcbn_cur->extra_info, "%li = read(%i)", (ssize_t) cbi->args[1], ((uv_stream_t *) cbi->args[0])->io_watcher.fd);
+      snprintf(lcbn_cur->extra_info + len, remaining, "<%li = read(%i)>", (ssize_t) cbi->args[1], ((uv_stream_t *) cbi->args[0])->io_watcher.fd);
+    }
+    if (!is_user_cb)
+    {
+      size_t size      = sizeof(lcbn_cur->extra_info),
+             len       = strnlen(lcbn_cur->extra_info, size),
+             remaining = size - len; 
+      snprintf(lcbn_cur->extra_info + len, remaining, "<non-user>");
+    }
 
     /* Execution parent (if nested). */
     lcbn_orig = lcbn_current_get();
@@ -1174,6 +1187,7 @@ void invoke_callback (callback_info_t *cbi)
 
     scheduler_advance();
 
+    /* TODO Why not do this? */
     if (is_user_cb)
       lcbn_current_set(lcbn_cur);
 

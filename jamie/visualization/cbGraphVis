@@ -100,6 +100,12 @@ def nodeIsMarker (node):
 	assert(isinstance(node, CB.CallbackNode))
 	return node.isMarkerNode()
 
+#Returns true if node is non-user code rather than a user CB
+#For use with CallbackTree.removeNodes
+def nodeIsNonUserCode (node):
+	assert(isinstance(node, CB.CallbackNode))
+	return (not node.isUserCode())
+
 def addExecOrder (tree, digraph):	
 	cbNodes = tree.getExecOrder()
 	for i in range(0, len(cbNodes)-1):
@@ -123,6 +129,7 @@ def main():
 	parser.add_argument("--schedFile", help="file containing libuv event schedule", required=True, type=str)
 
 	parser.add_argument("--noMarkers", help="do not include the \"marker\" nodes that indicate uv loop progress in the schedule",	action="store_true")
+	parser.add_argument("--onlyUserCode", help="do not include CBs for non-user code",	action="store_true")
 
 	parser.add_argument("--gv", help="generate gv output (provide --gvF)", action="store_true")
 	parser.add_argument("--gvF", help="gv output file", type=str)
@@ -142,20 +149,24 @@ def main():
 		logging.info("Removing marker nodes")
 		tree.removeNodes(nodeIsMarker)
 
+	if (args.onlyUserCode):
+		logging.info("Removing any non-user code")
+		tree.removeNodes(nodeIsNonUserCode)
+
 	if (args.gv):
 		assert(args.gvF)
 		logging.info("graphviz: Generating graphviz version of schedule")
 
 		coloredNodes = []
 		if (args.gvColorFile):
-			logging.info("graphviz: Reading colorFile %s" % (args.colorFile))
+			logging.info("graphviz: Reading gvColorFile %s" % (args.gvColorFile))
 			try:
 				with open(args.gvColorFile) as f:
 					lines = f.readlines()
 					coloredNodes = [int(l.rstrip()) for l in lines]
 					logging.debug("graphviz: coloredNodes: %s" % (coloredNodes))
 			except IOError:
-				logging.error("graphviz: Reading colorFile %s failed" % (args.colorFile))
+				logging.error("graphviz: Reading gvColorFile %s failed" % (args.gvColorFile))
 				assert(0 == 1)
 
 		if (args.gvOnlyExecuted):

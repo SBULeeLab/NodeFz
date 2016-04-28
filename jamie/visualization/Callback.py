@@ -166,6 +166,12 @@ class CallbackNode (object):
 	def getExtraInfo (self):
 		return self.extra_info
 
+	def isUserCode (self):
+		if (re.search('non-user', self.getExtraInfo())):
+			return False
+		else:
+			return True
+
 	def getChildren (self):
 		return self.children
 
