@@ -1717,10 +1717,18 @@ Wed 27 Apr 2016
 
     With --nodedir=~/Desktop/node_project/node, '/usr/bin/node-devel sqlite_simple.js' runs as expected.
 
+--------
 
-   NEXT STEPS:
-     1. Emit the OnExit event, similar to the initial stack LCBN.
-     2. Investigate the 0-0 
+Thur 28 Apr 2016
+
+Worked more closely with Arun today getting our systems together.
+
+1. Hooked 'exit' events into the system.
+2. Cleaned up git branches a bit. Still not perfect but...better...
+3. Added multiple colors to cbGraphVis
+4. Track and optionally remove non-user CBs (i.e. UV_ASYNC_CB for threadpool, but maybe more later).
+
+screen: Running regressiontest to see
 
 --------
 
