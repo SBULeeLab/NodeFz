@@ -252,11 +252,20 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     else
       mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY && is_threadpool_cb(scheduler_next_lcbn_type()))
+    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     {
-      mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s, waiting for a non-threadpool CB to be next\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
-      while (is_threadpool_cb(scheduler_next_lcbn_type()))
-        uv_thread_yield();
+      enum callback_type next_cb_type = scheduler_next_lcbn_type();
+      if (is_threadpool_cb(next_cb_type))
+      {
+        mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s, waiting for a non-threadpool CB to be next\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
+        while (is_threadpool_cb(scheduler_next_lcbn_type()))
+          uv_thread_yield();
+      }
+      if (next_cb_type == MARKER_IO_POLL_END)
+      {
+        mylog(LOG_MAIN, 3, "uv__io_poll: Next up is %s, busting out of this loop\n", callback_type_to_string(next_cb_type));
+        goto DONE; 
+      }
     }
 
     mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing (timeout %i)\n", timeout);
