@@ -130,8 +130,8 @@
             '-Wextra',
             '-Werror',
             '-fstack-protector-all',
-            '-fstack-protector-strong',
             '-DJD_DEBUG',
+            #'-fstack-protector-strong', # Not portable, Ubuntu ships with older gcc
             #'-DJD_DEBUG_FULL',
             #'-DJD_UT',
             #'-DJD_LOG_EE',
