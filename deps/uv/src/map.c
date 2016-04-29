@@ -15,9 +15,12 @@
 struct map
 {
   int magic;
+
+  unsigned table_size;
+  struct list **table;
+
   pthread_mutex_t lock; /* For external locking via map_lock and map_unlock. */
   pthread_mutex_t _lock; /* Don't touch this. For internal locking via map__lock and map__unlock. Recursive. */
-  struct list *list;
 };
 
 struct map_elem
@@ -62,6 +65,7 @@ static struct map_elem * map_elem_create (int key, void *value)
 
   new_map_elem = (struct map_elem *) uv__malloc(sizeof *new_map_elem); 
   assert(new_map_elem);
+  memset(new_map_elem, 0, sizeof(*new_map_elem));
 
   new_map_elem->magic = MAP_ELEM_MAGIC;
   new_map_elem->key = key;
@@ -77,7 +81,9 @@ static void map_elem_destroy (struct map_elem *me)
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_elem_destroy: begin: me %p\n", me));
 
   assert(map_elem_looks_valid(me));
+#if JD_DEBUG
   memset(me, 'a', sizeof *me);
+#endif
   uv__free(me);
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_elem_destroy: returning\n"));
@@ -87,6 +93,7 @@ static void map_elem_destroy (struct map_elem *me)
 struct map * map_create (void)
 {
   struct map *new_map = NULL;
+  unsigned i;
   pthread_mutexattr_t attr;
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_create: begin\n"));
@@ -94,7 +101,12 @@ struct map * map_create (void)
   new_map = (struct map *) uv__malloc(sizeof *new_map);
   assert(new_map);
   new_map->magic = MAP_MAGIC;
-  new_map->list = list_create();
+
+  new_map->table_size = 128;
+  new_map->table = (struct list **) uv__malloc(new_map->table_size*sizeof(struct list *));
+  assert(new_map->table);
+  for (i = 0; i < new_map->table_size; i++)
+    new_map->table[i] = list_create();
 
   pthread_mutex_init(&new_map->lock, NULL);
 
@@ -113,29 +125,45 @@ void map_destroy (struct map *map)
 {
   struct list_elem *le = NULL;
   struct map_elem *me = NULL;
+  unsigned i;
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_destroy: begin: map %p\n", map));
   assert(map_looks_valid(map));
 
   map__lock(map);
-  while (!list_empty(map->list))
+  for (i = 0; i < map->table_size; i++)
   {
-    le = list_pop_front(map->list);
-    assert(le != NULL);
+    while (!list_empty(map->table[i]))
+    {
+      le = list_pop_front(map->table[i]);
+      assert(le != NULL);
 
-    me = list_entry(le, struct map_elem, elem); 
-    assert(map_elem_looks_valid(me));
-    map_elem_destroy(me);
+      me = list_entry(le, struct map_elem, elem); 
+      assert(map_elem_looks_valid(me));
+      map_elem_destroy(me);
 
-    le = NULL;
-    me = NULL;
+      le = NULL;
+      me = NULL;
+    }
+
+    list_destroy(map->table[i]);
+    map->table[i] = NULL;
   }
+
+#if JD_DEBUG
+  memset(map->table, 'a', map->table_size*sizeof(struct list *));
+#endif
+  uv__free(map->table);
+  map->table = NULL;
+
   map__unlock(map);
 
   pthread_mutex_destroy(&map->lock);
   pthread_mutex_destroy(&map->_lock);
 
+#if JD_DEBUG
   memset(map, 'a', sizeof *map);
+#endif
   uv__free(map);
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_destroy: returning\n"));
@@ -144,12 +172,15 @@ void map_destroy (struct map *map)
 unsigned map_size (struct map *map)
 {
   int size = 0;
+  unsigned i;
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_size: begin: map %p\n", map));
   assert(map_looks_valid(map));
 
   map__lock(map);
-  size = list_size(map->list);
+  size = 0;
+  for (i = 0; i < map->table_size; i++)
+    size += list_size(map->table[i]);
   map__unlock(map);
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_size: returning size %u\n", size));
@@ -159,12 +190,21 @@ unsigned map_size (struct map *map)
 int map_empty (struct map *map)
 {
   int empty = 0;
+  unsigned i;
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_empty: begin: map %p\n", map));
   assert(map_looks_valid(map));
 
   map__lock(map);
-  empty = list_empty(map->list);
+  empty = 1;
+  for (i = 0; i < map->table_size; i++)
+  {
+    if (!list_empty(map->table[i]))
+    {
+      empty = 0;
+      break;
+    }
+  }
   map__unlock(map);
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_empty: returning empty %i\n", empty));
@@ -174,6 +214,7 @@ int map_empty (struct map *map)
 int map_looks_valid (struct map *map)
 {
   int is_valid = 0;
+  unsigned i;
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_looks_valid: begin: map %p\n", map));
 
@@ -189,8 +230,17 @@ int map_looks_valid (struct map *map)
   }
 
   is_valid = 1;
-  if (!list_looks_valid(map->list))
-    is_valid = 0;
+  if (map->table)
+  {
+    for (i = 0; i < map->table_size; i++)
+    {
+      if (!list_looks_valid(map->table[i]))
+      {
+        is_valid = 0;
+        break;
+      }
+    }
+  }
 
   DONE:
     ENTRY_EXIT_LOG((LOG_MAP, 9, "map_looks_valid: returning is_valid %i\n", is_valid));
@@ -203,14 +253,17 @@ void map_insert (struct map *map, int key, void *value)
   struct list_elem *le = NULL;
   struct map_elem *me = NULL, *new_me = NULL;
   int in_map = 0;
+  struct list *elem_list = NULL;
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_insert: begin: map %p key %i value %p\n", map, key, value));
   assert(map_looks_valid(map));
 
+  elem_list = map->table[key % map->table_size];
+
   map__lock(map);
   /* If key is in the map already, update value. */
   in_map = 0;
-  for (le = list_begin(map->list); le != list_end(map->list); le = list_next(le))
+  for (le = list_begin(elem_list); le != list_end(elem_list); le = list_next(le))
   {
     assert(le);
     me = list_entry(le, struct map_elem, elem); 
@@ -230,7 +283,7 @@ void map_insert (struct map *map, int key, void *value)
     mylog(LOG_MAP, 8, "map_insert: key %i was not in the map already\n", key);
     /* This key is not yet in the map. Allocate a new map_elem and insert it (at the front for improved locality on subsequent access). */
     new_me = map_elem_create(key, value);
-    list_push_front(map->list, &new_me->elem);
+    list_push_front(elem_list, &new_me->elem);
     in_map = 1;
   }
 
@@ -248,6 +301,7 @@ void * map_lookup (struct map *map, int key, int *found)
   struct list_elem *le = NULL;
   struct map_elem *me = NULL;
   void *ret = NULL;
+  struct list *elem_list = NULL;
 
   ENTRY_EXIT_LOG((LOG_MAP, 9, "map_lookup: begin: map %p key %i found %p\n", map, key, found));
   assert(map_looks_valid(map));
@@ -256,8 +310,10 @@ void * map_lookup (struct map *map, int key, int *found)
   ret = NULL;
   *found = 0;
 
+  elem_list = map->table[key % map->table_size];
+
   map__lock(map);
-  for (le = list_begin(map->list); le != list_end(map->list); le = list_next(le))
+  for (le = list_begin(elem_list); le != list_end(elem_list); le = list_next(le))
   {
     assert(le);
     me = list_entry(le, struct map_elem, elem); 
@@ -286,15 +342,17 @@ void * map_remove (struct map *map, int key, int *found)
   struct list_elem *le = NULL;
   struct map_elem *me = NULL;
   void *ret = NULL;
+  struct list *elem_list = NULL;
 
   assert(map_looks_valid(map));
   assert(found);
 
   ret = NULL;
   *found = 0;
+  elem_list = map->table[key % map->table_size];
 
   map__lock(map);
-  for (le = list_begin(map->list); le != list_end(map->list); le = list_next(le))
+  for (le = list_begin(elem_list); le != list_end(elem_list); le = list_next(le))
   {
     assert(le != NULL);
     me = list_entry(le, struct map_elem, elem); 
@@ -305,7 +363,7 @@ void * map_remove (struct map *map, int key, int *found)
       mylog(LOG_MAP, 8, "map_remove: Found it: me %p key %i value %p\n", me, key, me->value);
       ret = me->value;
       *found = 1;
-      list_remove(map->list, le);
+      list_remove(elem_list, le);
       map_elem_destroy(me);
       break;
     }
@@ -365,7 +423,7 @@ void map_UT (void)
 {
   struct map *m;
   int v1, v2, v3, found;
-  int i;
+  unsigned i = 0, big_map_size = 400;
 
   v1 = 1;
   v2 = 2;
@@ -415,15 +473,16 @@ void map_UT (void)
   assert(map_size(m) == 0);
   assert(map_empty(m) == 1);
 
-  /* Put 100 elements into the map. Repeat. Size should remain 100. */
-  for(i = 0; i < 100; i++)
+  /* Put big_map_size elements into the map. Repeat. Size should remain big_map_size. */
+  for(i = 0; i < big_map_size; i++)
     map_insert(m, i, &v1);
-  assert(map_size(m) == 100);
+  assert(map_size(m) == big_map_size);
   assert(map_lookup(m, 99, &found) == &v1);
   assert(found == 1);
 
-  for(i = 0; i < 100; i++)
+  for(i = 0; i < big_map_size; i++)
     map_insert(m, i, &v2);
+  assert(map_size(m) == big_map_size);
   assert(map_lookup(m, 99, &found) == &v2);
   assert(found == 1);
 
