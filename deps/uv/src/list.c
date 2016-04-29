@@ -15,7 +15,7 @@
 /* Private functions. */
 static void list_init (struct list *list);
 static struct list_elem * list_tail (struct list *list);
-static void list_insert (struct list_elem *, struct list_elem *);
+static void list_insert (struct list *, struct list_elem *x, struct list_elem *x_will_go_before_this);
 static void list__lock (struct list *list);
 static void list__unlock (struct list *list);
 
@@ -116,7 +116,9 @@ void list_destroy (struct list *list)
   pthread_mutex_destroy(&list->lock);
   pthread_mutex_destroy(&list->_lock);
 
+#if JD_DEBUG
   memset(list, 'a', sizeof *list);
+#endif
   uv__free(list);
   ENTRY_EXIT_LOG((LOG_LIST, 9, "list_destroy: returning\n"));
 }
@@ -141,9 +143,12 @@ void list_destroy_full (struct list *list, list_destroy_func f, void *aux)
   ENTRY_EXIT_LOG((LOG_LIST, 9, "list_destroy_full: returning\n"));
 }
 
-/* Insert NEW just before NEXT. */
-static void list_insert (struct list_elem *new_elem, struct list_elem *next)
+/* Insert NEW just before NEXT. 
+   NEW must not be in a list. */
+static void list_insert (struct list *list, struct list_elem *new_elem, struct list_elem *next)
 {
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_insert: begin: new_elem %p next %p\n", new_elem, next));
+  assert(list);
   assert(new_elem);
   assert(next);
 
@@ -151,17 +156,22 @@ static void list_insert (struct list_elem *new_elem, struct list_elem *next)
   if (!list_elem_looks_valid(new_elem))
     new_elem->magic = LIST_ELEM_MAGIC;
 
+  assert(list_looks_valid(list));
   assert(list_elem_looks_valid(new_elem));
   assert(list_elem_looks_valid(next));
 
-  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_insert: begin: new_elem %p next %p\n", new_elem, next));
-
+  list__lock(list);
   next->prev->next = new_elem;
 
   new_elem->prev = next->prev;
   new_elem->next = next;
 
   next->prev = new_elem;
+
+  assert(list_next(new_elem) == next);
+  list->n_elts++;
+  list__unlock(list);
+
   ENTRY_EXIT_LOG((LOG_LIST, 9, "list_insert: returning\n"));
 }
 
@@ -200,10 +210,7 @@ void list_push_back (struct list *list, struct list_elem *elem)
   assert(elem);
 
   list__lock(list);
-
-  list_insert(elem, list_tail(list));
-  list->n_elts++;
-
+  list_insert(list, elem, list_tail(list));
   list__unlock(list);
 
   ENTRY_EXIT_LOG((LOG_LIST, 9, "list_push_back: returning\n"));
@@ -217,11 +224,9 @@ void list_push_front (struct list *list, struct list_elem *elem)
   assert(elem);
 
   list__lock(list);
-
-  list_insert(elem, list_begin (list));
-  list->n_elts++;
-
+  list_insert(list, elem, list_begin(list));
   list__unlock(list);
+
   ENTRY_EXIT_LOG((LOG_LIST, 9, "list_push_front: returning\n"));
 }
 
@@ -333,44 +338,54 @@ struct list_elem * list_pop_back (struct list *list)
   return ret;
 }
 
-/* Return the first SPLIT_SIZE elements of LIST in their own dynamically-allocated list.
-   The caller is responsible for free'ing the returned list.
-   The rest of the LIST remains in LIST. */
-struct list * list_split (struct list *list, unsigned split_size)
+struct list * list_split (struct list *list, unsigned suffix_size)
 {
-  unsigned i = 0, n_elts_moved = 0;
-  struct list_elem *elem = NULL;
-  struct list *front_list = NULL;
+  unsigned i = 0, prefix_size = 0;
+  struct list *new_list = NULL;
+  struct list_elem *e1 = NULL, /* Points to new back of LIST. */
+                   *e2 = NULL, /* Points to front of NEW_LIST. */
+                   *e3 = NULL; /* Points to old back of LIST. */
   unsigned orig_size = 0;
 
-  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_split: begin: list %p size %u\n", list, split_size));
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_split: begin: list %p size %u\n", list, suffix_size));
   assert(list_looks_valid(list));
   list__lock(list);
 
   orig_size = list_size(list);
-  assert(split_size <= orig_size);
+  assert(suffix_size <= orig_size);
+  prefix_size = orig_size - suffix_size;
 
-  front_list = list_create();
+  /* TODO For small SUFFIX_SIZE, it could be significantly faster to start from the back. */
+  e1 = list_front(list);
+  for (i = 0; i < prefix_size-1; i++)
+    e1 = list_next(e1);
+  /* e1 now points to the new back of LIST. */
+  e2 = list_next(e1);
+  e3 = list_back(list);
 
-  n_elts_moved = 0;
-  for (i = 0; i < split_size; i++)
-  {
-    elem = list_pop_front(list);
-    assert(list_elem_looks_valid(elem));
-    list_push_back(front_list, elem);
-    n_elts_moved++;
+  /* Make e1 the back of LIST. */
+  e1->next = &list->tail;
+  list->tail.prev = e1;
 
-    assert(list_size(list) == (orig_size - n_elts_moved));
-    assert(list_size(front_list) == n_elts_moved);
-  }
+  list->n_elts = prefix_size;
 
-  assert(list_size(front_list) == split_size);
-  assert(list_size(front_list) + list_size(list) == orig_size);
+  new_list = list_create();
 
+  /* Make e2 the front of NEW_LIST. */
+  new_list->head.next = e2;
+  e2->prev = &new_list->head;
+
+  /* Make e3 the back of NEW_LIST. */
+  e3->next = &new_list->tail;
+  new_list->tail.prev = e3;
+
+  new_list->n_elts = suffix_size;
+
+  assert(list_size(new_list) + list_size(list) == orig_size);
   list__unlock(list);
 
-  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_split: returning front_list %p\n", front_list));
-  return front_list;
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_split: returning new_list %p\n", new_list));
+  return new_list;
 }
 
 void list_concat (struct list *front, struct list *back)
@@ -619,7 +634,7 @@ void list_apply (struct list *list, list_apply_func apply_func, void *aux)
 void list_sort (struct list *list, list_sort_func sort_func, void *aux)
 {
   struct list_elem *a = NULL, *b = NULL;
-  int sorted = 0;
+  unsigned size;
 
   ENTRY_EXIT_LOG((LOG_LIST, 9, "list_sort: begin: list %p aux %p\n", list, aux));
   assert(list_looks_valid(list));
@@ -627,35 +642,75 @@ void list_sort (struct list *list, list_sort_func sort_func, void *aux)
 
   list__lock(list);
 
-  /* Bubble sort.
-    Until the list is sorted, find an out-of-order pair and swap them.
-    O(n^2), but this is expected to be a run-once operation so NBD. */
-  sorted = 0;
-  while (!sorted)
+  size = list_size(list);
+  mylog(LOG_LIST, 7, "list_sort: size %u\n", size);
+  if (size <= 5)
   {
-    assert(list_looks_valid(list));
-
-    sorted = 1; /* Assume we're done until proved otherwise. */
-    /* Each pass swaps all pairs of out-of-order neighbors. */
-    for (a = list_begin(list); a != list_end(list); a = list_next(a))
+    int sorted = 0;
+    /* Bubble sort.
+       Until the list is sorted, find an out-of-order pair and swap them. */
+    mylog(LOG_LIST, 7, "list_sort: bubble sort'ing\n");
+    while (!sorted)
     {
-      assert(list_elem_looks_valid(a));
-      b = list_next(a);
-      assert(list_elem_looks_valid(b));
+      assert(list_looks_valid(list));
 
-      if (b == list_end(list))
-        break;
-      /* a precedes b, but b < a. */
-      if ((*sort_func)(a, b, aux) == 1)
+      sorted = 1; /* Assume we're done until proved otherwise. */
+      /* Each pass swaps all pairs of out-of-order neighbors. */
+      for (a = list_begin(list); a != list_end(list); a = list_next(a))
       {
-        list__swap(a, b);
-        sorted = 0;
+        assert(list_elem_looks_valid(a));
+        b = list_next(a);
+        assert(list_elem_looks_valid(b));
+
+        if (b == list_end(list))
+          break;
+        /* a precedes b, but b < a. */
+        if ((*sort_func)(a, b, aux) == 1)
+        {
+          list__swap(a, b);
+          sorted = 0;
+        }
       }
     }
+  } /* End of bubble sort. */
+  else
+  {
+    /* Merge sort. */
+    struct list *list_a = list, *list_b = NULL;
+    struct list_elem *a_elem = NULL, *b_elem = NULL;
+
+    mylog(LOG_LIST, 7, "list_sort: merge sort'ing\n", size);
+    list_b = list_split(list_a, size/2);
+    assert(list_size(list_a) + list_size(list_b) == size);
+
+    mylog(LOG_LIST, 8, "list_sort: sorting list_a and list_b\n");
+    list_sort(list_a, sort_func, aux);
+    list_sort(list_b, sort_func, aux);
+    assert(list_size(list_a) + list_size(list_b) == size);
+
+    /* Merge into list_a. */
+    mylog(LOG_LIST, 8, "list_sort: merging list_a and list_b\n");
+    a_elem = list_front(list_a);
+    while (!list_empty(list_b))
+    {
+      b_elem = list_pop_front(list_b);
+      assert(list_elem_looks_valid(b_elem));
+      /* Advance until we get to the end of list_a, or b_elem <= a_elem. */
+      while (a_elem != list_end(list_a) && (*sort_func)(a_elem, b_elem, aux) == -1)
+      {
+        assert(list_elem_looks_valid(a_elem));
+        mylog(LOG_LIST, 8, "list_sort: (*sort_func)(%p, %p, aux) = %i\n", a_elem, b_elem, (*sort_func)(a_elem, b_elem, aux));
+        a_elem = list_next(a_elem);
+      }
+      assert(list_elem_looks_valid(a_elem));
+      list_insert(list_a, b_elem, a_elem);
+    }
+
+    assert(list_size(list_a) == size);
+    list_destroy(list_b);
   }
 
-  /* If we reach this point, we've done a pairwise comparison of every elem in the list.
-     Each element is appropriately ordered relative to its neighbor; transitively, the list is sorted. */
+  assert(list_size(list) == size); 
   assert(list__sorted(list, sort_func, aux));
 
   list__unlock(list);
@@ -848,11 +903,13 @@ static int list_UT_filter_out_evens (struct list_elem *e, void *aux)
 /* Unit test for the list class. */
 void list_UT (void)
 {
-  struct list *l = NULL, *l_evens = NULL;
+  struct list *l = NULL, *l_evens = NULL, *l_suffix = NULL;
   unsigned i, n_entries, expected_value;
   struct list_elem *e = NULL;
   list_UT_elem_t entries[100];
   list_UT_elem_t *entry = NULL;
+
+  memset(entries, 0, sizeof(entries));
 
   n_entries = 100;
 
@@ -865,7 +922,6 @@ void list_UT (void)
   assert(list_empty(l) == 1);
 
   list_destroy(l);
-  assert(list_looks_valid(l) == 0);
 
   /* Create and populate a list. */
   l = list_create();
@@ -927,7 +983,46 @@ void list_UT (void)
 
   /* Combine lists: 99, 97, ..., 1, 98, 96, ..., 2 */
   list_concat(l, l_evens);
-  assert(!list_looks_valid(l_evens));
+
+  i = 0;
+  for (e = list_begin(l); e != list_end(l); e = list_next(e))
+  {
+    if (i < n_entries/2)
+      expected_value = ((n_entries-1) - 2*i);
+    else
+      expected_value = ((n_entries-2) - 2*(i - n_entries/2));
+
+    entry = list_entry(e, list_UT_elem_t, elem);
+    assert(entry);
+    assert(entry->info == expected_value);
+    assert(entry == &entries[expected_value]);
+
+    i++;
+  }
+
+  /* Split in half, verify; concat, verify. */
+  l_suffix = list_split(l, list_size(l)/2);
+  assert(list_size(l) + list_size(l_suffix) == n_entries);
+
+  i = 99;
+  for (e = list_begin(l); e != list_end(l); e = list_next(e))
+  {
+    entry = list_entry(e, list_UT_elem_t, elem);
+    assert(entry->info == i);
+    assert(entry == &entries[i]);
+    i -= 2;
+  }
+  i = 98;
+  for (e = list_begin(l_suffix); e != list_end(l_suffix); e = list_next(e))
+  {
+    entry = list_entry(e, list_UT_elem_t, elem);
+    assert(entry->info == i);
+    assert(entry == &entries[i]);
+    i -= 2;
+  }
+
+  list_concat(l, l_suffix);
+  assert(list_size(l) == n_entries);
 
   i = 0;
   for (e = list_begin(l); e != list_end(l); e = list_next(e))
@@ -982,8 +1077,12 @@ void list_UT (void)
   list_lock(l);
   list_unlock(l);
 
-  list_destroy(l);
+  /* list_looks_valid. */
+  l->magic = 0;
   assert(list_looks_valid(l) == 0);
+  l->magic = LIST_MAGIC;
+
+  list_destroy(l);
 
   mylog(LOG_LIST, 5, "list_UT: passed\n"); 
 }

@@ -69,7 +69,10 @@ int list_empty (struct list *list);
 /* Not thread safe if the list might be concurrently list_destroy'd. */
 int list_looks_valid (struct list *list);
 
-struct list * list_split (struct list *list, unsigned split_size);
+/* Return the final SUFFIX_SIZE elements of LIST in their own dynamically-allocated list.
+   The caller is responsible for free'ing the returned list.
+   The prefix of LIST remains in LIST. */
+struct list * list_split (struct list *list, unsigned suffix_size);
 /* Add the elements of BACK to the end of FRONT. list_destroy's BACK. */
 void list_concat (struct list *front, struct list *back);
 
