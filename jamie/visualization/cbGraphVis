@@ -161,7 +161,12 @@ def parseColorFile (colorFile):
 	with open(colorFile) as f:
 		colorGroup = []
 		for line in f:
-			if (re.match('^Color \d', line)):
+			line = line.rstrip()
+			logging.debug("parseColorFile: line <%s>" % (line))
+			# Ignore whitespace and lines beginning with a #
+			if (re.match('^\s*$', line) or re.match('^\s*#', line)):
+				continue
+			if (re.match('^\s*Color \d', line)):
 				foundGroup = 1
 				# New colorGroup
 				if (colorGroup):
@@ -170,7 +175,7 @@ def parseColorFile (colorFile):
 				colorGroup = []
 			else:
 				# Add to colorGroup
-				assert(re.match('^\d+\\n$', line))
+				assert(re.match('^\s*\d+\s*$', line))
 				colorGroup.append(int(line.rstrip()))
 
 		if (colorGroup):
