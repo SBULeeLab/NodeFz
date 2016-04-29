@@ -21,10 +21,13 @@ struct lcbn_dependency_s
 
 static lcbn_dependency_t * lcbn_dependency_create (lcbn_t *dep)
 {
-  lcbn_dependency_t *lcbn_dep = (lcbn_dependency_t *) uv__malloc(sizeof *lcbn_dep);
+  lcbn_dependency_t *lcbn_dep = NULL;
 
   ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_dependency_create: begin: dep %p\n", dep));
+
+  lcbn_dep = (lcbn_dependency_t *) uv__malloc(sizeof *lcbn_dep);
   assert(lcbn_dep);
+  memset(lcbn_dep, 0, sizeof *lcbn_dep);
 
   lcbn_dep->magic = LCBN_DEPENDENCY_MAGIC;
   lcbn_dep->dependency = dep;

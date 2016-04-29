@@ -407,21 +407,25 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     f = fopen(scheduler.schedule_file, "w");
     assert(f);
     assert(!fclose(f));
+    mylog(LOG_SCHEDULER, 5, "scheduler_init: RECORD: file %s looks OK\n", scheduler.schedule_file);
   }
   else if (scheduler.mode == SCHEDULE_MODE_REPLAY)
   {
     int found = 0;
     size_t dummy = 0;
     struct stat sb;
+    size_t schedule_size = 0;
 
     f = fopen(scheduler.schedule_file, "r");
     assert(f);
     assert(!fstat(fileno(f), &sb));
     assert(0 < sb.st_size);
+    mylog(LOG_SCHEDULER, 5, "scheduler_init: REPLAY: file %s looks OK\n", scheduler.schedule_file);
 
     line = NULL;
     while (0 < getline(&line, &dummy, f))
     {
+      mylog(LOG_SCHEDULER, 5, "scheduler_init: lcbn %u, got line <%s>\n", schedule_size, line);
       /* Remove trailing newline. */
       if(line[strlen(line)-1] == '\n')
         line[strlen(line)-1] = '\0';
@@ -442,13 +446,16 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
       {
         /* Locate the parent_lcbn by name; update the tree. 
            This requires that the input schedule be in REGISTRATION ORDER. */
+        mylog(LOG_SCHEDULER, 5, "scheduler_init: finding parent_lcbn\n");
         parent_lcbn = map_lookup(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->parent_name, sizeof sched_lcbn->lcbn->parent_name), &found);
+        mylog(LOG_SCHEDULER, 5, "scheduler_init: found %i parent_lcbn %p\n", found, parent_lcbn);
         assert(found && lcbn_looks_valid(parent_lcbn));
         tree_add_child(&parent_lcbn->tree_node, &sched_lcbn->lcbn->tree_node);
       }
 
       free(line);
       line = NULL;
+      schedule_size++;
     }
     assert(errno != EINVAL); /* getline failure */
 
@@ -456,6 +463,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
     assert(scheduler.shadow_root);
 
     /* Calculate desired_schedule based on the execution order of the tree we've parsed. */ 
+    mylog(LOG_SCHEDULER, 5, "scheduler_init: calculating desired schedule\n");
     scheduler.desired_schedule = tree_as_list(&scheduler.shadow_root->tree_node);
 
     /* TODO DEBUG: First sort by registration order and print out what we've parsed. */

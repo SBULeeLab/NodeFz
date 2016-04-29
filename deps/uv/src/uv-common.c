@@ -1003,18 +1003,15 @@ void unified_callback_init (void)
   mylog_set_verbosity(LOG_UV_STREAM, 9);
   mylog_set_verbosity(LOG_UV_IO, 9);
 
-  /* TODO DEBUG. */
-#if 0
-  mylog_set_all_verbosity(0);
-#endif
-
 #ifdef JD_UT
+  mylog(LOG_MAIN, 1, "unified_callback_init: Running unit tests\n");
   list_UT();
   map_UT();
   tree_UT();
   lcbn_UT();
   mylog_UT();
   scheduler_UT();
+  mylog(LOG_MAIN, 1, "unified_callback_init: Done running unit tests\n");
 #endif
 
   schedule_modeP = getenv("UV_SCHEDULE_MODE");

@@ -52,9 +52,7 @@ void tree_init (tree_node_t *node)
 {
   ENTRY_EXIT_LOG((LOG_TREE, 9, "tree_init: begin\n"));
   assert(node);
-#ifdef JD_DEBUG_FULL
   memset(node, 0, sizeof *node);
-#endif
 
   node->magic = TREE_NODE_MAGIC;
   node->parent = NULL;
@@ -317,6 +315,9 @@ void tree_UT (void)
   unsigned total_tree_size;
   tree_UT_t *node = NULL;
   tree_UT_t root, children[TREE_UT_FANOUT], grandchildren[TREE_UT_FANOUT*TREE_UT_FANOUT];
+  memset(&root, 0, sizeof root);
+  memset(children, 0, sizeof(children));
+  memset(grandchildren, 0, sizeof(grandchildren));
 
   mylog(LOG_TREE, 5, "tree_UT: begin\n"); 
 
