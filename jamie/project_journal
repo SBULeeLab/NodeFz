@@ -1732,6 +1732,21 @@ screen: Running regressiontest to see
 
 --------
 
+Fri 29 Apr 2016
+
+1. Continued systems integration
+2. Minor performance improvements. regressiontest now passes.
+3. Rework git repo.
+
+--------
+
+Sun 1 May 2016
+
+1. Tweaked paths so that ~/Desktop/node_project/node now points to the noderacer2 version.
+2. Improved the 'update' script with some error checking.
+
+--------
+
   VNC:
     ssh -p2000 -L 5900:localhost:5900 woody.cs.vt.edu #Set up port forwarding on 5900 to woody
     x11vnc -safer -localhost -nopw -once -display :0  #Set up a VNC server listening on localhost on woody.
