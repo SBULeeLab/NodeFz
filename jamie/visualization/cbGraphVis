@@ -198,7 +198,7 @@ def main():
 	parser.add_argument("--gvExecOrder", help="vertical position indicates relative execution order in the gv graph", action="store_true")
 	parser.add_argument("--gvColorFile", help="color the nodes specified in this file (format: one ID per line. If multiple colors, add lines like 'color i' for integer 0 <= N)", type=str)
 
-	parser.add_argument("--adj", help="generate adjacency list output (provide --adjF). includes only executed nodes", action="store_true")
+	parser.add_argument("--adj", help="generate adjacency list output (provide --adjF). includes only executed nodes. ID is regID.", action="store_true")
 	parser.add_argument("--adjF", help="adjacency list output file", type=str)
 
 	args = parser.parse_args()
