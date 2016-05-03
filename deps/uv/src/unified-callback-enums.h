@@ -84,6 +84,7 @@ enum callback_type
   UV__WORK_DONE,
 
   /* External events. */
+  /* TODO Replace with MARKERs. */
   INITIAL_STACK,
   EXIT,
 
