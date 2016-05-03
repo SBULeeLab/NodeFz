@@ -15,7 +15,6 @@ var host = 'www.google.com';
 var runForever = (process.argv[2] && process.argv[2] == '--forever');
 
 /* Helper functions. */
-
 var mylog = function (str) {
   console.log('APP: ' + str);
 };
