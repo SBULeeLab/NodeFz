@@ -69,6 +69,11 @@ class Schedule (object):
 	# output: (execList) returns list of CallbackNodes in increasing execution order. Unexecuted CBs are omitted
 	def _execList (self):
 		return [cb for cb in self.cbTree.getExecOrder() if cb.executed()]
+
+	# input: ()
+	# output: (regList) returns list of CallbackNodes in increasing registration order.
+	def _regList (self):
+		return self.cbTree.getRegOrder()
 		
 	# input: ()
 	# output: () Asserts if this schedule does not "looks valid" -- like a legal libuv schedule
@@ -196,15 +201,42 @@ class Schedule (object):
 	# Throws a ScheduleException if the requested exchange is not feasible
 	def reschedule (self, raceyNodeIDs):
 		nodesToFlip = [self.cbTree.getNodeByRegID(nodeID) for nodeID in raceyNodeIDs]
+		logging.debug("reschedule: nodesToFlip %s" % (nodesToFlip))
+
+		# Validate nodes1
 		for n in nodesToFlip:
+			if (not n):
+				raise ScheduleException('Error, could not find node by reg ID')
+
 			logging.debug("reschedule: raceyNode %s" % (n))
-			assert(not n.isMarkerNode())
-		#TODO I AM HERE -- Adding tree climbing to find async ancestor and so on
+			if (n.isMarkerNode()):
+				raise ScheduleException('Error, one of the nodes to flip is an (unflippable) marker node: %s' % (n.getCBType()))
+			if (n.getCBType() != "UV_TIMER_CB"):
+				raise ScheduleException('Error, one of the nodes to flip is not a timer node, not yet supported: %s' % (n.getCBType()))
+			if (not n.executed()):
+				raise ScheduleException('Error, one of the nodes to flip was not executed')
+			executedChildren = [ch for ch in n.getChildren() if ch.executed()]
+			if (executedChildren):
+				raise ScheduleException('Error, one of the nodes to flip has executed children, not yet supported')
+
+		# Now we have childless timer CBs. We can just swap their exec IDs and it should all work out.
+		nodesToFlip.sort(key=lambda n: n.getExecID())
+		newExecIDs = list(reversed([n.getExecID() for n in nodesToFlip]))
+		for ix, n in enumerate(nodesToFlip):
+			n.setExecID(newExecIDs[ix])
+
+
+		# TODO I AM HERE -- Adding tree climbing to find async ancestor and so on
 		#raise ScheduleException("foo")
 	
 	# input: (file)
 	#	 place to write the schedule
 	# output: ()
 	# Emits this schedule to the specified file.
+	# May raise IOError
 	def emit (self, file):
 		logging.info("Schedule::emit: Emitting schedule to file %s" % (file))
+		regOrder = self._regList()
+		with open(file, 'w') as f:
+			for cb in regOrder:
+				f.write("%s\n" % (cb))

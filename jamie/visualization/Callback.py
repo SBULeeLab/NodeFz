@@ -19,7 +19,8 @@ from gv import node
 #All fields returned by getX are strings	
 class CallbackNode (object):
 	REQUIRED_KEYS = ["name", "context", "context_type", "cb_type", "cb_behavior", "tree_number", "tree_level", "level_entry", "exec_id", "reg_id", "callback_info", "registrar", "tree_parent", "registration_time", "start_time", "end_time", "executing_thread", "active", "finished", "extra_info", "dependencies"]
-	ASYNC_TYPES = [""]
+	ASYNC_TYPES = ["UV_TIMER_CB"]
+	TIME_KEYS = ["registration_time", "start_time", "end_time"]
 	
 	# CallbackString (a string of fields formatted as: 'Callback X: | <key> <value> | <key> <value> | .... |'
 	#   A CallbackString must a key-value pair for all of the members of self.REQUIRED_KEYS
@@ -38,7 +39,7 @@ class CallbackNode (object):
 			logging.debug("CallbackNode::__init__: '%s' -> '%s'" %(key, value)) 					
 						
 		#convert times in s,ns to ns
-		for timeKey in ["registration_time", "start_time", "end_time"]:
+		for timeKey in CallbackNode.TIME_KEYS:
 			timeStr = getattr(self, timeKey, None)
 			match = re.search('(?P<sec>\d+)s\s+(?P<nsec>\d+)ns', timeStr)
 			assert(match)
@@ -61,9 +62,21 @@ class CallbackNode (object):
 		
 
 	def __str__ (self):
-		string = "Callback node: "
+		kvStrings = []
 		for key in self.REQUIRED_KEYS:
-			string += "<%s> <%s> |" % (key, getattr(self, key, None))
+			kvStr = "<%s>" % (key)
+			if key in CallbackNode.TIME_KEYS:
+				# Convert times in ns to s,ns
+				time = int(getattr(self, key))
+				kvStr += " <%ds %dns>" % (time/1e9, time % 1e9) #TODO This doesn't seem to produce the right value? The last 3 digits are off.
+			elif key == "dependencies":
+				deps = getattr(self, key)
+				kvStr += " <%s>" % (", ".join(str(dep) for dep in deps))
+			else:
+				kvStr += " <%s>" % (getattr(self, key))
+
+			kvStrings.append(kvStr)
+		string = " | ".join(kvStrings)
 		return string
 	
 	#setParent(parent)
@@ -141,6 +154,9 @@ class CallbackNode (object):
 	
 	def getExecID (self):
 		return self.exec_id
+
+	def setExecID(self, newID):
+		self.exec_id = str(newID)
 	
 	def getRegID (self):
 		return self.reg_id
@@ -217,10 +233,10 @@ class CallbackNode (object):
 
 	def getChildren (self):
 		return self.children
-	
+
+	# Returns True if this is an async CBN, else False
 	def isAsync (self):
-		#TODO I AM HERE
-		return False
+		return (self.getCBType() in CallbackNode.ASYNC_TYPES)
 
 
 #############################
@@ -335,7 +351,11 @@ class CallbackNodeTree (object):
 	#return the tree nodes in execution order
 	def getExecOrder (self):
 		return sorted(self.getTreeNodes(), key=lambda node: int(node.getExecID()))
-	
+
+	# return the tree nodes in registration order
+	def getRegOrder(self):
+		return sorted(self.getTreeNodes(), key=lambda node: int(node.getRegID()))
+
 	#return the node preceding NODE in the tree execution order
 	def getNodeExecPredecessor (self, node):
 		execOrder = self.getExecOrder()

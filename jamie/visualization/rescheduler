@@ -112,7 +112,7 @@ def parseRaceFile (raceFile):
 def main():
 	parser = argparse.ArgumentParser(description="Produce schedules to explore races")
 	parser.add_argument("--schedFile", help="file containing libuv event schedule", required=True, type=str)	
-	parser.add_argument("--raceFile", help="Set of racey nodes (format: 'race i' followed by one ID per line)", required=True, type=str)
+	parser.add_argument("--raceFile", help="Set of racey nodes (format: 'race i' followed by one reg ID per line)", required=True, type=str)
 	parser.add_argument("--outputPrefix", help="save schedules to outputPrefix_i, one for each race in raceFile", type=str, default="raceySchedule")
 
 	args = parser.parse_args()
@@ -137,12 +137,10 @@ def main():
 			scheduleCopy.reschedule(race)
 	 		logging.info("The schedule from race <%s> is going into outFile %s" % (race, outFile))
 	 		scheduleCopy.emit(outFile)
-	 	except Schedule.ScheduleException:
-	 		logging.info("Sorry, could not achieve race <%s>" % (race))
+	 	except Schedule.ScheduleException as se:
+	 		logging.info("Sorry, could not achieve race <%s>: %s" % (race, se))
 	 	except IOError:
 	 		logging.error("Error, could not write schedule to file <%s>" % (outFile))
-	 		
-	 	#TODO
 
 ###################################
 
