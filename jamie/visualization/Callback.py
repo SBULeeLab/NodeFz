@@ -59,6 +59,8 @@ class CallbackNode (object):
 		
 		self.children = []
 		self.parent = None
+
+		logging.debug("CallbackNode::__init__: {}".format(self))
 		
 
 	def __str__ (self):
@@ -110,14 +112,15 @@ class CallbackNode (object):
 			parent = curr.getParent()
 		return curr
 		
-	#isDescendant(other)
-	#True if OTHER is a descendant (child, grand-child, etc.) of self, else false
-	def isDescendant (self, other):
-		assert(isinstance(other, CallbackNode))
+	# input (potentialDescendant)
+	# output (True/False)
+	#True if potentialDescendant is a descendant (child, grand-child, etc.) of self, else False
+	def isAncestorOf (self, potentialDescendant):
+		assert(isinstance(potentialDescendant, CallbackNode))
 		for child in self.children:
-			if (child.reg_id == other.reg_id):
+			if (child.getRegID() == potentialDescendant.getRegID()):
 				return True
-			if (child.isDescendant(other)):
+			if (child.isAncestorOf(potentialDescendant)):
 				return True
 		return False		
 	
@@ -225,8 +228,10 @@ class CallbackNode (object):
 	def getExtraInfo (self):
 		return self.extra_info
 
+	# Return True if this is user code
+	# Else False -- marker nodes or internal libuv mechanisms that just "look like" user code (e.g. the UV_ASYNC_CB used for the threadpool)
 	def isUserCode (self):
-		if (re.search('non-user', self.getExtraInfo())):
+		if (self.isMarkerNode() or re.search('non-user', self.getExtraInfo())):
 			return False
 		else:
 			return True
@@ -237,7 +242,6 @@ class CallbackNode (object):
 	# Returns True if this is an async CBN, else False
 	def isAsync (self):
 		return (self.getCBType() in CallbackNode.ASYNC_TYPES)
-
 
 #############################
 # CallbackNodeTree
@@ -369,6 +373,11 @@ class CallbackNodeTree (object):
 				return pred
 			pred = curr
 		assert("CallbackNodeTree::getNodeExecPredecessor: Error, did not find node with execID %s in tree" % (node.getExecID()))
+
+	# input: (node)
+	# output: (descendants) List of descendants (children, grandchildren, etc.) of node
+	def getDescendants (self, node):
+		return [n for n in self.callbackNodes if node.isAncestorOf(n)]
 	
 	# #Transform the tree into an intermediate format for more convenient schedule re-arrangement.
 	# #This may add new nodes and change the exec_id of many nodes.
@@ -390,6 +399,3 @@ class CallbackNodeTree (object):
 	# 		assert(pred.getCBType() == 'UV_AFTER_WORK_CB')
 	# 		assert(async.getCBType() == 'UV_ASYNC_CB')
 	# 		logging.debug("LOOKS OK")
-			
-	def write (self, fileName):
-		assert(not "CallbackNodeTree::write: Not yet implemented")
