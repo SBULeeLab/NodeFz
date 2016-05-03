@@ -7,6 +7,7 @@
 
 import re
 import logging
+from gv import node
 
 #############################
 # CallbackNode
@@ -14,9 +15,11 @@ import logging
 
 #Representation of a Callback Node from libuv
 #self.REQUIRED_KEYS describes the members set in the constructor
-#Other members that can be set via methods:	children, parent		
+#Other members that can be set via methods:	children, parent	
+#All fields returned by getX are strings	
 class CallbackNode (object):
 	REQUIRED_KEYS = ["name", "context", "context_type", "cb_type", "cb_behavior", "tree_number", "tree_level", "level_entry", "exec_id", "reg_id", "callback_info", "registrar", "tree_parent", "registration_time", "start_time", "end_time", "executing_thread", "active", "finished", "extra_info", "dependencies"]
+	ASYNC_TYPES = [""]
 	
 	# CallbackString (a string of fields formatted as: 'Callback X: | <key> <value> | <key> <value> | .... |'
 	#   A CallbackString must a key-value pair for all of the members of self.REQUIRED_KEYS
@@ -162,7 +165,47 @@ class CallbackNode (object):
 			return True
 		else:
 			return False
+		
+	def isThreadpoolCB (self):		
+		validOptions = ["UV__WORK_WORK", "UV_WORK_CB", "UV_FS_WORK_CB", "UV_GETADDRINFO_WORK_CB", "UV_GETNAMEINFO_WORK_CB"]
+		return (self.getCBType() in validOptions)
+		
+	def isRunTimersCB (self):		
+		validOptions = ["UV_TIMER_CB"]
+		return (self.getCBType() in validOptions)
 
+	def isRunPendingCB (self):		
+		validOptions = ["UV_WRITE_CB"]
+		return (self.getCBType() in validOptions)	
+		
+	def isRunIdleCB (self):		
+		validOptions = ["UV_IDLE_CB"]
+		return (self.getCBType() in validOptions)
+		
+	def isRunPrepareCB (self):		
+		validOptions = ["UV_PREPARE_CB"]
+		return (self.getCBType() in validOptions)
+
+	def isIOPollCB (self):
+		cbType = self.getCBType()
+		#TODO Is this list complete? If so, update unified-callback-enums.c
+		#if (cbType == "UV_ASYNC_CB" or cbType == "UV_WRITE_CB" or cbType == "UV_READ_CB" or cbType == "UV_CONNECT_CB"):
+		
+		#TODO This is a hack.
+		if (cbType != "MARKER_IO_POLL_END"):
+			return True
+		else:
+			return False
+		
+	def isRunCheckCB (self):		
+		validOptions = ["UV_CHECK_CB"]
+		return (self.getCBType() in validOptions)
+
+	def isRunClosingCB (self):
+		#TODO Is this correct?
+		validOptions = ["UV_CLOSING_CB"]
+		return (self.getCBType() in validOptions)
+					
 	def getExtraInfo (self):
 		return self.extra_info
 
@@ -174,6 +217,10 @@ class CallbackNode (object):
 
 	def getChildren (self):
 		return self.children
+	
+	def isAsync (self):
+		#TODO I AM HERE
+		return False
 
 
 #############################
@@ -189,11 +236,15 @@ class CallbackNodeTree (object):
 	def __init__ (self, inputFile):
 		#construct callbackNodes
 		self.callbackNodes = []
-		with open(inputFile) as f:
-			lines = f.readlines()
-			for l in lines:
-				node = CallbackNode(l)
-				self.callbackNodes.append(node)
+		try:
+			with open(inputFile) as f:
+				lines = f.readlines()
+				for l in lines:
+					node = CallbackNode(l)
+					self.callbackNodes.append(node)
+		except IOError:
+			logging.error("CallbackNodeTree::__init__: Error, processing inputFile %s gave me an IOError" % (inputFile))
+			raise
 				
 		#construct callbackNodeDict
 		self.callbackNodeDict = {}
@@ -226,6 +277,22 @@ class CallbackNodeTree (object):
 			#logging.debug("CallbackNodeTree::_updateDependencies: callbackNodeDict %s" % (self.callbackNodeDict))
 			node.dependencies = [self.callbackNodeDict[n] for n in node.dependencies]
 			logging.debug("CallbackNodeTree::_updateDependencies: Node %s's dependencies: %s" % (node.getName(), node.dependencies))
+		
+	#input: (regID)
+	#output: (node) node with specified regID, or None
+	def getNodeByRegID (self, regID):
+		for node in self.callbackNodes:
+			if (node.getRegID() == str(regID)):
+				return node
+		return None
+	
+	#input: (execID)
+	#output: (node) node with specified execID, or None
+	def getNodeByExecID (self, execID):
+		for node in self.callbackNodes:
+			if (node.getExecID() == str(execID)):
+				return node
+		return None
 		
 	#walk(node, func, funcArg)
 	#apply FUNC to each member of the tree, starting at NODE (defaults to tree root)

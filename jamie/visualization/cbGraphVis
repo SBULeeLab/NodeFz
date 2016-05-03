@@ -225,8 +225,8 @@ def main():
 				coloredNodes = parseColorFile(args.gvColorFile)
 			except IOError:
 				logging.error("graphviz: Reading gvColorFile %s failed" % (args.gvColorFile))
-				assert(0 == 1)
-
+				raise
+			
 		if (args.gvOnlyExecuted):
 			logging.info("graphviz: Removing unexecuted nodes")
 			tree.removeNodes(nodeNotExecuted)
