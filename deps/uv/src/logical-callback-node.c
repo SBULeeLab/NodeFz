@@ -367,7 +367,7 @@ lcbn_t * lcbn_from_string (char *buf, int size)
   rc = sscanf(buf, "<name> %s | <context> %*s | <context_type> %s | <cb_type> %s | <cb_behavior> %s | <tree_number> <%*i> | <tree_level> <%*i> | <level_entry> <%*i> | <exec_id> <%i> | <reg_id> <%i> | <callback_info> %*s | <registrar> %*s | <tree_parent> %s | <registration_time> <%lis %lins> | <start_time> <%lis %lins> | <end_time> <%lis %lins> | <executing_thread> <%li> | <active> <%i> | <finished> <%i> | <extra_info> %s | <dependencies> <%s>",
     lcbn->name, context_str, cb_type_str, cb_behavior_str,
     &lcbn->global_exec_id, &lcbn->global_reg_id,
-    lcbn->parent_name,
+    lcbn->parent_name, /* tree_parent */
     &reg_sec, &reg_nsec, &start_sec, &start_nsec, &end_sec, &end_nsec,
     &executing_thread, &lcbn->active, &lcbn->finished, 
     extra_info_str,
