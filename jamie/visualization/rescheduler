@@ -1,73 +1,22 @@
 #!/usr/bin/env python2
 
-#Author: Jamie Davis (davisjam@vt.edu)
-#Description: Script for transforming libuv event schedules: "rescheduling" to flip the order of events in a legal way
+# Author: Jamie Davis (davisjam@vt.edu)
+# Description: Script for transforming libuv event schedules: "rescheduling" to flip the order of events in a legal way
 # Python version: 2.7.6
 
-import logging, argparse, sys, re, copy
+import argparse
+import copy
+import logging
+import re
+import sys
 
-import Callback as CB
 import Schedule
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 sys.setrecursionlimit(100000)
 
-#add NODE, its children, and a parental edge to GRAPH
-#node handles for NODE and its children will be created if they do not already exist in GRAPH
-#ACTION nodes will be diamonds. RESPONSE nodes will be circles.
-def addNodeAndChildren (node, graph):
-	assert(isinstance(node, CB.CallbackNode))
-	
-	nodeHandle = getNodeHandle(node, graph)
-	
-	#assign attributes
-	extraInfo = node.getExtraInfo()
-	if (extraInfo):
-		extraInfo = "\\nExtra info: %s" % (extraInfo)
-	else:
-		extraInfo = ""
-	nodeStr = "node <%s,%s> (%s,%s,%s)\\nCB type %s\\nContext %s\\nBehavior %s\\nExecuted %s %s" % (node.getRegID(), node.getExecID(), node.getTreeNumber(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed(), extraInfo)
-	gv.setv(nodeHandle, "label", nodeStr)
-	
-	#assign shape based on behavior
-	behavior = node.getBehavior()
-	if (behavior == "ACTION" or behavior == "RESPONSE"):
-		# All user code is put in squares so that the 'striped' style works
-		shape = "square"
-	else:
-		shape = "diamond"
-	gv.setv(nodeHandle, "shape", shape)
-	
-	#Edges: parent -> children
-	for child in node.children:
-		childHandle = getNodeHandle(child, graph)
-		gv.edge(nodeHandle, childHandle)
-	#Edges: node dependencies -> node
-	for dep in node.dependencies:
-		depHandle = getNodeHandle(dep, graph)
-		edgeHandle = gv.edge(depHandle, nodeHandle)
-		gv.setv(edgeHandle, "style", "dotted")
-
-#Returns true if node was not executed
-#For use with CallbackTree.removeNodes
-def nodeNotExecuted (node):
-	assert(isinstance(node, CB.CallbackNode))
-	return (not node.executed())
-
-#Returns true if node is a marker event rather than a user CB
-#For use with CallbackTree.removeNodes
-def nodeIsMarker (node):
-	assert(isinstance(node, CB.CallbackNode))
-	return node.isMarkerNode()
-
-#Returns true if node is non-user code rather than a user CB
-#For use with CallbackTree.removeNodes
-def nodeIsNonUserCode (node):
-	assert(isinstance(node, CB.CallbackNode))
-	return (not node.isUserCode())
-
 # input: (raceFile)
-#		Sample file contents:
+# Sample file contents:
 # Color 1
 # 2
 # 3
@@ -79,9 +28,9 @@ def nodeIsNonUserCode (node):
 # ...
 # output: List of lists. Each list corresponds to a new set of nodes to race.
 # Throws any errors it encounters during file IO
-def parseRaceFile (raceFile):
+def parseRaceFile(raceFile):
 	nodeLists = []
-	foundGroup = 0
+	foundGroup = False
 	with open(raceFile) as f:
 		raceGroup = []
 		for line in f:
@@ -91,7 +40,7 @@ def parseRaceFile (raceFile):
 			if (re.match('^\s*$', line) or re.match('^\s*#', line)):
 				continue
 			if (re.match('^\s*Color \d', line)):
-				foundGroup = 1
+				foundGroup = True
 				# New raceGroup
 				if (raceGroup):
 					logging.debug("parseRaceFile: raceGroup <%s>" % (raceGroup))
@@ -109,6 +58,7 @@ def parseRaceFile (raceFile):
 	assert(foundGroup)
 	return nodeLists
 
+
 def main():
 	parser = argparse.ArgumentParser(description="Produce schedules to explore races")
 	parser.add_argument("--schedFile", help="file containing libuv event schedule", required=True, type=str)	
@@ -117,30 +67,34 @@ def main():
 
 	args = parser.parse_args()
 
-	logging.info("schedFile %s raceFile %s outputPrefix %s" % (args.schedFile, args.raceFile, args.outputPrefix))
+	logging.info("schedFile {} raceFile {} outputPrefix {}".format(args.schedFile, args.raceFile, args.outputPrefix))
 
-	logging.info("Loading the callback cbTree from schedFile %s" % (args.schedFile))
+	logging.info("Loading the callback cbTree from schedFile {}".format(args.schedFile))
 	origSchedule = Schedule.Schedule(args.schedFile)
 
 	try:
-		logging.info("Loading the races from raceFile %s" % (args.raceFile))
+		logging.info("Loading the races from raceFile {}".format(args.raceFile))
 		raceyNodes = parseRaceFile(args.raceFile)
 	except IOError:
-		logging.error("Error, reading raceFile %s failed" % (args.raceFile))
-		assert(0 == 1)
-	
+		logging.error("Error, reading raceFile {} failed".format(args.raceFile))
+		raise
+
 	for (ix, race) in enumerate(raceyNodes):
-		outFile = "%s_%d" % (args.outputPrefix, ix)
-		logging.info("Generating schedule for race <%s>" % (race))
+		outFile = "{}_{}".format(args.outputPrefix, ix)
+		logging.info("Generating schedule for race <{}>".format(race))
 		scheduleCopy = copy.deepcopy(origSchedule)
 		try:
-			scheduleCopy.reschedule(race)
-	 		logging.info("The schedule from race <%s> is going into outFile %s" % (race, outFile))
-	 		scheduleCopy.emit(outFile)
-	 	except Schedule.ScheduleException as se:
-	 		logging.info("Sorry, could not achieve race <%s>: %s" % (race, se))
-	 	except IOError:
-	 		logging.error("Error, could not write schedule to file <%s>" % (outFile))
+			idMap = scheduleCopy.reschedule(race)
+			logging.info("The schedule from race <{}> is going into outFile {}".format(race, outFile))
+			logging.info("ID map:")
+			for i in idMap:
+				logging.info("  {} -> {}".format(i, idMap[i]))
+			scheduleCopy.emit(outFile)
+		except Schedule.ScheduleException as se:
+			logging.info("Sorry, could not achieve race <{}>: {}".format(race, se))
+		except IOError:
+			logging.error("Error, could not write schedule to file <{}>".format(outFile))
+			raise
 
 ###################################
 

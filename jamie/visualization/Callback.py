@@ -1,22 +1,21 @@
-#Author: Jamie Davis (davisjam@vt.edu)
-#Description: Python description of libuv Callbacks
+# Author: Jamie Davis (davisjam@vt.edu)
+# Description: Python description of libuv Callbacks
 # Defines the following public classes: 
-#	 Callback
-#  CallbackTree
+# 	Callback
+#  	CallbackTree
 # Python version: 2.7.6
 
 import re
 import logging
-from gv import node
 
 #############################
 # CallbackNode
 #############################
 
-#Representation of a Callback Node from libuv
-#self.REQUIRED_KEYS describes the members set in the constructor
-#Other members that can be set via methods:	children, parent	
-#All fields returned by getX are strings	
+# Representation of a Callback Node from libuv
+# self.REQUIRED_KEYS describes the members set in the constructor
+# Other members that can be set via methods:	children, parent
+# NB All fields returned by getX are strings
 class CallbackNode (object):
 	REQUIRED_KEYS = ["name", "context", "context_type", "cb_type", "cb_behavior", "tree_number", "tree_level", "level_entry", "exec_id", "reg_id", "callback_info", "registrar", "tree_parent", "registration_time", "start_time", "end_time", "executing_thread", "active", "finished", "extra_info", "dependencies"]
 	ASYNC_TYPES = ["UV_TIMER_CB"]
@@ -25,7 +24,7 @@ class CallbackNode (object):
 	# CallbackString (a string of fields formatted as: 'Callback X: | <key> <value> | <key> <value> | .... |'
 	#   A CallbackString must a key-value pair for all of the members of self.REQUIRED_KEYS
 	#     'start', 'end' must have value of the form '<Xs Yns>' 
-	def __init__ (self, callbackString=""):
+	def __init__(self, callbackString=""):
 		assert(0 < len(callbackString))
 		kvs = callbackString.split("|")
 		for kv in kvs:
@@ -38,19 +37,19 @@ class CallbackNode (object):
 			assert(value is not None)
 			logging.debug("CallbackNode::__init__: '%s' -> '%s'" %(key, value)) 					
 						
-		#convert times in s,ns to ns
+		# Convert times in s,ns to ns
 		for timeKey in CallbackNode.TIME_KEYS:
 			timeStr = getattr(self, timeKey, None)
 			match = re.search('(?P<sec>\d+)s\s+(?P<nsec>\d+)ns', timeStr)
 			assert(match)
 			ns = int(match.group('sec'))*1e9 + int(match.group('nsec'))
 			setattr(self, timeKey, ns)
-		#time should go forward
+		# Time should go forward
 		if (self.executed()):
 			assert(self.registration_time <= self.start_time)
 			assert(self.start_time <= self.end_time)
 		
-		#convert 'dependencies' to a list of CallbackNode names
+		# Convert 'dependencies' to a list of CallbackNode names
 		if (len(self.dependencies)):
 			self.dependencies = self.dependencies.split(" ")
 		else:
@@ -61,9 +60,8 @@ class CallbackNode (object):
 		self.parent = None
 
 		logging.debug("CallbackNode::__init__: {}".format(self))
-		
 
-	def __str__ (self):
+	def __str__(self):
 		kvStrings = []
 		for key in self.REQUIRED_KEYS:
 			kvStr = "<%s>" % (key)
@@ -101,7 +99,27 @@ class CallbackNode (object):
 		#must be a direct child
 		assert(int(self.tree_level) + 1 == int(child.tree_level))
 		self.children.append(child)
-		
+
+	# input: (maybeChild)
+	# output: (True/False)
+	# Remove maybeChild from this node if it was a child; returns True if we did anything
+	def removeChild (self, maybeChild):
+		origLen = len(self.children)
+		self.children = [c for c in self.children if c is not maybeChild]
+		return (origLen == len(self.children))
+
+	# input: ()
+	# output: ()
+	# Remove all children
+	def remChildren (self):
+		self.setChildren([])
+
+	def getChildren(self):
+		return self.children
+
+	def setChildren(self, children):
+		self.children = children
+
 	#getTreeRoot()
 	#Returns the CallbackNode at the root of the tree
 	def getTreeRoot (self):
@@ -154,6 +172,9 @@ class CallbackNode (object):
 			
 	def getName (self):
 		return self.name
+
+	def setName(self, name):
+		self.name = name
 	
 	def getExecID (self):
 		return self.exec_id
@@ -163,6 +184,16 @@ class CallbackNode (object):
 	
 	def getRegID (self):
 		return self.reg_id
+
+	# This is an "external" ID suitable for identifying events in a Schedule
+	def getID (self):
+		return self.getExecID()
+
+	def getTreeParent (self):
+		return self.tree_parent
+
+	def setTreeParent(self, treeParent):
+		self.tree_parent = treeParent
 	
 	def getCBType (self):
 		return self.cb_type
@@ -235,9 +266,6 @@ class CallbackNode (object):
 			return False
 		else:
 			return True
-
-	def getChildren (self):
-		return self.children
 
 	# Returns True if this is an async CBN, else False
 	def isAsync (self):

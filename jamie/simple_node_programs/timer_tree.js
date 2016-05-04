@@ -2,7 +2,7 @@
    This program creates a tree of timers. Each timer creates two children
    calling its own function, until 20 times have been created.
 
-   Its behavior should be deterministic.
+   Its behavior is dependent on the order in which timers go off.
    I'd like to see what kinds of CBs are invoked in a timer-only world.
 */
 
