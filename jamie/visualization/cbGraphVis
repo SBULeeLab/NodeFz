@@ -83,7 +83,7 @@ def cbn_getTimeRangeStr (node, unit='ns'):
 	(start, end) = (node.getStartTime(), node.getEndTime())
 	(convStart, convEnd) = (round(int(start)/divisor), round(int(end)/divisor))
 	assert(convStart <= convEnd)
-	return "{}-{}".format(convStart, convEnd)
+	return "{:.0f}-{:.0f}".format(convStart, convEnd)
 
 def cbn_adjListStr (node):
 	return "{}:{}".format(node.getID(), cbn_getTimeRangeStr(node, 'us'))
