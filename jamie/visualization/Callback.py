@@ -47,7 +47,7 @@ class CallbackNodeGroups(object):
 				# New group?
 				if re.match('^\s*Group \d', line, re.IGNORECASE):
 					foundGroup = 1
-					if group: # Not None, and non-empty
+					if group is not None:
 						# Save the current group
 						logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
 						nodeGroups.append(group)
