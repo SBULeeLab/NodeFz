@@ -9,6 +9,63 @@ import re
 import logging
 
 #############################
+# CallbackNodeGroups
+#############################
+
+class CallbackNodeGroups(object):
+	def __init__(self, groupFile):
+		self.nodeGroups = self._parseGroupFile(groupFile)
+
+	def getNodeGroups(self):
+		return self.nodeGroups
+
+	# input: (groupFile)
+	# 	Sample file contents:
+	# Group 1
+	# 2
+	# 3
+	# Group 2
+	# 4
+	# 7
+	# 9
+	# Group 3
+	# ...
+	# output: List of lists. Each list is of node IDs and corresponds to a group of nodes.
+	# Throws any errors it encounters during file IO
+	def _parseGroupFile(self, groupFile):
+		nodeGroups = []
+		foundGroup = 0
+		with open(groupFile) as f:
+			group = None
+			for line in f:
+				line = line.rstrip()
+				logging.debug("CallbackNodeGroups::_parseGroupFile: line <{}>".format(line))
+				# Ignore whitespace and lines beginning with a #
+				if re.match('^\s*$', line) or re.match('^\s*#', line):
+					continue
+
+				# New group?
+				if re.match('^\s*Group \d', line, re.IGNORECASE):
+					foundGroup = 1
+					if group: # Not None, and non-empty
+						# Save the current group
+						logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
+						nodeGroups.append(group)
+					group = []
+				else:
+					# Must be a node ID. Add to the current group.
+					assert(re.match('^\s*\d+\s*$', line))
+					assert(group is not None)
+					group.append(int(line.rstrip()))
+
+			if (group):
+				logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
+				nodeGroups.append(group)
+
+		assert (foundGroup)
+		return nodeGroups
+
+#############################
 # CallbackNode
 #############################
 

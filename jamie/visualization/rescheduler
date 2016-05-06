@@ -10,54 +10,11 @@ import logging
 import re
 import sys
 
+import Callback as CB
 import Schedule
 
 logging.basicConfig(level=logging.INFO)
-sys.setrecursionlimit(100000)
-
-# input: (raceFile)
-# Sample file contents:
-# Color 1
-# 2
-# 3
-# Color 2
-# 4
-# 7
-# 9
-# Color 3
-# ...
-# output: List of lists. Each list corresponds to a new set of nodes to race.
-# Throws any errors it encounters during file IO
-def parseRaceFile(raceFile):
-	nodeLists = []
-	foundGroup = False
-	with open(raceFile) as f:
-		raceGroup = []
-		for line in f:
-			line = line.rstrip()
-			logging.debug("parseRaceFile: line <%s>" % (line))
-			# Ignore whitespace and lines beginning with a #
-			if (re.match('^\s*$', line) or re.match('^\s*#', line)):
-				continue
-			if (re.match('^\s*Color \d', line)):
-				foundGroup = True
-				# New raceGroup
-				if (raceGroup):
-					logging.debug("parseRaceFile: raceGroup <%s>" % (raceGroup))
-					nodeLists.append(raceGroup)
-				raceGroup = []
-			else:
-				# Add to raceGroup
-				assert(re.match('^\s*\d+\s*$', line))
-				raceGroup.append(int(line.rstrip()))
-
-		if (raceGroup):
-			logging.debug("parseRaceFile: raceGroup <%s>" % (raceGroup))
-			nodeLists.append(raceGroup)
-
-	assert(foundGroup)
-	return nodeLists
-
+sys.setrecursionlimit(1000000) # Graph algorithms, deep trees
 
 def main():
 	parser = argparse.ArgumentParser(description="Produce schedules to explore races")
@@ -74,7 +31,7 @@ def main():
 
 	try:
 		logging.info("Loading the races from raceFile {}".format(args.raceFile))
-		raceyNodes = parseRaceFile(args.raceFile)
+		raceyNodes = CB.CallbackNodeGroups(args.raceFile).getNodeGroups()
 	except IOError:
 		logging.error("Error, reading raceFile {} failed".format(args.raceFile))
 		raise

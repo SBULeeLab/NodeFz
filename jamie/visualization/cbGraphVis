@@ -142,49 +142,6 @@ def addColors(tree, digraph, coloredNodes):
 		gv.setv(h, "fillcolor", ':'.join([rgbToGVColor(rgb) for rgb in n._colors]))
 		del n._colors
 
-# input: (colorFile)
-# 	Sample file contents:
-# Color 1
-# 2
-# 3
-# Color 2
-# 4
-# 7
-# 9
-# Color 3
-# ...
-# output: List of lists. Each list corresponds to a new set of nodes to color. Each list should be colored differently.
-# Throws any errors it encounters during file IO
-def parseColorFile(colorFile):
-	nodeLists = []
-	foundGroup = 0
-	with open(colorFile) as f:
-		colorGroup = []
-		for line in f:
-			line = line.rstrip()
-			logging.debug("parseColorFile: line <{}>".format(line))
-			# Ignore whitespace and lines beginning with a #
-			if (re.match('^\s*$', line) or re.match('^\s*#', line)):
-				continue
-			if (re.match('^\s*Color \d', line)):
-				foundGroup = 1
-				# New colorGroup
-				if (colorGroup):
-					logging.debug("parseColorFile: colorGroup <{}>".format(colorGroup))
-					nodeLists.append(colorGroup)
-				colorGroup = []
-			else:
-				# Add to colorGroup
-				assert(re.match('^\s*\d+\s*$', line))
-				colorGroup.append(int(line.rstrip()))
-
-		if (colorGroup):
-			logging.debug("parseColorFile: colorGroup <{}>".format(colorGroup))
-			nodeLists.append(colorGroup)
-
-	assert(foundGroup)
-	return nodeLists
-
 def main():
 	parser = argparse.ArgumentParser(description="Turn a libuv event schedule into a graph in .gv and/or adjacency list format")
 	parser.add_argument("--schedFile", help="file containing libuv event schedule", required=True, type=str)
@@ -222,7 +179,7 @@ def main():
 		if (args.gvColorFile):
 			logging.info("graphviz: Reading gvColorFile {}".format(args.gvColorFile))
 			try:
-				coloredNodes = parseColorFile(args.gvColorFile)
+				coloredNodes = CB.CallbackNodeGroups(args.gvColorFile).getNodeGroups()
 			except IOError:
 				logging.error("graphviz: Reading gvColorFile {} failed".format(args.gvColorFile))
 				raise

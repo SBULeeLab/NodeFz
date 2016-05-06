@@ -13,6 +13,8 @@ import colorsys
 
 # nColors distinct RGB colors
 class Palette:
+	# If 0 <= nColors <= ESTIMATED_MAX_COLORS, the color scheme will always be the same
+	ESTIMATED_MAX_COLORS = 30
 	def __init__ (self, nColors):
 		logging.debug("Palette::__init__: nColors %d" % (nColors))
 		assert(0 < nColors)
@@ -48,7 +50,13 @@ class Palette:
 
 		random.seed(0) # Ensure colors are the same every time this module is used
 		colors = []
-		stepSize = 360/numColors
+
+		# Prefer to use the same colors every time where possible
+		if numColors < Palette.ESTIMATED_MAX_COLORS:
+			stepSize = 360 / Palette.ESTIMATED_MAX_COLORS
+		else:
+			stepSize = 360 / numColors
+
 		for i in range(0, numColors):
 			hue = i*stepSize/360.0
 			lightness = (50 + random.random() * 10)/100.
