@@ -26,7 +26,7 @@ struct lcbn_s
   enum callback_behavior cb_behavior;
 
   tree_node_t tree_node; /* This tree reflects LCBN registration dependencies. */
-  struct list *dependencies; /* List of 'lcbn_dependency_t'. This LCBN will only be executed after all of the nodes in this list. For semantic dependencies like 'WORK -> AFTER_WORK'. */
+  struct list *dependencies; /* List of 'lcbn_dependency_t'. This LCBN will ONLY be executed after ALL of the nodes in this list have been executed. For program-order dependencies like 'WORK -> AFTER_WORK'. */
 
   int global_exec_id; /* The order in which it was executed relative to all other LCBNs */
   int global_reg_id; /* The order in which it was registered relative to all other LCBNs */

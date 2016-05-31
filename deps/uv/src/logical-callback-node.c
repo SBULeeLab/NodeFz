@@ -220,7 +220,7 @@ lcbn_t * lcbn_create (void *context, any_func cb, enum callback_type cb_type)
   return lcbn;
 }
 
-/* Initialize CHILD as a child of PARENT. */
+/* Add CHILD as a child of PARENT. */
 void lcbn_add_child (lcbn_t *parent, lcbn_t *child)
 {
   ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_add_child: begin: parent %p child %p\n", parent, child));

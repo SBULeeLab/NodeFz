@@ -450,6 +450,7 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
         parent_lcbn = map_lookup(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->parent_name, sizeof sched_lcbn->lcbn->parent_name), &found);
         mylog(LOG_SCHEDULER, 5, "scheduler_init: found %i parent_lcbn %p\n", found, parent_lcbn);
         assert(found && lcbn_looks_valid(parent_lcbn));
+        /* TODO lcbn_add_child instead? */
         tree_add_child(&parent_lcbn->tree_node, &sched_lcbn->lcbn->tree_node);
       }
 

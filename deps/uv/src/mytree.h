@@ -59,7 +59,8 @@ int tree_is_root (tree_node_t *node);
 unsigned tree_get_child_num (tree_node_t *node);
 
 /* Utility. */
-/* Apply F to ROOT and its descendants. */
+/* Apply F to ROOT and its descendants. 
+	 Uses a DFS algorithm. */
 void tree_apply (tree_node_t *root, tree_apply_func f, void *aux);
 /* Apply F to NODE and its direct ancestors. */
 void tree_apply_up (tree_node_t *node, tree_apply_func f, void *aux);

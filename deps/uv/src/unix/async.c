@@ -219,7 +219,9 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 #endif
 }
 
-
+/* TODO Do I want to add 'whodunnit' dependency edges? Would need to include all send'ers, not just the first one. 
+   The current dependency edges indicate a list of "X must go before me" nodes.
+   In contrast, async edges would indicate "one of these Xes must go before me" nodes. */
 void uv__async_send(struct uv__async* wa) {
   const void* buf;
   ssize_t len;
