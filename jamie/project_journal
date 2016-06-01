@@ -1745,6 +1745,27 @@ Sun 1 May 2016
 1. Tweaked paths so that ~/Desktop/node_project/node now points to the noderacer2 version.
 2. Improved the 'update' script with some error checking.
 
+...
+Worked like a madman until Sat 7 May when it became clear that OSDI was a loss.
+...
+
+--------
+
+Wed 11 May 2016
+
+1. Added registration time to the output of cbGraphVis's adjacency list mode
+2. Added comments to and cleaned up raceDetector a bit.
+
+Work in progress: processing the new adjacency list format in raceDetector.cpp
+									May want to revisit the format I provide so that it's more easily extensible. Copy code from logical_callback_node
+
+--------
+
+Thur 12 May 2016
+
+1. Some refactoring in reschedule. Defined a pivot. Still a work in progress.
+2. Established that raceDetector.cpp has suffered a regression. Poked Arun about it.
+
 --------
 
   VNC:
@@ -1756,15 +1777,23 @@ Next steps:
   - regressiontest: Make sure we verify program output, too, not just libuv-level record/replay.
   - Incorporate DB example
   - Incorporate Promises example
+
+--------
+
+Mon 30 May 2016
+
+1. Attempted to use DY's raceDetector. Emailed for help.
+2. Developed test cases.
+
+--------
+
+Tue 31 May 2016
+
+1. Figured out issue with DY's raceDetector. Updated cbGraphVis to use us instead of ns.
+2. Worked on more test cases. 6 new ones are failing. Emailed DY about it.
+3. Pushed latest progress so I can work on it from my laptop conveniently
   
 --------------------------------
-
-Next steps:
-  By Apr 28:
-    - May 3: OSDI abstract due
-  By May 5:
-    - May 10: OSDI full paper due
-  By May 12:
 
 -----------
 
