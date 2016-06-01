@@ -58,7 +58,7 @@ class Schedule (object):
 	LIBUV_LOOP_INNER_STAGE_MARKER_ORDER = LIBUV_LOOP_STAGE_MARKER_ORDER[1:-1]
 
 	def __init__ (self, scheduleFile):
-		logging.debug("Schedule::__init__: scheduleFile {}".format(scheduleFile))
+		logging.debug("scheduleFile {}".format(scheduleFile))
 		self.scheduleFile = scheduleFile
 
 		self.cbTree = CB.CallbackNodeTree(self.scheduleFile)
@@ -85,12 +85,12 @@ class Schedule (object):
 
 		for ix, event in enumerate(execSchedule):
 			cb = event.getCB()
-			logging.debug("Schedule::_genExecSchedule: ix {} cbType {}".format(ix, cb.getCBType()))
+			logging.debug("ix {} cbType {}".format(ix, cb.getCBType()))
 
 		# Annotate each event with its loop iter and libuv stage
 		for ix, event in enumerate(execSchedule):
 			cb = event.getCB()
-			logging.debug("Schedule::_genExecSchedule: ix {} cbType {} libuvLoopCount {} libuvLoopStage {}".format(ix, cb.getCBType(), libuvLoopCount, libuvLoopStage))
+			logging.debug("ix {} cbType {} libuvLoopCount {} libuvLoopStage {}".format(ix, cb.getCBType(), libuvLoopCount, libuvLoopStage))
 			if cb.getCBType() == "INITIAL_STACK":
 				pass
 			elif cb.getCBType() == "EXIT":
@@ -108,7 +108,7 @@ class Schedule (object):
 					libuvLoopStage = None
 
 			else:
-				assert(libuvLoopStage is not None)
+				assert(cb.getCBType() in CB.CallbackNode.TP_TYPES or libuvLoopStage is not None)
 				event.setLibuvLoopCount(libuvLoopCount)
 				event.setLibuvLoopStage(libuvLoopStage)
 
@@ -127,21 +127,21 @@ class Schedule (object):
 			cb = event.getCB()
 
 			# execIDs must go 0, 1, 2, ...
-			logging.debug("Schedule::assertValid: node {}, execID {}, expectedExecID {}".format(cb, int(cb.getExecID()), execID))
+			logging.debug("node {}, execID {}, expectedExecID {}".format(cb, int(cb.getExecID()), execID))
 			assert(int(cb.getExecID()) == execID)
 
 			if self._isEndMarkerEvent(cb):
-				logging.debug("Schedule::assertValid: cb is an end marker event, updating libuv run stage")
+				logging.debug("cb is an end marker event, updating libuv run stage")
 				self._updateLibuvRunStage(cb)
 
 			# Threadpool CBs: nothing to check
 			if cb.isThreadpoolCB():
-				logging.debug("Schedule::assertValid: threadpool cb type {}, next....".format(cb.getCBType()))
+				logging.debug("threadpool cb type {}, next....".format(cb.getCBType()))
 			else:
 				# If we're in a libuv stage, verify that we're looking at a valid cb type
 				# cf. unified-callback-enums.c::is_X_cb
 				if self.currentLibuvRunStage is not None:
-					logging.debug("Schedule::assertValid: We're in a libuvStage; verifying current cb type {} is appropriate to the stage".format(cb.getCBType()))
+					logging.debug("We're in a libuvStage; verifying current cb type {} is appropriate to the stage".format(cb.getCBType()))
 
 					if self.currentLibuvRunStage == "RUN_TIMERS_1":
 						assert(cb.isRunTimersCB())
@@ -162,7 +162,7 @@ class Schedule (object):
 				else:
 					# TODO We don't maintain a stack of currentLibuvRunStages, so UV_RUN gets lost. Update _updateLibuvRunStage...
 					# However, this is good enough for now.
-					logging.debug("Schedule::assertValid: We're not in a libuvStage; verifying current cb type {} is a marker event, INITIAL_STACK, or EXIT".format(cb.getCBType()))
+					logging.debug("We're not in a libuvStage; verifying current cb type {} is a marker event, INITIAL_STACK, or EXIT".format(cb.getCBType()))
 					if cb.getCBType() == "EXIT":
 						# When we're exiting, we allow any event to occur
 						self.exiting = True
@@ -170,10 +170,10 @@ class Schedule (object):
 								 (cb.getCBType() == "INITIAL_STACK" or self.exiting))
 
 			if self._isBeginMarkerEvent(cb):
-				logging.debug("Schedule::assertValid: cb is a begin marker event, updating libuv run stage")
+				logging.debug("cb is a begin marker event, updating libuv run stage")
 				self._updateLibuvRunStage(cb)
 
-			logging.debug("Schedule::assertValid: Looks valid")
+			logging.debug("Looks valid")
 			self.prevCB = cb
 
 	# input: (cb) Latest CB in the schedule
@@ -185,7 +185,7 @@ class Schedule (object):
 		assert(0 <= self.markerEventIx < len(Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER))
 
 		if cb.isMarkerNode():
-			logging.debug("Schedule::_updateLibuvRunStage: Found a marker node (type {})".format(cb.getCBType()))
+			logging.debug("Found a marker node (type {})".format(cb.getCBType()))
 
 			# Did we bypass the libuv run loop?
 			# This would mean that we just saw MARKER_UV_RUN_BEGIN and now see MARKER_UV_RUN_END
@@ -203,18 +203,18 @@ class Schedule (object):
 			else:
 				# Verify LibuvRunStages		
 				if self.currentLibuvRunStage is not None:
-					logging.debug("Schedule::_updateLibuvRunStage: In libuvRunStage {}, should be leaving it now".format(self.currentLibuvRunStage))
+					logging.debug("In libuvRunStage {}, should be leaving it now".format(self.currentLibuvRunStage))
 					assert(cb.getCBType() == "MARKER_%s_END" % (self.currentLibuvRunStage))
 					self.currentLibuvRunStage = None
 				elif self._isBeginMarkerEvent(cb):
 					self.currentLibuvRunStage = Schedule.MARKER_EVENT_TO_STAGE[cb.getCBType()]
-					logging.debug("Schedule::_updateLibuvRunStage: Not in a libuvRunStage, should be entering {} now".format(self.currentLibuvRunStage))
+					logging.debug("Not in a libuvRunStage, should be entering {} now".format(self.currentLibuvRunStage))
 					assert(cb.getCBType() == "MARKER_%s_BEGIN" % (self.currentLibuvRunStage))
 
-			logging.debug("Schedule::_updateLibuRunStage: currentLibuvRunStage {}".format(self.currentLibuvRunStage))
+			logging.debug("currentLibuvRunStage {}".format(self.currentLibuvRunStage))
 
 		else:
-			logging.debug("Schedule::_updateLibuvRunStage: Non-marker node of type {}, nothing to do".format(cb.getCBType()))
+			logging.debug("Non-marker node of type {}, nothing to do".format(cb.getCBType()))
 
 
 	def _isBeginMarkerEvent(self, cb):
@@ -236,77 +236,131 @@ class Schedule (object):
 	# input: ()
 	# output: (eventType) type of the next marker event 
 	def _nextMarkerEventType(self):
-		logging.debug("Schedule::_nextMarkerEventType: markerEventIx {} type {}".format(self.markerEventIx, Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER[self.markerEventIx]))
+		logging.debug("markerEventIx {} type {}".format(self.markerEventIx, Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER[self.markerEventIx]))
 		return Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER[self.markerEventIx]
 
-	# input: (raceyNodeIDs)
-	#	raceyNodeIDs: list of Callback registration IDs
-	# output: (origToNewIDs)
-	# origToNewIDs: dict from raceyNodeID entries to newNodeID entries after changing execution order
-	# Modifies the schedule so that the specified Callbacks are executed in reverse order compared to how they actually
-	# executed in this Schedule.
-	# Throws a ScheduleException if the requested exchange is not feasible
-	def reschedule(self, raceyNodeIDs):
-		origToNewIDs = {}
+	# input: (racyNodeIDs)
+	#	racyNodeIDs: list of Callback registration IDs
+	# output: (events, eventsToReschedule, pivot)
+	#	events: list, the events to which racyNodeIDs correspond, in original execution order
+	#	eventsToReschedule: list, the events that need to be rescheduled, in original execution order. subset of events.
+	# pivot: one of the events, the "pivot" around which to reschedule the eventsToReschedule
+	#
+	# Raises a ScheduleException on invalid or insupportable request
+	def _verifyRescheduleIDs(self, racyNodeIDs):
+		events = [e for e in self.execSchedule if int(e.getCB().getID()) in racyNodeIDs]
 
-		eventsToFlip = [e for e in self.execSchedule if int(e.getCB().getID()) in raceyNodeIDs]
-		logging.info("reschedule: eventsToFlip {}".format(eventsToFlip))
-
-		# Validate the requested eventsToFlip
-		for event in eventsToFlip:
-			if event is None:
-				raise ScheduleException('Error, could not find node by reg ID')
-
+		# Validate the events
+		for event in events:
+			assert (event is not None)
 			cb = event.getCB()
-			logging.info("reschedule: raceyNode {}".format(cb))
-			if cb.isMarkerNode():
-				raise ScheduleException('Error, one of the nodes to flip is an (unflippable) marker node: {}'.format(cb.getCBType()))
-			if not cb.isAsync():
-				raise ScheduleException('Error, one of the nodes to flip is not an async node. Type not yet supported: {}'.format(cb.getCBType()))
+
+			logging.info("racy node: {}".format(cb))
+
+			# We cannot flip unexecuted events
 			if not cb.executed():
 				raise ScheduleException('Error, one of the nodes to flip was not executed')
 
-			# We cannot flip events for which there is a happens-before relationship
-			otherEvents = [e for e in eventsToFlip if e is not event]
+			# We cannot flip events if there is a happens-before relatinoship between them
+			otherEvents = [e for e in events if e is not event]
 			for other in otherEvents:
 				if cb.isAncestorOf(other.getCB()):
-					raise ScheduleException('Error, one of the nodes to flip is an ancestor of another of the nodes to flip:\n  {}\n  {}'.format(cb, other.getCB()))
+					raise ScheduleException(
+						'Error, one of the nodes to flip is an ancestor of another of the nodes to flip:\n  {}\n  {}'.format(cb,
+																																																								 other.getCB()))
 
-		origRaceyExecOrder = sorted(eventsToFlip, key=lambda e: int(e.getCB().getExecID()))
+		origRacyExecOrder = sorted(events, key=lambda e: int(e.getCB().getExecID()))
+
+		# We can only reschedule async events at the moment
+		# In the future we could climb until we find network input (cannot flip) or an async node (can flip)
+		asyncEvents = [e for e in events if e.getCB().isAsync()]
+
+		# Identify the pivot: the event around which we "pivot" the other events as we reschedule
+		pivot = None
+		eventsToReschedule = None
+		if len(asyncEvents) + 1 == len(events):
+			eventsToReschedule = asyncEvents
+			pivots = set(events) - set(asyncEvents)
+			assert(len(pivots) == 1)
+			pivot = pivots.pop()
+		elif len(asyncEvents) == len(events):
+			# If we can reschedule any of them, pivot defaults to the latest-scheduled event
+			pivot = origRacyExecOrder[-1]
+			eventsToReschedule = [e for e in origRacyExecOrder if e is not pivot]
+		else:
+			# Cannot handle more than one pivot
+			types = [e.getCB().getCBType() for e in events]
+			raise ScheduleException('Error, one of the nodes to flip is not an async node. Types of events: %s'.format(types))
+
+		return origRacyExecOrder, eventsToReschedule, pivot
+
+	# input: (racyNodeIDs)
+	#	racyNodeIDs: list of Callback registration IDs
+	# output: (origToNewIDs)
+	# origToNewIDs: dict from racyNodeID entries to newNodeID entries after changing execution order
+	# Modifies the schedule so that the specified Callbacks are executed in reverse order compared to how they actually
+	# executed in this Schedule.
+	# Throws a ScheduleException if the requested exchange is not feasible
+	def reschedule(self, racyNodeIDs):
+		assert(0 < len(racyNodeIDs))
+		if len(racyNodeIDs) != 2:
+			raise ScheduleException('Error, cannot reschedule more than 2 events')
+		origToNewIDs = {}
+
+		events, eventsToReschedule, pivot = self._verifyRescheduleIDs(racyNodeIDs)
+		logging.info("events {}".format(events))
 
 		# Save original IDs so that we can populate origToNewIDs later
-		raceyEventToOrigID = {}
-		for event in origRaceyExecOrder:
-			raceyEventToOrigID[event] = event.getCB().getID()
+		eventToOrigID = {}
+		for event in events:
+			eventToOrigID[event] = event.getCB().getID()
 
-		newRaceyExecOrder = list(reversed(eventsToFlip))
-		raceyEventsToMove = newRaceyExecOrder[1:] # Leave the original "final one". Move the others after it.
+		# Map from an event to all events that descend from or depend on it
+		eventToEventsToMove = {}
 
-		minInsertIx = self.execSchedule.index(newRaceyExecOrder[0]) # Invariant: must insert after minInsertIx
-
-		assert(len(raceyEventsToMove) == 1) # TODO Necessary?
-
-		for event in raceyEventsToMove:
-			# Identify all events that need to be relocated: event and its descendants
-			executedEventDescendants_CBs = [cb for cb in self.cbTree.getDescendants(event.getCB()) if cb.executed()]
+		# Remove all events and their children from the schedule
+		for event in eventsToReschedule:
+			# Identify all events that need to be relocated: event and its descendants and dependents, now referred to as descendants
+			executedEventDescendants_CBs = [cb for cb in event.getCB().getDescendants(includeDependents=True) if
+																			cb.executed()]
 			eventDescendants_IDs = [int(cb.getID()) for cb in executedEventDescendants_CBs]
-			allEventsToMove = [event] + [e for e in self.execSchedule if int(e.getCB().getID()) in eventDescendants_IDs]
-			logging.info("reschedule: eventDescendants_IDs {}".format(eventDescendants_IDs))
+			# This is an expensive call for large lists
+			allEventsToMove = [e for e in self.execSchedule if int(e.getCB().getID()) in eventDescendants_IDs]
+			logging.info("eventDescendants_IDs {}".format(eventDescendants_IDs))
+
+			# Save
+			eventToEventsToMove[event] = allEventsToMove
 
 			# Remove them
 			for eventToMove in allEventsToMove:
 				self.execSchedule.remove(eventToMove)
 
+		#TODO I AM HERE
+
+		# For nodes originally executed after the pivot, we must insert them at or before insertBefore_maxIx
+		# For nodes originally executed before the pivot, we must insert them at or after insertAfter_minIx
+		# When we traverse eventsToReschedule (sorted by orig execution order), we'll update one of these indices each time
+		#	As a result, if we start with A B pivot X Y, we'll end up with Y X pivot B A
+		insertBefore_maxIx = self.execSchedule.index(pivot)
+		insertAfter_minIx  = self.execSchedule.index(pivot) + 1
+
+		pivot_origExecID = pivot.getCB().getExecID()
+
+
+
+
 			# Re-insert them in the schedule, no earlier in the list than minInsertIx
+			# TODO I am here -- working on TP CBs
 			for eventIx, eventToMove in enumerate(allEventsToMove):
-				logging.info("reschedule: Re-inserting event of type {} (looking for the next end marker of type {})".format(eventToMove.getCB().getCBType(), eventToMove.getLibuvLoopStage()))
+				logging.info("Re-inserting event of type {} (looking for the next end marker of type {})".format(eventToMove.getCB().getCBType(), eventToMove.getLibuvLoopStage()))
 				inserted = False
 				addedNewLoop = False
 				while not inserted:
 					# Locate the next MARKER_*_END event of the appropriate libuv stage
+					# TODO Should jump ahead N loops to honor relative timing?
 					(insertIx, nextMarker) = self._findLaterCB(lambda e: self._isEndMarkerEvent(e.getCB()) and Schedule.MARKER_EVENT_TO_STAGE[e.getCB().getCBType()] == eventToMove.getLibuvLoopStage(), minInsertIx)
 					if insertIx is not None:
-						logging.info("reschedule: inserting at ix {}".format(insertIx))
+						logging.info("inserting at ix {}".format(insertIx))
 						self.execSchedule.insert(insertIx, eventToMove)
 						inserted = True
 
@@ -318,7 +372,7 @@ class Schedule (object):
 						minInsertIx = insertIx  # Next event must be inserted after this node
 						addedNewLoop = False
 					else:
-						# If we cannot fin an insertion point, it must be because we could not find an appropriate marker,
+						# If we cannot find an insertion point, it must be because we could not find an appropriate marker,
 						# i.e. that we ran out of UV_RUN loops.
 						# Add a new UVRun loop to the schedule.
 
@@ -326,18 +380,18 @@ class Schedule (object):
 						# NB Won't work if insertIx occurs in a final incomplete loop; see _addUVRunLoop
 						assert(not addedNewLoop)
 
-						logging.info("reschedule: Adding a UVRun loop")
+						logging.info("Adding a UVRun loop")
 						minInsertIx = self._addUVRunLoop(enterLoop=True)
 						addedNewLoop = True
 
 		# Update the execID of the events in the schedule
-		# This also affects the IDs of subsequent events in raceyEventsToMove, if any
+		# This also affects the IDs of subsequent events in racyEventsToMove, if any
 		for insertIx, e in enumerate(self.execSchedule):
 			e.getCB().setExecID(insertIx)
 
 		# "stable" event's ID has changed because we've removed nodes before it
-		for event in raceyEventToOrigID:
-			origToNewIDs[raceyEventToOrigID[event]] = event.getCB().getID()
+		for event in eventToOrigID:
+			origToNewIDs[eventToOrigID[event]] = event.getCB().getID()
 
 		self.assertValid()
 		return origToNewIDs
@@ -387,7 +441,7 @@ class Schedule (object):
 		# Locate end of final complete UV_RUN loop
 		(ixOfEndOfFinalCompleteLoop, end) = self._findEarlierCB(lambda e: e.getCB().getCBType() == "MARKER_UV_RUN_END")
 		if ixOfEndOfFinalCompleteLoop is None:
-			raise ScheduleException("Schedule::_addUVRunLoop: Could not find the end of a complete UV_RUN loop. Did this application crash on its first loop iteration?")
+			raise ScheduleException("Could not find the end of a complete UV_RUN loop. Did this application crash on its first loop iteration?")
 
 		ixOfBeginningOfNewLoop = ixOfEndOfFinalCompleteLoop + 1
 		# Markers events are in a giant tree INITIAL_STACK -> M1 -> M2 -> M3 -> ...
@@ -444,7 +498,7 @@ class Schedule (object):
 	# Emits this schedule to the specified file.
 	# May raise IOError
 	def emit(self, file):
-		logging.info("Schedule::emit: Emitting schedule to file {}".format(file))
+		logging.info("Emitting schedule to file {}".format(file))
 		regOrder = self._regList()
 		with open(file, 'w') as f:
 			for cb in regOrder:

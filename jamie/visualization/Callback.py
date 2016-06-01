@@ -8,6 +8,7 @@
 import re
 import logging
 
+
 #############################
 # CallbackNodeGroups
 #############################
@@ -75,7 +76,22 @@ class CallbackNodeGroups(object):
 # NB All fields returned by getX are strings
 class CallbackNode (object):
 	REQUIRED_KEYS = ["name", "context", "context_type", "cb_type", "cb_behavior", "tree_number", "tree_level", "level_entry", "exec_id", "reg_id", "callback_info", "registrar", "tree_parent", "registration_time", "start_time", "end_time", "executing_thread", "active", "finished", "extra_info", "dependencies"]
-	ASYNC_TYPES = ["UV_TIMER_CB"]
+
+	TP_NESTED_WORK = ["UV_FS_WORK_CB", "UV_GETADDRINFO_WORK_CB", "UV_GETNAMEINFO_WORK_CB"]
+	TP_WORK = ["UV_WORK_CB"] + TP_NESTED_WORK
+
+	TP_NESTED_DONE = ["UV_FS_CB", "UV_GETADDRINFO_CB", "UV_GETNAMEINFO_CB"]
+	TP_DONE = ["UV_AFTER_WORK_CB"] + TP_NESTED_DONE
+	TP_TYPES = TP_WORK + TP_DONE # The types of all CBNs that a threadpool thread might invoke
+
+	# UV_ASYNC_CB is not included here because its "async" behavior is actually well defined.
+	# Network-driven asynchronous events (e.g. UV_READ_CB or UV_CONNECT[ION]_CB are also not included, because
+	# changing when those occur relative to other nodes runs up against nodejsrr's requirement that all external inputs
+	# be repeated precisely. We can, however, change the order of async events AROUND them.
+	MISC_ASYNC_TYPES = ["UV_TIMER_CB"]
+
+	ASYNC_TYPES = MISC_ASYNC_TYPES + TP_TYPES
+
 	TIME_KEYS = ["registration_time", "start_time", "end_time"]
 	
 	# CallbackString (a string of fields formatted as: 'Callback X: | <key> <value> | <key> <value> | .... |'
@@ -107,6 +123,7 @@ class CallbackNode (object):
 			assert(self.start_time <= self.end_time)
 		
 		# Convert 'dependencies' to a list of CallbackNode names
+		# The owner may change self.dependencies to a list of CallbackNodes if he has a mapping from names to nodes.
 		if (len(self.dependencies)):
 			self.dependencies = self.dependencies.split(" ")
 		else:
@@ -114,7 +131,14 @@ class CallbackNode (object):
 		logging.debug("CallbackNode::__init__: dependencies %s" % (self.dependencies))
 		
 		self.children = []
+		self.dependents = []
 		self.parent = None
+
+		#Used to eliminate duplicate computation in self.getDescendants
+		self._knowAllDescendantsWithDependents = False
+		self._allDescendantsWithDependents = []
+		self._knowAllDescendantsWithoutDependents = False
+		self._allDescendantsWithoutDependents = []
 
 		logging.debug("CallbackNode::__init__: {}".format(self))
 
@@ -157,6 +181,12 @@ class CallbackNode (object):
 		assert(int(self.tree_level) + 1 == int(child.tree_level))
 		self.children.append(child)
 
+	def addDependent(self, dependent):
+		self.dependents += [dependent]
+
+	def getDependents(self):
+		return self.dependents
+
 	# input: (maybeChild)
 	# output: (True/False)
 	# Remove maybeChild from this node if it was a child; returns True if we did anything
@@ -174,6 +204,11 @@ class CallbackNode (object):
 	def getChildren(self):
 		return self.children
 
+	# Return this node's list of dependencies
+	# This will either be a list of strings or (if via CallbackTree) a list of CallbackNodes
+	def getDependencies(self):
+		return self.dependencies
+
 	def setChildren(self, children):
 		self.children = children
 
@@ -182,23 +217,67 @@ class CallbackNode (object):
 	def getTreeRoot (self):
 		curr = self
 		parent = curr.getParent()
-		while (parent):
+		while (parent is not None):
 			curr = parent
 			parent = curr.getParent()
 		return curr
 		
-	# input (potentialDescendant)
+	# input (potentialDescendant, includeDependencies)
+	#	potentialDescendant: CallbackNode that is a potential descendant of self
+	# includeDependents: Flag -- check only parent-child (registration) relationships, or also include program order (dependency) relationships?
 	# output (True/False)
 	#True if potentialDescendant is a descendant (child, grand-child, etc.) of self, else False
-	def isAncestorOf (self, potentialDescendant):
+	def isAncestorOf (self, potentialDescendant, includeDependents=False):
 		assert(isinstance(potentialDescendant, CallbackNode))
-		for child in self.children:
-			if (child.getRegID() == potentialDescendant.getRegID()):
+
+		nodesToCheck = self.children
+		if includeDependents:
+			nodesToCheck += self.dependents
+		assert(self not in nodesToCheck)
+
+		for node in nodesToCheck:
+			if (node.getRegID() == potentialDescendant.getRegID()):
 				return True
-			if (child.isAncestorOf(potentialDescendant)):
+			if (node.isAncestorOf(potentialDescendant, includeDependents)):
 				return True
-		return False		
-	
+		return False
+
+	# input: (includeDependents)
+	# includeDependents: Flag -- include only parent-child (registration) relationships, or also include program order (dependency) relationships?
+	# output: (descendants) list of CallbackNodes
+	# Returns the Set of all nodes (children, grand-children, etc.) descended from this node
+	def getDescendants(self, includeDependents):
+		# Short-circuit if we know the answer already
+		if includeDependents and self._knowAllDescendantsWithDependents:
+			return self._allDescendantsWithDependents
+		elif not includeDependents and self._knowAllDescendantsWithoutDependents:
+			return self._allDescendantsWithoutDependents
+
+		directDescendants = self.children
+		if includeDependents:
+			directDescendants += self.dependents
+		directDescendants = set(directDescendants) # No sense in visiting a child more than once
+		assert (self not in directDescendants)  # Sanity check: avoid infinite recursion
+		logging.info("CallbackNode::getDescendants: node {} calculating dependents of my {} children ({})".format(self.getID(), len(directDescendants), [n.getID() for n in directDescendants]))
+
+		indirectDescendants = []
+		for d in directDescendants:
+			logging.info("CallbackNode::getDescendants: node {} calculating dependents of {}".format(self.getID(), d.getID()))
+			indirectDescendants += d.getDescendants(includeDependents)
+			logging.info("CallbackNode::getDescendants: node {} descendant {}: includeDependents {}, directDescendants {}, {} indirectDescendants: {}".format(self.getID(), d.getID(), includeDependents, [n.getID() for n in directDescendants], len(indirectDescendants), [n.getID() for n in indirectDescendants]))
+		allDescendants = directDescendants | set(indirectDescendants) # There may be duplicates
+		logging.info("CallbackNode::getDescendants: node {}, allDescendants {}".format(self.getID(), [n.getID() for n in allDescendants]))
+
+		# Save state so we don't have to repeated
+		if includeDependents:
+			self._knowAllDescendantsWithDependents = True
+			self._allDescendantsWithDependents = allDescendants
+		else:
+			self._knowAllDescendantsWithoutDependents = True
+			self._allDescendantsWithoutDependents = allDescendants
+
+		return allDescendants
+
 	# == and != based on name
 	def __eq__ (self, other):
 		assert(isinstance(other, CallbackNode))
@@ -272,10 +351,10 @@ class CallbackNode (object):
 			return True
 		else:
 			return False
-		
+
+	# Returns True if this CBN was executed by a threadpool thread.
 	def isThreadpoolCB (self):		
-		validOptions = ["UV__WORK_WORK", "UV_WORK_CB", "UV_FS_WORK_CB", "UV_GETADDRINFO_WORK_CB", "UV_GETNAMEINFO_WORK_CB"]
-		return (self.getCBType() in validOptions)
+		return (self.getCBType() in CallbackNode.TP_WORK)
 		
 	def isRunTimersCB (self):		
 		validOptions = ["UV_TIMER_CB"]
@@ -296,7 +375,7 @@ class CallbackNode (object):
 	def isIOPollCB (self):
 		cbType = self.getCBType()
 		#TODO Is this list complete? If so, update unified-callback-enums.c
-		#if (cbType == "UV_ASYNC_CB" or cbType == "UV_WRITE_CB" or cbType == "UV_READ_CB" or cbType == "UV_CONNECT_CB"):
+		#if (cbType == "UV_ASYNC_CB" or cbType in CallbackNode.TP_DONE or cbType == "UV_WRITE_CB" or cbType == "UV_READ_CB" or cbType == "UV_CONNECT_CB"):
 		
 		#TODO This is a hack.
 		if (cbType != "MARKER_IO_POLL_END"):
@@ -327,6 +406,16 @@ class CallbackNode (object):
 	# Returns True if this is an async CBN, else False
 	def isAsync (self):
 		return (self.getCBType() in CallbackNode.ASYNC_TYPES)
+
+	# Returns the nearest reschedulable (async) node, ancestrally speaking, possibly including self
+	# Returns None if no such node was found
+	def findNearestReschedulable(self):
+		if self.isAsync():
+			return self.getCBType() not in CallbackNode.TP_NESTED_WORK and self.getCBType() not in CallbackNode.TP_NESTED_DONE
+		elif self.getParent() is not None:
+			return self.getParent().findNearestReschedulable()
+		logging.debug("CallbackNode::findNearestReschedulable: Sorry, ran out of parents. This node is not reschedulable at all.")
+		return None
 
 #############################
 # CallbackNodeTree
@@ -374,18 +463,21 @@ class CallbackNodeTree (object):
 		
 		self._updateDependencies()
 	
-	#Replace the array of string node names in each Node with an array of the corresponding CallbackNodes 
-	def _updateDependencies (self):
+	# Replace the self.dependencies array of string node names in each Node with an array of the corresponding CallbackNodes (node.dependencies).
+	# Inform each antecedent about its dependents (node.dependents).
+	def _updateDependencies(self):
 		for node in self.callbackNodes:
 			for n in node.dependencies:
 				logging.debug("CallbackNodeTree::_updateDependencies: dependency %s" % (n))
 			#logging.debug("CallbackNodeTree::_updateDependencies: callbackNodeDict %s" % (self.callbackNodeDict))
 			node.dependencies = [self.callbackNodeDict[n] for n in node.dependencies]
+			for antecedent in node.dependencies:
+				antecedent.addDependent(node)
 			logging.debug("CallbackNodeTree::_updateDependencies: Node %s's dependencies: %s" % (node.getName(), node.dependencies))
 		
 	#input: (regID)
 	#output: (node) node with specified regID, or None
-	def getNodeByRegID (self, regID):
+	def getNodeByRegID(self, regID):
 		for node in self.callbackNodes:
 			if (node.getRegID() == str(regID)):
 				return node
@@ -393,7 +485,7 @@ class CallbackNodeTree (object):
 	
 	#input: (execID)
 	#output: (node) node with specified execID, or None
-	def getNodeByExecID (self, execID):
+	def getNodeByExecID(self, execID):
 		for node in self.callbackNodes:
 			if (node.getExecID() == str(execID)):
 				return node
@@ -459,11 +551,6 @@ class CallbackNodeTree (object):
 			pred = curr
 		assert("CallbackNodeTree::getNodeExecPredecessor: Error, did not find node with execID %s in tree" % (node.getExecID()))
 
-	# input: (node)
-	# output: (descendants) List of descendants (children, grandchildren, etc.) of node
-	def getDescendants (self, node):
-		return [n for n in self.callbackNodes if node.isAncestorOf(n)]
-	
 	# #Transform the tree into an intermediate format for more convenient schedule re-arrangement.
 	# #This may add new nodes and change the exec_id of many nodes.
 	# #The external behavior of the application under the original and unwrapped schedules should match.
