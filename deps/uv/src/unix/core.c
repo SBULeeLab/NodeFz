@@ -451,6 +451,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     mylog(LOG_MAIN, 1, "uv_run: uv__run_prepare\n");
     emit_marker_event(MARKER_RUN_PREPARE_BEGIN);
     uv__run_prepare(loop);
+    /* TODO Why is this goto here? */
     if (scheduler_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
     emit_marker_event(MARKER_RUN_PREPARE_END);
 
