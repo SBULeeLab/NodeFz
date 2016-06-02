@@ -397,10 +397,12 @@ class CallbackNode (object):
 
 	# Return True if this is user code
 	# Else False -- marker nodes or internal libuv mechanisms that just "look like" user code (e.g. the UV_ASYNC_CB used for the threadpool)
-	def isUserCode (self):
+	def isUserCode (self):		
 		if (self.isMarkerNode() or re.search('non-user', self.getExtraInfo())):
 			return False
 		else:
+			isUserCodeInLooper = (self.isRunTimersCB() or self.isRunPendingCB() or self.isRunIdleCB() or self.isRunPrepareCB() or self.isIOPollCB() or self.isRunCheckCB() or self.isRunClosingCB() or self.isRunTimersCB())
+			assert(self.isThreadpoolCB() or isUserCodeInLooper)
 			return True
 
 	# Returns True if this is an async CBN, else False

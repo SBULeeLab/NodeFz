@@ -1,0 +1,43 @@
+#!/usr/bin/env python2
+
+# Author: Jamie Davis (davisjam@vt.edu)
+# Description: Script for verifying that a given libuv event schedule is valid.
+#              For unit testing.
+# Python version: 2.7.6
+
+import argparse
+import copy
+import logging
+import re
+import sys
+
+import Callback as CB
+import Schedule
+
+logger = logging.getLogger('root')
+LOG_FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
+logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT)
+sys.setrecursionlimit(1000000) # Graph algorithms, deep trees
+
+def main():
+	parser = argparse.ArgumentParser(description="Verify that a schedule is valid")
+	parser.add_argument("--schedFile", help="file containing libuv event schedule", required=True, type=str)	
+
+	args = parser.parse_args()
+
+	logging.info("schedFile {}".format(args.schedFile))
+
+	logging.info("Loading the schedule from schedFile {}".format(args.schedFile))
+	schedule = Schedule.Schedule(args.schedFile)
+
+	if schedule.isValid():
+		logging.info("Hooray, schedule is valid")
+		exitCode = 0
+	else:
+		logging.info("Sorry, schedule is not valid")
+		exitCode = 1
+	sys.exit(exitCode)
+
+###################################
+
+main()

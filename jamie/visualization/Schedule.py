@@ -60,17 +60,11 @@ class Schedule (object):
 	def __init__ (self, scheduleFile):
 		logging.debug("scheduleFile {}".format(scheduleFile))
 		self.scheduleFile = scheduleFile
-
 		self.cbTree = CB.CallbackNodeTree(self.scheduleFile)
 		self.execSchedule = self._genExecSchedule(self.cbTree) # List of annotated ScheduleEvents
-
-		self.markerEventIx = 0 					 # The next marker event should be this ix in LIBUV_LOOP_STAGE_MARKER_ORDER
-		self.currentLibuvRunStage = None # Tracks the marker event we're currently processing. Either one of LIBUV_RUN_STAGES or None.
-
-		self.assertValid()
-
-		self.prevCB = None   # To check if we short-circuited a UV_RUN loop and just have MARKER_UV_RUN_{BEGIN,END}. TODO This is a hack.
-		self.exiting = False # If we've seen the EXIT event.
+		
+		if not self.isValid():
+			raise ScheduleException("The input schedule was not valid")		
 
 	# input: (cbTree)
 	# output: (execSchedule) List of ScheduleEvents
@@ -91,7 +85,9 @@ class Schedule (object):
 		for ix, event in enumerate(execSchedule):
 			cb = event.getCB()
 			logging.debug("ix {} cbType {} libuvLoopCount {} libuvLoopStage {}".format(ix, cb.getCBType(), libuvLoopCount, libuvLoopStage))
-			if cb.getCBType() == "INITIAL_STACK":
+			if cb.isThreadpoolCB():
+				pass
+			elif cb.getCBType() == "INITIAL_STACK":
 				pass
 			elif cb.getCBType() == "EXIT":
 				exiting = True
@@ -101,14 +97,16 @@ class Schedule (object):
 				if cb.getCBType() == "MARKER_UV_RUN_BEGIN":
 					libuvLoopCount += 1
 
+				event.setLibuvLoopStage(Schedule.MARKER_EVENT_TO_STAGE[cb.getCBType()])				
 				if self._isBeginMarkerEvent(cb):
 					libuvLoopStage = Schedule.MARKER_EVENT_TO_STAGE[cb.getCBType()]
 				else:
 					assert(self._isEndMarkerEvent(cb))
-					libuvLoopStage = None
-
+					libuvLoopStage = Schedule.MARKER_EVENT_TO_STAGE[cb.getCBType()]
 			else:
+				# Non-marker looper thread CB. These belong to the current libuvLoopStage, whatever that is.
 				assert(cb.getCBType() in CB.CallbackNode.TP_TYPES or libuvLoopStage is not None)
+				assert(libuvLoopStage is not "UV_RUN")
 				event.setLibuvLoopCount(libuvLoopCount)
 				event.setLibuvLoopStage(libuvLoopStage)
 
@@ -120,103 +118,128 @@ class Schedule (object):
 		return self.cbTree.getRegOrder()
 
 	# input: ()
-	# output: () Asserts if this schedule does not "looks valid" (i.e. like a legal libuv schedule)
-	# TODO Change this to isValid and don't use class variables to control the results of the _helperFunctions
-	def assertValid(self):
+	# output: (isValid) True if this schedule "looks valid" (i.e. like a legal libuv schedule)
+	# Goes through each event and verifies that it occurs in a legal place in the schedule
+	# Checks: 
+	#	  - execID
+	#   - libuv stages in the correct order
+	#   - non-marker events occur within the correct stage
+	# The validity of a schedule is an invariant to be maintained by each Schedule method. 
+	def isValid(self):
+		# Stack of the current libuv run stage.
+		# Each element is in LIBUV_RUN_ALL_STAGES.
+		# A stage is append()'d when its BEGIN is encountered, and pop()'d when its END is encountered
+		currentLibuvLoopStage = []
+		# The UV_RUN loop inner stage we most recently ended
+		# Starts set to the final inner stage so that we don't need special cases for "first time through the loop"
+		lastEndedInnerStage = Schedule.LIBUV_RUN_INNER_STAGES[-1]
+		# If we've encountered the EXIT event
+		exiting = False
+		
 		for execID, event in enumerate(self.execSchedule):
-			cb = event.getCB()
+			# Extract some details about this event for convenience			
+			eventCB = event.getCB()			
+			eventCBType = eventCB.getCBType()
+			eventLoopStage = event.getLibuvLoopStage() # This is used to classify BEGIN and END markers.
+			
+			inAnyStage = (0 < len(currentLibuvLoopStage))
+			
+			logging.debug("execID {} eventCBType {} eventLoopStage {} inAnyStage {} lastEndedInnerStage {} exiting {}".format(execID, eventCBType, eventLoopStage, inAnyStage, lastEndedInnerStage, exiting))			
 
-			# execIDs must go 0, 1, 2, ...
-			logging.debug("node {}, execID {}, expectedExecID {}".format(cb, int(cb.getExecID()), execID))
-			assert(int(cb.getExecID()) == execID)
-
-			if self._isEndMarkerEvent(cb):
-				logging.debug("cb is an end marker event, updating libuv run stage")
-				self._updateLibuvRunStage(cb)
-
-			# Threadpool CBs: nothing to check
-			if cb.isThreadpoolCB():
-				logging.debug("threadpool cb type {}, next....".format(cb.getCBType()))
+			# Event execID must be correct (execIDs must go 0, 1, 2, ...)			
+			if int(eventCB.getExecID()) != execID:
+				logging.debug("node {}, execID {}, expectedExecID {}".format(eventCB, int(eventCB.getExecID()), execID))
+				return False
+			
+			# Event must be in the correct point of the schedule										
+			if eventCB.isThreadpoolCB():
+				# Threadpool CBs: nothing to check.
+				# These are legal even if we're exiting.
+				logging.debug("threadpool eventCB (type {}) is always legal".format(eventCB.getCBType()))								
 			else:
-				# If we're in a libuv stage, verify that we're looking at a valid cb type
-				# cf. unified-callback-enums.c::is_X_cb
-				if self.currentLibuvRunStage is not None:
-					logging.debug("We're in a libuvStage; verifying current cb type {} is appropriate to the stage".format(cb.getCBType()))
+				# This is a looper thread event.
+				
+				if exiting:
+					#TODO Which of the two versions of this if statement are correct?
+					if True:
+						logging.debug("While exiting I encountered an event. How did this happen? It should all happen synchronously within the 'exit' event's callback")
+						return False
+					else:					
+						# When we're exiting, we allow any non-marker looper or threadpool event to occur				
+						isValidExitingEvent = (eventCB.isThreadpoolCB() or not eventCB.isMarkerNode() or eventCB)
+						if not isValidExitingEvent:
+							logging.debug("While exiting, encountered invalid exiting event of type {}".format(eventCBType))
+							return False
 
-					if self.currentLibuvRunStage == "RUN_TIMERS_1":
-						assert(cb.isRunTimersCB())
-					elif self.currentLibuvRunStage == "RUN_PENDING":
-						assert(cb.isRunPendingCB())
-					elif self.currentLibuvRunStage == "RUN_IDLE":
-						assert(cb.isRunIdleCB())
-					elif self.currentLibuvRunStage == "RUN_PREPARE":
-						assert(cb.isRunPrepareCB())
-					elif self.currentLibuvRunStage == "IO_POLL":
-						assert(cb.isIOPollCB())
-					elif self.currentLibuvRunStage == "RUN_CHECK":
-						assert(cb.isRunCheckCB())
-					elif self.currentLibuvRunStage == "RUN_CLOSING":
-						assert(cb.isRunClosingCB())
-					elif self.currentLibuvRunStage == "RUN_TIMERS_2":
-						assert(cb.isRunTimersCB())
+				# This is a looper event and we're not exiting.
+				# It could be a marker event indicating the beginning or ending of a stage, or a callback. 
+				#   Marker events must follow the prescribed order for events.
+				#   Callbacks must occur within the appropriate stage.
+				if eventCBType == "INITIAL_STACK":
+					# Every schedule must contain one INITIAL_STACK, as the first event.
+					if execID != 0:
+						logging.debug("INITIAL_STACK must be the first event in the schedule; its execID is actually {}".format(execID))
+						return False
+				elif self._isBeginMarkerEvent(eventCB):
+					# There is a strict order for marker events
+					logging.debug("eventCB is a begin marker event, eventLoopStage {}".format(eventLoopStage))
+					
+					# If we're beginning a stage, we should either be in no stage or in only the 'UV_RUN' stage (which allows nesting).					
+					if inAnyStage and (len(currentLibuvLoopStage) != 1 or currentLibuvLoopStage[0] != "UV_RUN"):
+						logging.debug("We're beginning a new stage ({}) but we haven't ended the current stage: {}".format(eventLoopStage, currentLibuvLoopStage))
+						return False
+										
+					# Is this the begin event for a possible next stage?
+					possibleNextStages = self._possibleNextStages(currentLibuvLoopStage, lastEndedInnerStage)
+					if eventLoopStage not in possibleNextStages:
+						logging.debug("eventLoopStage {} is not one of the possibleNextStages {}".format(eventLoopStage, possibleNextStages))
+						return False
+					
+					# Enter the new stage.
+					currentLibuvLoopStage.append(eventLoopStage)					
+					logging.debug("Entered stage {}".format(currentLibuvLoopStage))			
+				elif self._isEndMarkerEvent(eventCB):					 
+					# Verify that the correct stage is ending
+					if not inAnyStage:
+						logging.debug("Not in any stage, but I see an endMarkerEvent {}".format(eventCBType))
+						return False
+														
+					currentStage = currentLibuvLoopStage.pop()				
+					if currentStage != eventLoopStage:
+						logging.debug("I found an unexpected end marker event: currentStage {} eventLoopStage {}".format(currentStage, eventLoopStage))
+						return False
+					logging.debug("eventCB is an end marker event, updating libuv run stage")
+					if currentStage in Schedule.LIBUV_RUN_INNER_STAGES:
+						lastEndedInnerStage = currentStage					
+				elif eventCBType == "EXIT":			
+					exiting = True
 				else:
-					# TODO We don't maintain a stack of currentLibuvRunStages, so UV_RUN gets lost. Update _updateLibuvRunStage...
-					# However, this is good enough for now.
-					logging.debug("We're not in a libuvStage; verifying current cb type {} is a marker event, INITIAL_STACK, or EXIT".format(cb.getCBType()))
-					if cb.getCBType() == "EXIT":
-						# When we're exiting, we allow any event to occur
-						self.exiting = True
-					assert(cb.getCBType() in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER or
-								 (cb.getCBType() == "INITIAL_STACK" or self.exiting))
-
-			if self._isBeginMarkerEvent(cb):
-				logging.debug("cb is a begin marker event, updating libuv run stage")
-				self._updateLibuvRunStage(cb)
-
-			logging.debug("Looks valid")
-			self.prevCB = cb
-
-	# input: (cb) Latest CB in the schedule
-	# output: ()
-	# If cbType is a marker event, updates our place in the libuv run loop, affecting:
-	# 	- self.currentLibuvRunStage
-	#	  - self.markerEventIx
-	def _updateLibuvRunStage(self, cb):
-		assert(0 <= self.markerEventIx < len(Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER))
-
-		if cb.isMarkerNode():
-			logging.debug("Found a marker node (type {})".format(cb.getCBType()))
-
-			# Did we bypass the libuv run loop?
-			# This would mean that we just saw MARKER_UV_RUN_BEGIN and now see MARKER_UV_RUN_END
-			if self._isUVRunEvent(cb) and self._isEndMarkerEvent(cb) and self.prevCB.getCBType() == "MARKER_UV_RUN_BEGIN":
-				self.markerEventIx = len(Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER) - 1
-
-			# Must match the next marker event type
-			assert(cb.getCBType() == self._nextMarkerEventType())
-			# Update markerEventIx
-			self.markerEventIx += 1
-			self.markerEventIx %= len(Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER)
-
-			if self._isUVRunEvent(cb):
-				self.currentLibuvRunStage = None
-			else:
-				# Verify LibuvRunStages		
-				if self.currentLibuvRunStage is not None:
-					logging.debug("In libuvRunStage {}, should be leaving it now".format(self.currentLibuvRunStage))
-					assert(cb.getCBType() == "MARKER_%s_END" % (self.currentLibuvRunStage))
-					self.currentLibuvRunStage = None
-				elif self._isBeginMarkerEvent(cb):
-					self.currentLibuvRunStage = Schedule.MARKER_EVENT_TO_STAGE[cb.getCBType()]
-					logging.debug("Not in a libuvRunStage, should be entering {} now".format(self.currentLibuvRunStage))
-					assert(cb.getCBType() == "MARKER_%s_BEGIN" % (self.currentLibuvRunStage))
-
-			logging.debug("currentLibuvRunStage {}".format(self.currentLibuvRunStage))
-
-		else:
-			logging.debug("Non-marker node of type {}, nothing to do".format(cb.getCBType()))
-
-
+					# By process of elimination, this must be a valid event in the current stage.
+					if not inAnyStage:
+						logging.debug("eventCBType {} but we are not in any stage".format(eventCBType))
+						return False		
+			
+					# If we're in a libuv stage, verify that we're looking at a valid eventCB type
+					# cf. unified-callback-enums.c::is_X_cb
+					currentStage = currentLibuvLoopStage[-1]
+					logging.debug("We're in stage {}; verifying current eventCB type {} is appropriate to the stage".format(currentStage, eventCBType))
+					if (currentStage == "RUN_TIMERS_1" and eventCB.isRunTimersCB()) or \
+						 (currentStage == "RUN_PENDING" and eventCB.isRunPendingCB()) or \
+						 (currentStage == "RUN_IDLE" and eventCB.isRunIdleCB()) or \
+						 (currentStage == "RUN_PREPARE" and eventCB.isRunPrepareCB()) or \
+						 (currentStage == "IO_POLL" and eventCB.isIOPollCB()) or \
+						 (currentStage == "RUN_CHECK" and eventCB.isRunCheckCB()) or \
+						 (currentStage == "RUN_CLOSING" and eventCB.isRunClosingCB()) or \
+						 (currentStage == "RUN_TIMERS_2" and eventCB.isRunTimersCB()):
+						#We checked each stage that can contain events, omitting UV_RUN which should never contain user events.						
+						logging.debug("We're in stage {}; eventCBType {} is appropriate".format(currentStage, eventCBType))
+					else:						
+						logging.debug("We're in stage {}; eventCBType {} is not appropriate".format(currentStage, eventCBType))
+						return False
+					
+		logging.debug("All events looked valid")
+		return True
+	
 	def _isBeginMarkerEvent(self, cb):
 		if re.search('_BEGIN$', cb.getCBType()):
 			return True
@@ -233,11 +256,27 @@ class Schedule (object):
 			return True
 		return False
 
-	# input: ()
-	# output: (eventType) type of the next marker event 
-	def _nextMarkerEventType(self):
-		logging.debug("markerEventIx {} type {}".format(self.markerEventIx, Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER[self.markerEventIx]))
-		return Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER[self.markerEventIx]
+	# input: (currStages, lastEndedInnerStage) 
+	#    currStages: Stack of stage(s) we are in. Subset of LIBUV_RUN_ALL_STAGES. 
+	#    lastEndedStage: The UV_RUN inner stage we last ended. Element in LIBUV_RUN_INNER_STAGES.
+	# output: (possibleNextStages) The possible next stages in a valid schedule.  
+	def _possibleNextStages(self, currStages, lastEndedInnerStage):
+		logging.debug("currStages {} lastEndedInnerStage {}".format(currStages, lastEndedInnerStage))
+		assert(lastEndedInnerStage in Schedule.LIBUV_RUN_INNER_STAGES)
+				
+		possibleNextStages = ["EXIT"] # Always an option
+		
+		# The legal next stage depends on both currStages and lastEndedInnerStage		
+		if not len(currStages):
+			# We are not currently in any stage. The next stage is the beginning of a loop: UV_RUN.
+			possibleNextStages.append("UV_RUN")
+		else:
+			# Proceed to the next inner loop stage
+			# lastEndedInnerStage is set to LIBUV_RUN_INNER_STAGES[-1] at the end of every loop and prior to the first loop. 
+			nextStageIx = (Schedule.LIBUV_RUN_INNER_STAGES.index(lastEndedInnerStage) + 1) % len(Schedule.LIBUV_RUN_INNER_STAGES)
+			possibleNextStages.append(Schedule.LIBUV_RUN_INNER_STAGES[nextStageIx])				
+		
+		return possibleNextStages
 
 	# input: (racyNodeIDs)
 	#	racyNodeIDs: list of Callback registration IDs
@@ -261,7 +300,7 @@ class Schedule (object):
 			if not cb.executed():
 				raise ScheduleException('Error, one of the nodes to flip was not executed')
 
-			# We cannot flip events if there is a happens-before relatinoship between them
+			# We cannot flip events if there is a happens-before relationship between them
 			otherEvents = [e for e in events if e is not event]
 			for other in otherEvents:
 				if cb.isAncestorOf(other.getCB()):
@@ -339,7 +378,7 @@ class Schedule (object):
 
 		# For nodes originally executed after the pivot, we must insert them at or before insertBefore_maxIx
 		# For nodes originally executed before the pivot, we must insert them at or after insertAfter_minIx
-		# When we traverse eventsToReschedule (sorted by orig execution order), we'll update one of these indices each time
+		# When we traverse eventsToReschedule (sorted by original execution order), we'll update one of these indices each time
 		#	As a result, if we start with A B pivot X Y, we'll end up with Y X pivot B A
 		insertBefore_maxIx = self.execSchedule.index(pivot)
 		insertAfter_minIx  = self.execSchedule.index(pivot) + 1
@@ -349,40 +388,40 @@ class Schedule (object):
 
 
 
-			# Re-insert them in the schedule, no earlier in the list than minInsertIx
-			# TODO I am here -- working on TP CBs
-			for eventIx, eventToMove in enumerate(allEventsToMove):
-				logging.info("Re-inserting event of type {} (looking for the next end marker of type {})".format(eventToMove.getCB().getCBType(), eventToMove.getLibuvLoopStage()))
-				inserted = False
-				addedNewLoop = False
-				while not inserted:
-					# Locate the next MARKER_*_END event of the appropriate libuv stage
-					# TODO Should jump ahead N loops to honor relative timing?
-					(insertIx, nextMarker) = self._findLaterCB(lambda e: self._isEndMarkerEvent(e.getCB()) and Schedule.MARKER_EVENT_TO_STAGE[e.getCB().getCBType()] == eventToMove.getLibuvLoopStage(), minInsertIx)
-					if insertIx is not None:
-						logging.info("inserting at ix {}".format(insertIx))
-						self.execSchedule.insert(insertIx, eventToMove)
-						inserted = True
+		# Re-insert them in the schedule, no earlier in the list than minInsertIx
+		# TODO I am here -- working on TP CBs
+		for eventIx, eventToMove in enumerate(allEventsToMove):
+			logging.info("Re-inserting event of type {} (looking for the next end marker of type {})".format(eventToMove.getCB().getCBType(), eventToMove.getLibuvLoopStage()))
+			inserted = False
+			addedNewLoop = False
+			while not inserted:
+				# Locate the next MARKER_*_END event of the appropriate libuv stage
+				# TODO Should jump ahead N loops to honor relative timing?
+				(insertIx, nextMarker) = self._findLaterCB(lambda e: self._isEndMarkerEvent(e.getCB()) and Schedule.MARKER_EVENT_TO_STAGE[e.getCB().getCBType()] == eventToMove.getLibuvLoopStage(), minInsertIx)
+				if insertIx is not None:
+					logging.info("inserting at ix {}".format(insertIx))
+					self.execSchedule.insert(insertIx, eventToMove)
+					inserted = True
 
-						# Add parent to the map
-						if eventIx == 0:
-							origToNewIDs[eventToMove.getCB().getID()] = insertIx
+					# Add parent to the map
+					if eventIx == 0:
+						origToNewIDs[eventToMove.getCB().getID()] = insertIx
 
-						# Update loop variables
-						minInsertIx = insertIx  # Next event must be inserted after this node
-						addedNewLoop = False
-					else:
-						# If we cannot find an insertion point, it must be because we could not find an appropriate marker,
-						# i.e. that we ran out of UV_RUN loops.
-						# Add a new UVRun loop to the schedule.
+					# Update loop variables
+					minInsertIx = insertIx  # Next event must be inserted after this node
+					addedNewLoop = False
+				else:
+					# If we cannot find an insertion point, it must be because we could not find an appropriate marker,
+					# i.e. that we ran out of UV_RUN loops.
+					# Add a new UVRun loop to the schedule.
 
-						# ...unless we've already been here with this item. Adding one new loop should have been enough.
-						# NB Won't work if insertIx occurs in a final incomplete loop; see _addUVRunLoop
-						assert(not addedNewLoop)
+					# ...unless we've already been here with this item. Adding one new loop should have been enough.
+					# NB Won't work if insertIx occurs in a final incomplete loop; see _addUVRunLoop
+					assert(not addedNewLoop)
 
-						logging.info("Adding a UVRun loop")
-						minInsertIx = self._addUVRunLoop(enterLoop=True)
-						addedNewLoop = True
+					logging.info("Adding a UVRun loop")
+					minInsertIx = self._addUVRunLoop(enterLoop=True)
+					addedNewLoop = True
 
 		# Update the execID of the events in the schedule
 		# This also affects the IDs of subsequent events in racyEventsToMove, if any
