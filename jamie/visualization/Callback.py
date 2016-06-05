@@ -387,9 +387,24 @@ class CallbackNode (object):
 		validOptions = ["UV_CHECK_CB"]
 		return (self.getCBType() in validOptions)
 
+	def _legal_uv__stream_destroy_cbs (self):
+		return ["UV_CONNECT_CB"] + self._legal_uv__write_callbacks() + ["UV_SHUTDOWN_CB"]
+
+	def _legal_uv__write_callbacks (self):
+		return ["UV_WRITE_CB"]
+
+	def _legal_udp_finish_close_cbs (self):
+		return self._legal_udp_run_completed_cbs()
+
+	def _legal_udp_run_completed_cbs (self):
+		return ["UV_UDP_SEND_CB"]
+
+	def _legal_uv__finish_close_cbs (self):
+		# See uv/src/unix/core.c
+		return self._legal_uv__stream_destroy_cbs() + self._legal_udp_finish_close_cbs() + ["UV_CLOSE_CB"]
+
 	def isRunClosingCB (self):
-		#TODO Is this correct?
-		validOptions = ["UV_CLOSING_CB"]
+		validOptions =  self._legal_uv__finish_close_cbs()
 		return (self.getCBType() in validOptions)
 					
 	def getExtraInfo (self):
