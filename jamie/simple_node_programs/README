@@ -2,3 +2,12 @@ Jamie Davis
 30 Sept 2015
 
 Exploring Node.js by reading nodejs.org/api
+
+-------------------
+
+08 Jun 2016
+
+The tests in this directory are no longer maintained.
+A fancier version of run_tests, plus improved tests, are now in noderacer2/tests where we can test the end-to-end system.
+
+This version of run_tests will continue to work as a unit test for the basic nodejsrr record-replay system.
