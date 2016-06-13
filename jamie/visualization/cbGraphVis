@@ -85,27 +85,22 @@ def getTimeStr (t, unit='ns'):
 	t = round(int(t)/divisor)
 	return "{:.0f}".format(t)
 
-### This version includes registration time and exec time
-### This version is the fancier one for an async-aware raceDetector
-# def cbn_adjListStr (node):
-# 	regStr = "{}".format(getTimeStr(int(node.getRegistrationTime())))
-# 	execStr = "{}-{}".format(getTimeStr(int(node.getStartTime())),
-# 													 getTimeStr(int(node.getEndTime())))
-# 	return "<{}: reg {} exec {}>".format(node.getID(), regStr, execStr)
-
-def cbn_adjListStr (node):
-	#regStr = "{}".format(getTimeStr(int(node.getRegistrationTime())))
- 	execStr = "{}-{}".format(getTimeStr(int(node.getStartTime()), unit='us'),
- 													 getTimeStr(int(node.getEndTime()), unit='us'))
- 	return "{}:{}".format(node.getID(), execStr)
-
+#returns Node information in the following format:
+# id:regTime:startTime:endTime
+# times in usec
+def cbn_adjListStr (node):	
+ 	return "{}:{}:{}:{}".format(node.getID(),
+															getTimeStr(int(node.getRegistrationTime()), unit='us'),
+															getTimeStr(int(node.getStartTime()), unit='us'),
+															getTimeStr(int(node.getEndTime()), unit='us'))
+	
+#tree-walk function
+#prints adjacency list information to f for each executed node
 def walk_adjacencyList (node, f):
-	if (nodeNotExecuted(node)):
+	if (not node.executed()):
 		return
 	myStr = cbn_adjListStr(node)
 	childStrs = [cbn_adjListStr(n) for n in node.getChildren()]
-### This version is the fancier one for an async-aware raceDetector
-#	f.write("node: {} children: {}\n".	format(myStr, ",".join(childStrs)))
 	f.write("{} {}\n".	format(myStr, ",".join(childStrs)))
 
 #Returns true if node is a marker event rather than a user CB
