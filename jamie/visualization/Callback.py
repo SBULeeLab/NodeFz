@@ -105,7 +105,7 @@ class CallbackNode (object):
 			if (match):
 				setattr(self, match.group('key'), match.group('value'))
 		for key in self.REQUIRED_KEYS:
-			logging.debug("CallbackNode::__init__: Verifying that required field '%s' is defined" % (key))
+			logging.debug("CallbackNode::__init__: Verifying that required field '{}' is defined".format(key))
 			value = getattr(self, key, None)
 			assert(value is not None)
 			logging.debug("CallbackNode::__init__: '%s' -> '%s'" %(key, value)) 					
@@ -128,7 +128,7 @@ class CallbackNode (object):
 			self.dependencies = self.dependencies.split(" ")
 		else:
 			self.dependencies = []
-		logging.debug("CallbackNode::__init__: dependencies %s" % (self.dependencies))
+		logging.debug("CallbackNode::__init__: dependencies {}".format(self.dependencies))
 		
 		self.children = []
 		self.dependents = []
@@ -268,7 +268,7 @@ class CallbackNode (object):
 		allDescendants = directDescendants | set(indirectDescendants) # There may be duplicates
 		logging.info("CallbackNode::getDescendants: node {}, allDescendants {}".format(self.getID(), [n.getID() for n in allDescendants]))
 
-		# Save state so we don't have to repeated
+		# Save state so we don't have to recurse
 		if includeDependents:
 			self._knowAllDescendantsWithDependents = True
 			self._allDescendantsWithDependents = allDescendants
@@ -454,7 +454,7 @@ class CallbackNodeTree (object):
 					node = CallbackNode(l)
 					self.callbackNodes.append(node)
 		except IOError:
-			logging.error("CallbackNodeTree::__init__: Error, processing inputFile %s gave me an IOError" % (inputFile))
+			logging.error("CallbackNodeTree::__init__: Error, processing inputFile {} gave me an IOError".format(inputFile))
 			raise
 				
 		#construct callbackNodeDict
@@ -485,12 +485,12 @@ class CallbackNodeTree (object):
 	def _updateDependencies(self):
 		for node in self.callbackNodes:
 			for n in node.dependencies:
-				logging.debug("CallbackNodeTree::_updateDependencies: dependency %s" % (n))
+				logging.debug("CallbackNodeTree::_updateDependencies: dependency {}".format(n))
 			#logging.debug("CallbackNodeTree::_updateDependencies: callbackNodeDict %s" % (self.callbackNodeDict))
 			node.dependencies = [self.callbackNodeDict[n] for n in node.dependencies]
 			for antecedent in node.dependencies:
 				antecedent.addDependent(node)
-			logging.debug("CallbackNodeTree::_updateDependencies: Node %s's dependencies: %s" % (node.getName(), node.dependencies))
+			logging.debug("CallbackNodeTree::_updateDependencies: Node {}'s dependencies: {}".format(node.getName(), node.dependencies))
 		
 	#input: (regID)
 	#output: (node) node with specified regID, or None
@@ -524,7 +524,7 @@ class CallbackNodeTree (object):
 		#Wrapper for self.walk 
 		def remove_walk (node, arg):
 			if (func(node)):
-				logging.debug("CallbackNodeTree::removeNodes: removing node: %s" % (node))
+				logging.debug("CallbackNodeTree::removeNodes: removing node: {}".format(node))
 				#Remove NODE from the tree
 				if (node.parent):					
 					node.parent.children = [x for x in node.parent.children if x.name != node.name]
@@ -566,7 +566,7 @@ class CallbackNodeTree (object):
 				assert(pred != curr)
 				return pred
 			pred = curr
-		assert("CallbackNodeTree::getNodeExecPredecessor: Error, did not find node with execID %s in tree" % (node.getExecID()))
+		assert("CallbackNodeTree::getNodeExecPredecessor: Error, did not find node with execID {} in tree".format(node.getExecID()))
 
 	# #Transform the tree into an intermediate format for more convenient schedule re-arrangement.
 	# #This may add new nodes and change the exec_id of many nodes.

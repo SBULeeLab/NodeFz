@@ -279,14 +279,14 @@ class Schedule (object):
 		return possibleNextStages
 
 	# input: (racyNodeIDs)
-	#	racyNodeIDs: list of Callback registration IDs
+	#	  racyNodeIDs: list of Callback registration IDs
 	# output: (events, eventsToReschedule, pivot)
-	#	events: list, the events to which racyNodeIDs correspond, in original execution order
-	#	eventsToReschedule: list, the events that need to be rescheduled, in original execution order. subset of events.
-	# pivot: one of the events, the "pivot" around which to reschedule the eventsToReschedule
+	#	  events: list, the events to which racyNodeIDs correspond, in original execution order
+	#	  eventsToReschedule: list, the events that need to be rescheduled, in original execution order. subset of events.
+	#   pivot: one of the events, the "pivot" around which to reschedule the eventsToReschedule
 	#
 	# Raises a ScheduleException on invalid or insupportable request
-	def _verifyRescheduleIDs(self, racyNodeIDs):
+	def _validateRescheduleIDs(self, racyNodeIDs):
 		events = [e for e in self.execSchedule if int(e.getCB().getID()) in racyNodeIDs]
 
 		# Validate the events
@@ -314,29 +314,38 @@ class Schedule (object):
 		# In the future we could climb until we find network input (cannot flip) or an async node (can flip)
 		asyncEvents = [e for e in events if e.getCB().isAsync()]
 
+		# "Fixed events"  are non-async
+		nFixedEvents = len(events) - len(asyncEvents)
+
 		# Identify the pivot: the event around which we "pivot" the other events as we reschedule
 		pivot = None
 		eventsToReschedule = None
-		if len(asyncEvents) + 1 == len(events):
+		if nFixedEvents == 0:
+			# All events are async.
+			# Pivot defaults to the latest-scheduled event
+			# TODO This should be a policy decision
+			#pivot = origRacyExecOrder[-1]
+			pivot = origRacyExecOrder[0]
+			eventsToReschedule = [e for e in origRacyExecOrder if e is not pivot]
+			logging.debug("All events are async. Using the latest-scheduled ({}) as the pivot".format(pivot))
+		elif nFixedEvents == 1:
+			# One event is not async, so that's the pivot.
 			eventsToReschedule = asyncEvents
 			pivots = set(events) - set(asyncEvents)
-			assert(len(pivots) == 1)
+			assert(len(pivots) == nFixedEvents == 1)
 			pivot = pivots.pop()
-		elif len(asyncEvents) == len(events):
-			# If we can reschedule any of them, pivot defaults to the latest-scheduled event
-			pivot = origRacyExecOrder[-1]
-			eventsToReschedule = [e for e in origRacyExecOrder if e is not pivot]
+			logging.debug("Event {} is fixed, so that is our pivot".format(pivot))
 		else:
-			# Cannot handle more than one pivot
+			# More than one async event. Cannot handle this.
 			types = [e.getCB().getCBType() for e in events]
-			raise ScheduleException('Error, one of the nodes to flip is not an async node. Types of events: %s'.format(types))
+			raise ScheduleException('Error, multiple non-async nodes. Types of events: {}'.format(types))
 
 		return origRacyExecOrder, eventsToReschedule, pivot
 
 	# input: (racyNodeIDs)
-	#	racyNodeIDs: list of Callback registration IDs
+	#	  racyNodeIDs: list of Callback registration IDs
 	# output: (origToNewIDs)
-	# origToNewIDs: dict from racyNodeID entries to newNodeID entries after changing execution order
+	#   origToNewIDs: dict from racyNodeID entries to newNodeID entries after changing execution order
 	# Modifies the schedule so that the specified Callbacks are executed in reverse order compared to how they actually
 	# executed in this Schedule.
 	# Throws a ScheduleException if the requested exchange is not feasible
@@ -346,94 +355,150 @@ class Schedule (object):
 			raise ScheduleException('Error, cannot reschedule more than 2 events')
 		origToNewIDs = {}
 
-		events, eventsToReschedule, pivot = self._verifyRescheduleIDs(racyNodeIDs)
-		logging.info("events {}".format(events))
+		events, eventsToReschedule, pivot = self._validateRescheduleIDs(racyNodeIDs)
+		eventIDs = [e.getCB().getID() for e in events]
+		eventsToRescheduleIDs = [e.getCB().getID() for e in eventsToReschedule]
+		logging.info("eventIDs {} eventsToRescheduleIDs {} pivotID {}".format(eventIDs, eventsToRescheduleIDs, pivot.getCB().getID()))
 
 		# Save original IDs so that we can populate origToNewIDs later
 		eventToOrigID = {}
 		for event in events:
 			eventToOrigID[event] = event.getCB().getID()
 
-		# Map from an event to all events that descend from or depend on it
+		# Map from an event to all events that descend from or depend on it (not including the event itself)
 		eventToEventsToMove = {}
 
-		# Remove all events and their children from the schedule
+		# Remove all eventsToReschedule (including their descendants) from the schedule
 		for event in eventsToReschedule:
-			# Identify all events that need to be relocated: event and its descendants and dependents, now referred to as descendants
-			executedEventDescendants_CBs = [cb for cb in event.getCB().getDescendants(includeDependents=True) if
-																			cb.executed()]
-			eventDescendants_IDs = [int(cb.getID()) for cb in executedEventDescendants_CBs]
-			# This is an expensive call for large lists
-			allEventsToMove = [e for e in self.execSchedule if int(e.getCB().getID()) in eventDescendants_IDs]
-			logging.info("eventDescendants_IDs {}".format(eventDescendants_IDs))
+			eventToEventsToMove[event] = self._removeEvent(event, recursive=True)
 
-			# Save
-			eventToEventsToMove[event] = allEventsToMove
-
-			# Remove them
-			for eventToMove in allEventsToMove:
-				self.execSchedule.remove(eventToMove)
-
-		#TODO I AM HERE
-
-		# For nodes originally executed after the pivot, we must insert them at or before insertBefore_maxIx
-		# For nodes originally executed before the pivot, we must insert them at or after insertAfter_minIx
-		# When we traverse eventsToReschedule (sorted by original execution order), we'll update one of these indices each time
-		#	As a result, if we start with A B pivot X Y, we'll end up with Y X pivot B A
-		insertBefore_maxIx = self.execSchedule.index(pivot)
-		insertAfter_minIx  = self.execSchedule.index(pivot) + 1
-
-		pivot_origExecID = pivot.getCB().getExecID()
-
-
-
-
-		# Re-insert them in the schedule, no earlier in the list than minInsertIx
-		# TODO I am here -- working on TP CBs
-		for eventIx, eventToMove in enumerate(allEventsToMove):
-			logging.info("Re-inserting event of type {} (looking for the next end marker of type {})".format(eventToMove.getCB().getCBType(), eventToMove.getLibuvLoopStage()))
-			inserted = False
-			addedNewLoop = False
-			while not inserted:
-				# Locate the next MARKER_*_END event of the appropriate libuv stage
-				# TODO Should jump ahead N loops to honor relative timing?
-				(insertIx, nextMarker) = self._findLaterCB(lambda e: self._isEndMarkerEvent(e.getCB()) and Schedule.MARKER_EVENT_TO_STAGE[e.getCB().getCBType()] == eventToMove.getLibuvLoopStage(), minInsertIx)
-				if insertIx is not None:
-					logging.info("inserting at ix {}".format(insertIx))
-					self.execSchedule.insert(insertIx, eventToMove)
-					inserted = True
-
-					# Add parent to the map
-					if eventIx == 0:
-						origToNewIDs[eventToMove.getCB().getID()] = insertIx
-
-					# Update loop variables
-					minInsertIx = insertIx  # Next event must be inserted after this node
-					addedNewLoop = False
-				else:
-					# If we cannot find an insertion point, it must be because we could not find an appropriate marker,
-					# i.e. that we ran out of UV_RUN loops.
-					# Add a new UVRun loop to the schedule.
-
-					# ...unless we've already been here with this item. Adding one new loop should have been enough.
-					# NB Won't work if insertIx occurs in a final incomplete loop; see _addUVRunLoop
-					assert(not addedNewLoop)
-
-					logging.info("Adding a UVRun loop")
-					minInsertIx = self._addUVRunLoop(enterLoop=True)
-					addedNewLoop = True
+		for eventToReschedule in eventsToReschedule:
+			eventsToMove = eventToEventsToMove[eventToReschedule]
+			# Maintain the execution order within the descendant tree
+			descendantsToMove = sorted([e for e in eventsToMove if e is not eventToReschedule], key=lambda e: int(e.getCB().getExecID()))
+			self._insertEvent(eventToReschedule, pivotEvent=pivot)
+			mustComeAfterEvent = eventToReschedule
+			for descendantToMove in descendantsToMove:
+				self._insertEvent(descendantToMove, afterEvent=mustComeAfterEvent)
+				mustComeAfterEvent = descendantToMove
 
 		# Update the execID of the events in the schedule
-		# This also affects the IDs of subsequent events in racyEventsToMove, if any
-		for insertIx, e in enumerate(self.execSchedule):
-			e.getCB().setExecID(insertIx)
-
-		# "stable" event's ID has changed because we've removed nodes before it
+		# Get the new execID of the rescheduled events
+		# (other events have also been rescheduled, but the caller doesn't care about them)
+		self._updateExecIDs()
 		for event in eventToOrigID:
 			origToNewIDs[eventToOrigID[event]] = event.getCB().getID()
 
-		self.assertValid()
+		assert (self.isValid())
 		return origToNewIDs
+
+	# input: (event, [pivotEvent], [beforeEvent], [afterEvent])
+	#   event: insert this event
+	#	  Provide exactly one of the following three locations:
+	#   pivotEvent: if defined, insert event on the opposite side of pivot
+	#   afterEvent: if defined, insert event after this event
+	#   beforeEvent: if defined, insert event before this event
+	# Insert an event into self.execSchedule relative to some other event.
+	# It must already be in self.cbTree.
+	# It will be inserted at the nearest point that fits the description.
+	def _insertEvent(self, event, pivotEvent=None, beforeEvent=None, afterEvent=None):
+		notNones = [e for e in [pivotEvent, beforeEvent, afterEvent] if e is not None]
+		if len(notNones) != 1:
+			raise ScheduleException("_insertEvent: Error, you must provide exactly one of {pivotEvent, beforeEvent, afterEvent")
+
+		evExecID = event.getCB().getExecID()
+
+		# Find an endMarkerEvent of the same stage as event
+		findMarkerFunc = None
+		searchStartIx = None
+		moveIxFunc = None
+		calcInsertIxFunc = None
+
+		if pivotEvent is not None:
+			# pivotEvent is convenient shorthand. Convert to beforeEvent or afterEvent.
+			pivExecID = pivotEvent.getCB().getExecID()
+			if pivExecID < evExecID:
+				return self._insertEvent(event, beforeEvent=pivotEvent)
+			elif evExecID < pivExecID:
+				return self._insertEvent(event, afterEvent=pivotEvent)
+			else:
+				raise ScheduleException("_insertEvent: Error, pivotEvent {} and event {} have the same exec ID ({})".format(pivotEvent, event, evExecID))
+		elif beforeEvent is not None:
+			# Prepare to insert event before beforeEvent
+			befEventExecID = beforeEvent.getCB().getExecID()
+			if evExecID == befEventExecID:
+				raise ScheduleException("_insertEvent: Error, you are requesting that I insert event with execID {} before beforeEvent with the same execID".format(evExecID))
+			# Insert after the next beginMarkerEvent of the appropriate type
+			findMarkerFunc = lambda e: self._isBeginMarkerEvent(e.getCB()) and e.getLibuvLoopStage() == event.getLibuvLoopStage()
+			searchStartIx = self.execSchedule.index(beforeEvent)
+			moveIxFunc = lambda ix: ix - 1
+			calcInsertIxFunc = lambda ix: ix + 1 # Insert after the beginMarkerEvent we found
+		elif afterEvent is not None:
+			# Prepare to insert event after afterEvent
+			aftEventExecID = afterEvent.getCB().getExecID()
+			if evExecID == aftEventExecID:
+				raise ScheduleException("_insertEvent: Error, you are requesting that I insert event with execID {} after afterEvent with the same execID".format(evExecID))
+			# Insert before the next endMarkerEvent of the appropriate type
+			findMarkerFunc = lambda e: self._isEndMarkerEvent(e.getCB()) and e.getLibuvLoopStage() == event.getLibuvLoopStage()
+			searchStartIx = self.execSchedule.index(afterEvent)
+			moveIxFunc = lambda ix: ix + 1
+			calcInsertIxFunc = lambda ix: ix  # Insert before the beginMarkerEvent we found
+		else:
+			assert(not "_insertEvent: How did we get here?")
+
+		# Search for the insertion point
+		# If we're inserting before, we look "left" (smaller ix) for the nearest BEGIN marker event of the correct type
+		# If we're inserting after, we look "right" (larger ix) for the nearest END marker event of the correct type
+		assert(findMarkerFunc is not None and searchStartIx is not None and moveIxFunc is not None and calcInsertIxFunc is not None)
+		minIx, maxIx = 0, len(self.execSchedule) - 1
+
+		inserted = False
+		searchIx = searchStartIx
+		while minIx <= searchIx <= maxIx:
+			if findMarkerFunc(self.execSchedule[searchIx]):
+				insertIx = calcInsertIxFunc(searchIx)
+				self.execSchedule.insert(insertIx, event)
+				inserted = True
+				break
+			searchIx = moveIxFunc(searchIx)
+
+		# TODO We can handle this better. We can add a new loop or new async events for the TP.
+		# cf. _addUVRunLoop
+		if not inserted:
+			raise ScheduleException("_insertEvent: Could not insert event")
+
+	# input: (event, recursive)
+	#   event: event to remove from self.execSchedule
+	#   recursive: remove children, grandchildren, etc.?
+	# output: (removedEvents)
+	#  	all events removed from self.execSchedule
+	#   these are the executed events out of {event (and descendants, if recursive)}
+	#	The removed events remain in self.cbTree
+	# removedEvents is a subset of the descendants of event, since it excludes unexecuted descendants
+	def _removeEvent(self, event, recursive=False):
+		# Identify all events that need to be relocated: event and its descendants and dependents, now referred to as descendants
+		allRemovedEvents = [event]
+		if recursive:
+			executedEventDescendants_CBs = [cb for cb in event.getCB().getDescendants(includeDependents=True) if
+																			cb.executed()]
+			for cb in executedEventDescendants_CBs:
+				matchingEvents = [e for e in self.execSchedule if e.getCB() is cb]
+				# This descendant might have been registered (in self.cbTree) but not executed (in self.execSchedule)
+				assert(len(matchingEvents) <= 1)
+				if len(matchingEvents) == 1:
+					allRemovedEvents += matchingEvents
+
+		# Actually remove the allRemovedEvents
+		for e in allRemovedEvents:
+			self.execSchedule.remove(e)
+		return allRemovedEvents
+
+	# input: ()
+	# output: ()
+	# Update the execID of each event in self.execSchedule based on its list index
+	def _updateExecIDs(self):
+		for ix, event in enumerate(self.execSchedule):
+			event.getCB().setExecID(ix)
 
 	# input: (searchFunc, startIx)
 	# startIx defaults to the end of self.execSchedule
