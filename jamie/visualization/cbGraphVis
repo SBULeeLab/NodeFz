@@ -19,11 +19,13 @@ sys.setrecursionlimit(20000)
 
 #input: (node, graph)
 #output: nodeHandle corresponding to node
+#	Adds node to graph if not yet present
 def getNodeHandle (node, graph):
-	nodeName = "Node {}".format(node.getID())
+	# Registration ID is unique; execution ID is not since all unexecuted nodes have ID -1
+	nodeName = "Node {}".format(node.getRegID())
 	nodeHandle = gv.findnode(graph, nodeName)
 	if (not nodeHandle):
-		nodeHandle = gv.node(graph, "Node {}".format(node.getID()))
+		nodeHandle = gv.node(graph, "Node {}".format(node.getRegID()))
 	return nodeHandle
 
 #add NODE, its children, and a parental edge to GRAPH
@@ -40,7 +42,7 @@ def addNodeAndChildren (node, graph):
 		extraInfo = "\\nExtra info: {}".format(extraInfo)
 	else:
 		extraInfo = ""
-	nodeStr = "node <{}> ({},{})\\nCB type {}\\nContext {}\\nBehavior {}\\nExecuted {} {}".format(node.getExecID(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed(), extraInfo)
+	nodeStr = "node <Reg {}, Exec {}> ({},{})\\nCB type {}\\nContext {}\\nBehavior {}\\nExecuted {} {}".format(node.getRegID(), node.getExecID(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed(), extraInfo)
 	gv.setv(nodeHandle, "label", nodeStr)
 	
 	#assign shape based on behavior
