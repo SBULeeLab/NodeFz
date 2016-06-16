@@ -374,12 +374,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   if (!r)
     uv__update_time(loop);
 
+  mylog(LOG_MAIN, 1, "uv_run: r %i loop->stop_flag %i\n", r, loop->stop_flag);
   while (r != 0 && loop->stop_flag == 0) {
-#if 0
-    /* TODO DEBUGGING. */
-    sleep(1);
-#endif
-
     mylog(LOG_MAIN, 1, "uv_run: loop begins (%i CBs run, %i remaining, next %s)\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (1)\n");

@@ -1627,6 +1627,7 @@ void emit_marker_event (enum callback_type cbt)
   {
     /* Wait until we're scheduled to go. */
     enum callback_type next_cb_type = scheduler_next_lcbn_type();
+    mylog(LOG_MAIN, 5, "emit_marker_event: cbt %s next_cb_type %s\n", callback_type_to_string(cbt), callback_type_to_string(next_cb_type));
     assert(is_threadpool_cb(next_cb_type) || next_cb_type == cbt);
     if (next_cb_type != cbt)
     {
