@@ -115,7 +115,8 @@ class CallbackNode (object):
 			timeStr = getattr(self, timeKey, None)
 			match = re.search('(?P<sec>\d+)s\s+(?P<nsec>\d+)ns', timeStr)
 			assert(match)
-			ns = int(match.group('sec'))*1e9 + int(match.group('nsec'))
+			#TODO Is all of this long()'ing necessary? I'm guessing we only need it for long(1e9)
+			ns = long(long(match.group('sec'))*long(1e9) + long(match.group('nsec')))
 			setattr(self, timeKey, ns)
 		# Time should go forward
 		if (self.executed()):
@@ -145,16 +146,18 @@ class CallbackNode (object):
 	def __str__(self):
 		kvStrings = []
 		for key in self.REQUIRED_KEYS:
-			kvStr = "<%s>" % (key)
+			kvStr = "<{}>".format(key)
 			if key in CallbackNode.TIME_KEYS:
 				# Convert times in ns to s,ns
-				time = int(getattr(self, key))
-				kvStr += " <%ds %dns>" % (time/1e9, time % 1e9) #TODO This doesn't seem to produce the right value? The last 3 digits are off.
+				#TODO Is all of this long()'ing necessary? I'm guessing we only need it for long(1e9)
+				time_ns = long(getattr(self, key))
+				nsPerS = long(1e9)
+				kvStr += " <{:d}s {:d}ns>".format(time_ns/nsPerS, long(time_ns % nsPerS))
 			elif key == "dependencies":
 				deps = getattr(self, key)
-				kvStr += " <%s>" % (", ".join(str(dep) for dep in deps))
+				kvStr += " <{}>".format(", ".join(str(dep) for dep in deps))
 			else:
-				kvStr += " <%s>" % (getattr(self, key))
+				kvStr += " <{}>".format(getattr(self, key))
 
 			kvStrings.append(kvStr)
 		string = " | ".join(kvStrings)
@@ -486,7 +489,6 @@ class CallbackNodeTree (object):
 		for node in self.callbackNodes:
 			for n in node.dependencies:
 				logging.debug("CallbackNodeTree::_updateDependencies: dependency {}".format(n))
-			#logging.debug("CallbackNodeTree::_updateDependencies: callbackNodeDict %s" % (self.callbackNodeDict))
 			node.dependencies = [self.callbackNodeDict[n] for n in node.dependencies]
 			for antecedent in node.dependencies:
 				antecedent.addDependent(node)
