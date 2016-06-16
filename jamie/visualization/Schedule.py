@@ -389,6 +389,10 @@ class Schedule (object):
 		for event in eventToOrigID:
 			origToNewIDs[eventToOrigID[event]] = event.getCB().getID()
 
+		# At least one ID must have changed
+		changedIDs = [id for id in origToNewIDs.keys() if id != origToNewIDs[id]]
+		assert(len(changedIDs))
+
 		assert (self.isValid())
 		return origToNewIDs
 
@@ -398,6 +402,8 @@ class Schedule (object):
 	#   pivotEvent: if defined, insert event on the opposite side of pivot
 	#   afterEvent: if defined, insert event after this event
 	#   beforeEvent: if defined, insert event before this event
+	# output: ()
+	#
 	# Insert an event into self.execSchedule relative to some other event.
 	# It must already be in self.cbTree.
 	# It will be inserted at the nearest point that fits the description.
@@ -406,7 +412,7 @@ class Schedule (object):
 		if len(notNones) != 1:
 			raise ScheduleException("_insertEvent: Error, you must provide exactly one of {pivotEvent, beforeEvent, afterEvent")
 
-		evExecID = event.getCB().getExecID()
+		evExecID = int(event.getCB().getExecID())
 
 		# Find an endMarkerEvent of the same stage as event
 		findMarkerFunc = None
@@ -416,16 +422,18 @@ class Schedule (object):
 
 		if pivotEvent is not None:
 			# pivotEvent is convenient shorthand. Convert to beforeEvent or afterEvent.
-			pivExecID = pivotEvent.getCB().getExecID()
+			pivExecID = int(pivotEvent.getCB().getExecID())
 			if pivExecID < evExecID:
+				logging.debug("pivot {} initially preceded event {}, recursing with beforeEvent=pivot".format(pivExecID, evExecID))
 				return self._insertEvent(event, beforeEvent=pivotEvent)
 			elif evExecID < pivExecID:
+				logging.debug("pivot {} initially came after event {}, recursing with afterEvent=pivot".format(pivExecID, evExecID))
 				return self._insertEvent(event, afterEvent=pivotEvent)
 			else:
 				raise ScheduleException("_insertEvent: Error, pivotEvent {} and event {} have the same exec ID ({})".format(pivotEvent, event, evExecID))
 		elif beforeEvent is not None:
 			# Prepare to insert event before beforeEvent
-			befEventExecID = beforeEvent.getCB().getExecID()
+			befEventExecID = int(beforeEvent.getCB().getExecID())
 			if evExecID == befEventExecID:
 				raise ScheduleException("_insertEvent: Error, you are requesting that I insert event with execID {} before beforeEvent with the same execID".format(evExecID))
 			# Insert after the next beginMarkerEvent of the appropriate type
@@ -435,7 +443,7 @@ class Schedule (object):
 			calcInsertIxFunc = lambda ix: ix + 1 # Insert after the beginMarkerEvent we found
 		elif afterEvent is not None:
 			# Prepare to insert event after afterEvent
-			aftEventExecID = afterEvent.getCB().getExecID()
+			aftEventExecID = int(afterEvent.getCB().getExecID())
 			if evExecID == aftEventExecID:
 				raise ScheduleException("_insertEvent: Error, you are requesting that I insert event with execID {} after afterEvent with the same execID".format(evExecID))
 			# Insert before the next endMarkerEvent of the appropriate type
