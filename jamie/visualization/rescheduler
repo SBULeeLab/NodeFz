@@ -19,10 +19,10 @@ logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 sys.setrecursionlimit(1000000) # Graph algorithms, deep trees
 
 def main():
-	parser = argparse.ArgumentParser(description="Produce schedules to explore races")
+	parser = argparse.ArgumentParser(description="Produce schedules to explore races. One schedule for each race group is produced.")
 	parser.add_argument("--schedFile", help="file containing libuv event schedule", required=True, type=str)	
-	parser.add_argument("--raceFile", help="Set of racey nodes (format: 'race i' followed by one reg ID per line)", required=True, type=str)
-	parser.add_argument("--outputPrefix", help="save schedules to outputPrefix_i, one for each race in raceFile", type=str, default="raceySchedule")
+	parser.add_argument("--raceFile", help="Set of racey nodes (format: 'Group i' followed by one reg ID per line)", required=True, type=str)
+	parser.add_argument("--outputPrefix", help="Save schedules to outputPrefix_i, one for each race in raceFile", type=str, default="raceySchedule")
 
 	args = parser.parse_args()
 
