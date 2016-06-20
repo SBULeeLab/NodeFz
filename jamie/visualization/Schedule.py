@@ -12,7 +12,6 @@ import copy
 
 import Callback as CB
 
-
 #############################
 # ScheduleException
 #############################
@@ -25,11 +24,14 @@ class ScheduleException(Exception):
 #############################
 
 # Representation of a libuv callback schedule
+# External functions always return leaving the Schedule with isValid True.
+# Internal functions (self._*) might not. 
 class Schedule (object):
 	# CBs of these types are asynchronous, and can be moved from one loop to another provided that they do not violate
 	# happens-before order
 	ASYNC_CB_TYPES = ["UV_TIMER_CB", "UV_WORK_CB", "UV_AFTER_WORK_CB"]
-	# Order in which marker events occur
+	# Order in which marker events occur.
+	# This is also a list of all marker event types.
 	LIBUV_LOOP_STAGE_MARKER_ORDER = []
 
 	LIBUV_RUN_OUTER_STAGES = ["UV_RUN"]
@@ -63,8 +65,18 @@ class Schedule (object):
 		self.cbTree = CB.CallbackNodeTree(self.scheduleFile)
 		self.execSchedule = self._genExecSchedule(self.cbTree) # List of annotated ScheduleEvents
 		
+		self.nextNewEventID = 999999
+		
 		if not self.isValid():
 			raise ScheduleException("The input schedule was not valid")		
+
+	# input: ()
+	# output: (newEventID)
+	#   newEventID			A probably-unique ID	
+	def _getNewEventID(self):
+		newID = self.nextNewEventID
+		self.nextNewEventID += 1
+		return newID
 
 	# input: (cbTree)
 	# output: (execSchedule) List of ScheduleEvents
@@ -373,13 +385,17 @@ class Schedule (object):
 			eventToEventsToMove[event] = self._removeEvent(event, recursive=True)
 
 		for eventToReschedule in eventsToReschedule:
+			# Insert eventToReschedule and its descendants
 			eventsToMove = eventToEventsToMove[eventToReschedule]
+			if not self._insertEvent(eventToReschedule, pivotEvent=pivot):
+				raise ScheduleException("Error, cannot insert eventToReschedule {}: {}".format(eventToReschedule, eventToReschedule.getCB()))
+			
 			# Maintain the execution order within the descendant tree
-			descendantsToMove = sorted([e for e in eventsToMove if e is not eventToReschedule], key=lambda e: int(e.getCB().getExecID()))
-			self._insertEvent(eventToReschedule, pivotEvent=pivot)
+			descendantsToMove = sorted([e for e in eventsToMove if e is not eventToReschedule], key=lambda e: int(e.getCB().getExecID()))			
 			mustComeAfterEvent = eventToReschedule
 			for descendantToMove in descendantsToMove:
-				self._insertEvent(descendantToMove, afterEvent=mustComeAfterEvent)
+				if not self._insertEvent(descendantToMove, afterEvent=mustComeAfterEvent):
+					raise ScheduleException("Error, cannot insert descendant {}: {}".format(descendantToMove, descendantToMove.getCB()))
 				mustComeAfterEvent = descendantToMove
 
 		# Update the execID of the events in the schedule
@@ -396,21 +412,28 @@ class Schedule (object):
 		assert (self.isValid())
 		return origToNewIDs
 
-	# input: (event, [pivotEvent], [beforeEvent], [afterEvent])
+	# input: (event, [nInsertAttempts], [pivotEvent], [beforeEvent], [afterEvent])
 	#   event: insert this event
+	#		nInsertAttempts: how many times have we tried to insert this event? 
+	#										 use to control recursion
 	#	  Provide exactly one of the following three locations:
 	#   pivotEvent: if defined, insert event on the opposite side of pivot
 	#   afterEvent: if defined, insert event after this event
 	#   beforeEvent: if defined, insert event before this event
-	# output: ()
+	# output: (successfullyInserted) True if we inserted, else False
 	#
 	# Insert an event into self.execSchedule relative to some other event.
 	# It must already be in self.cbTree.
 	# It will be inserted at the nearest point that fits the description.
-	def _insertEvent(self, event, pivotEvent=None, beforeEvent=None, afterEvent=None):
+	# On successful insertion, self.execSchedule will be modified. self.cbTree may be modified.
+	#
+	# May raise a ScheduleException if you really invoke it wrong.
+	def _insertEvent(self, event, nInsertAttempts=1, pivotEvent=None, beforeEvent=None, afterEvent=None):
 		notNones = [e for e in [pivotEvent, beforeEvent, afterEvent] if e is not None]
 		if len(notNones) != 1:
-			raise ScheduleException("_insertEvent: Error, you must provide exactly one of {pivotEvent, beforeEvent, afterEvent")
+			raise ScheduleException("_insertEvent: Error, you must provide exactly one of {pivotEvent, beforeEvent, afterEvent}")
+
+		assert(not event.getCB().isThreadpoolCB())
 
 		evExecID = int(event.getCB().getExecID())
 
@@ -439,7 +462,7 @@ class Schedule (object):
 			# Insert after the next beginMarkerEvent of the appropriate type
 			findMarkerFunc = lambda e: self._isBeginMarkerEvent(e.getCB()) and e.getLibuvLoopStage() == event.getLibuvLoopStage()
 			searchStartIx = self.execSchedule.index(beforeEvent)
-			moveIxFunc = lambda ix: ix - 1
+			searchDirection = 'earlier'
 			calcInsertIxFunc = lambda ix: ix + 1 # Insert after the beginMarkerEvent we found
 		elif afterEvent is not None:
 			# Prepare to insert event after afterEvent
@@ -449,31 +472,52 @@ class Schedule (object):
 			# Insert before the next endMarkerEvent of the appropriate type
 			findMarkerFunc = lambda e: self._isEndMarkerEvent(e.getCB()) and e.getLibuvLoopStage() == event.getLibuvLoopStage()
 			searchStartIx = self.execSchedule.index(afterEvent)
-			moveIxFunc = lambda ix: ix + 1
-			calcInsertIxFunc = lambda ix: ix  # Insert before the beginMarkerEvent we found
+			searchDirection = 'later'
+			calcInsertIxFunc = lambda ix: ix  # Insert before the endMarkerEvent we found
 		else:
 			assert(not "_insertEvent: How did we get here?")
 
 		# Search for the insertion point
 		# If we're inserting before, we look "left" (smaller ix) for the nearest BEGIN marker event of the correct type
 		# If we're inserting after, we look "right" (larger ix) for the nearest END marker event of the correct type
-		assert(findMarkerFunc is not None and searchStartIx is not None and moveIxFunc is not None and calcInsertIxFunc is not None)
-		minIx, maxIx = 0, len(self.execSchedule) - 1
-
+		assert(findMarkerFunc is not None and searchStartIx is not None and searchDirection is not None and calcInsertIxFunc is not None)
+		
 		inserted = False
-		searchIx = searchStartIx
-		while minIx <= searchIx <= maxIx:
-			if findMarkerFunc(self.execSchedule[searchIx]):
-				insertIx = calcInsertIxFunc(searchIx)
-				self.execSchedule.insert(insertIx, event)
-				inserted = True
-				break
-			searchIx = moveIxFunc(searchIx)
-
-		# TODO We can handle this better. We can add a new loop or new async events for the TP.
-		# cf. _addUVRunLoop
-		if not inserted:
-			raise ScheduleException("_insertEvent: Could not insert event")
+		matchIx, matchEvent = self._findMatchingScheduleEvent(searchFunc=findMarkerFunc, direction=searchDirection, startIx=searchStartIx)		
+		if matchIx is not None:
+			insertIx = calcInsertIxFunc(matchIx)
+			self.execSchedule.insert(insertIx, event)
+			inserted = True
+		elif nInsertAttempts == 1:
+			# Couldn't find an insertion point on the first attempt.
+						
+			if event.getCB().isThreadpoolCB():
+				raise ScheduleException("_insertEvent: Sorry, cannot handle threadpool CBs yet")
+			else:				
+				# Looper event.
+				# Add another uv_run loop and try again.
+				recursionArgs = { "event": event,
+												"nInsertAttempts" : nInsertAttempts + 1,
+												"pivotEvent": None,
+												"beforeEvent": None,
+												"afterEvent": None,
+												 }			
+				if beforeEvent is not None:
+					newLoopLocation = "beginning"
+					recursionArgs["beforeEvent"] = beforeEvent
+				elif afterEvent is not None:
+					newLoopLocation = "end"
+					recursionArgs["afterEvent"] = afterEvent
+				else:
+					assert(not "_insertEvent: How did we get here?")
+				logging.debug("Inserting a new uv run loop and trying again")
+				self._addUVRunLoop(newLoopLocation)
+				inserted = self._insertEvent(**recursionArgs) # Unpack -- https://docs.python.org/2/tutorial/controlflow.html#unpacking-argument-lists
+				# inserted can still be false here.
+				# Example: perhaps we're trying to insert with afterEvent the final event before an inconvenient EXIT.
+		
+		logging.debug("Returning inserted <{}>".format(inserted))
+		return inserted
 
 	# input: (event, recursive)
 	#   event: event to remove from self.execSchedule
@@ -508,101 +552,148 @@ class Schedule (object):
 		for ix, event in enumerate(self.execSchedule):
 			event.getCB().setExecID(ix)
 
-	# input: (searchFunc, startIx)
-	# startIx defaults to the end of self.execSchedule
-	# output: (eventIx)
-	# Find the latest (largest execID) ScheduleEvent in self.execSchedule, at or prior to startIx, for which searchFunc(e) evaluates to true
+	# input: (searchFunc, direction, startIx)
+	#   searchFunc: when invoked on a ScheduleEvent, returns True if match, else False
+	#   direction: 'earlier' or 'later'
+	#   startIx: where to start looking?	
+	# output: (eventIx, event)
+	# Find the first ScheduleEvent in self.execSchedule for which searchFunc(e) evaluates to True
+	# The first considered event is at startIx and we continue in the direction specified
 	# Returns (None, None) if not found
-	def _findEarlierCB(self, searchFunc, startIx=None):
-		maxIx = len(self.execSchedule) - 1
-		if startIx is None:
-			startIx = maxIx
-		assert(0 <= startIx <= maxIx)
-
-		# We search left(earlier)-wards, so invert startIx and reverse execSchedule
-		startIx = maxIx - startIx
-		eventsToSearch = enumerate(list(reversed(self.execSchedule))[startIx:])
-		for i, event in eventsToSearch:
-			if searchFunc(event):
-				return (startIx-i, event)
-		return (None, None)
-
-	# input: (searchFunc, startIx)
-	# startIx defaults to the beginning of self.execSchedule
-	# output: (eventIx)
-	# Find the earliest (smallest execID) ScheduleEvent in self.execSchedule, at or after startIx, for which searchFunc(e) evaluates to true
-	# Returns (None, None) if not found
-	def _findLaterCB(self, searchFunc, startIx=None):
+	def _findMatchingScheduleEvent(self, searchFunc, direction, startIx):
+		assert(searchFunc is not None)
+		assert(direction in ['earlier', 'later'])
+		assert(startIx is not None)
+		
 		minIx = 0
-		if startIx is None:
-			startIx = minIx
-		assert (minIx <= startIx < len(self.execSchedule))
+		maxIx = len(self.execSchedule) - 1		
+		if startIx < minIx:
+			startIx = minIx			
+		if maxIx < startIx:
+			startIx = maxIx
+				
+		if direction == 'earlier':
+			lastIx = minIx			
+			sliceStride = -1			
+		else:
+			lastIx = maxIx
+			sliceStride = 1
 
-		eventsToSearch = enumerate((self.execSchedule)[startIx:])
-		for i, event in eventsToSearch:
-			if searchFunc(event):
-				return (startIx+i, event)
+		for i, scheduleEvent in enumerate(self.execSchedule[startIx:lastIx:sliceStride]):
+			if searchFunc(scheduleEvent):
+				logging.debug("Match!")
+				realIx = startIx + sliceStride*i
+				assert(self.execSchedule[realIx] == scheduleEvent) # Math is hard. 
+				return (realIx, scheduleEvent)
 		return (None, None)
 
-	# input: (enterLoop) if True, add MARKERS for all of the internal events. Else just add MARKER_UV_RUN_{BEGIN,END}
+	# input: (newLoopLocation, [enterLoop])
+	#		newLoopLocation		'beginning' or 'end'; add a new loop at the beginning of self.execSchedule or at the end?
+	#   enterLoop: Insert just the UV_RUN stage or the inner stages (timers, etc.) too?
+	#							 Default is True
 	# output: (ixOfBeginningOfNewLoop)
-	# Adds a new UV_RUN loop after the end of the final complete UV_RUN loop in self.execSchedule
-	# (i.e. adds MARKER_* ScheduleEvents to self.execSchedule and self.cbTree)
-	# Returns the index of the MARKER_UV_RUN_BEGIN beginning the new loop
-	def _addUVRunLoop(self, enterLoop):
-		# Locate end of final complete UV_RUN loop
-		(ixOfEndOfFinalCompleteLoop, end) = self._findEarlierCB(lambda e: e.getCB().getCBType() == "MARKER_UV_RUN_END")
-		if ixOfEndOfFinalCompleteLoop is None:
-			raise ScheduleException("Could not find the end of a complete UV_RUN loop. Did this application crash on its first loop iteration?")
+	#   ixOfBeginningOfNewLoop		The index of the MARKER_UV_RUN_BEGIN beginning the new loop.
+	# Add a new UV_RUN loop, including both the UV_RUN markers and the internal event markers.
+	# The new loop is added before the first loop or after the last complete loop.  	
+	# Adds MARKER_* ScheduleEvents to self.execSchedule and self.cbTree.
+	#
+	# Returns with the Schedule in a valid state
+	# Returns None if it cannot add a new UV_RUN loop.
+	# This only occurs if there is no complete UV_RUN loop in self.execSchedule.
+	def _addUVRunLoop(self, newLoopLocation, enterLoop=True):
+		assert(newLoopLocation == "beginning" or newLoopLocation == "end")
 
-		ixOfBeginningOfNewLoop = ixOfEndOfFinalCompleteLoop + 1
-		# Markers events are in a giant tree INITIAL_STACK -> M1 -> M2 -> M3 -> ...
-		# markerParent tracks the parent of the next marker we insert
-		# NB: We find the final COMPLETE loop, so markerParent may have a child leading to marker events in a final partial loop.
-		# In this case we'll have to correctly insert ourselves in between. However, we won't bother updating reg_ids
-		# because replay depends only on relative tree position.
-		# If we ever have to do that, though, this is most easily done by simulating an execution:
-		# 	stepping through the exec_schedule and setting the reg_id for all children of each executed node in order.
-		markerParent = self.execSchedule[ixOfEndOfFinalCompleteLoop]
-		insertIx = ixOfBeginningOfNewLoop
-
-		if enterLoop:
-			stagesToInsert = Schedule.LIBUV_RUN_ALL_STAGES
+		# What stages will we be inserting?
+		if enterLoop:			
+			markersToInsert = Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER
 		else:
-			stagesToInsert = Schedule.LIBUV_RUN_OUTER_STAGES
+			markersToInsert = Schedule.LIBUV_LOOP_OUTER_STAGE_MARKER_ORDER
+				
+		# Locate the appropriate insertion point for the new loop. 
+		if (newLoopLocation == "beginning"):
+			searchFunc = lambda e: e.getCB().getCBType() == "MARKER_UV_RUN_BEGIN"
+			searchDirection = 'later'
+			searchStartIx = 0
+			calcInsertIxFunc = lambda ix: ix # Insert prior to this UV_RUN BEGIN 
+		else:
+			searchFunc = lambda e: e.getCB().getCBType() == "MARKER_UV_RUN_END"
+			searchDirection = 'earlier'
+			searchStartIx = len(self.execSchedule) - 1
+			calcInsertIxFunc = lambda ix: ix + 1 # Insert after this UV_RUN END
+		(ixOfLoop, scheduleEvent) = self._findMatchingScheduleEvent(searchFunc=searchFunc, direction=searchDirection, startIx=searchStartIx)
+		if ixOfLoop is None:
+			return None
+		ixOfNewLoop = calcInsertIxFunc(ixOfLoop)
+		
+		# Insert the new stages.
+		insertIx = ixOfNewLoop
+		dummyCallbackString = self.execSchedule[0].getCB().callbackString		
+		for markerType in markersToInsert:
+			logging.debug("Adding marker of type: {}".format(markerType))
+			# Create a marker CallbackNode.			
+			markerCB = CB.CallbackNode(dummyCallbackString)
+			markerCB.setCBType(markerType)
+			markerCB.setChildren([])
+			markerCB.setParent(None)				
+			markerCB.setName("0x{}".format(self._getNewEventID())) # Unique name				
+			# Create a marker ScheduleEvent.	
+			scheduleEvent = ScheduleEvent(markerCB)
+			scheduleEvent.setLibuvLoopStage(Schedule.MARKER_EVENT_TO_STAGE[markerType])
+			# Insert it.
+			self.execSchedule.insert(insertIx, scheduleEvent)
+			insertIx += 1
 
-		for stage in stagesToInsert:
-			stageBegin, stageEnd = "MARKER_{}_BEGIN".format(stage), "MARKER_{}_END".format(stage)
-			for type in [stageBegin, stageEnd]:
-				# Create a new ScheduleEvent modeled after the previous ScheduleEvent of this type
-				(templateIx, template) = self._findEarlierCB(lambda e: e.getCB().getCBType() == type, insertIx)
-				assert(template is not None)
-				newEvent = copy.deepcopy(template)
-
-				# For valid REPLAY, need the following:
-				newEvent.getCB().setName("0x{}".format(insertIx)) 		 # Unique name
-				newEvent.getCB().setTreeParent(markerParent.getName()) # Correct parent
-
-				# Fix up the CallbackNodeTree details (parent, children)
-				# Maybe needed in the future
-				newEvent.getCB().setParent(markerParent.getCB())
-				newEvent.getCB().setChildren(markerParent.getChildren())
-				markerParent.getCB().setChildren([newEvent])
-				for c in newEvent.getCB().getChildren():
-					c.setParent(newEvent.getCB())
-
-				# Insert and update position info
-				self.execSchedule.insert(insertIx, newEvent)
-				markerParent = newEvent
-				insertIx += 1
-
-		# Re-wire the subsequent MARKER node, if any
-		(nextMarkerEventIx, nextMarkerEvent) = self._findLaterCB(lambda x: x.getCB().isMarkerNode(), insertIx)
-		if (nextMarkerEvent is not None):
-			assert(nextMarkerEvent is not markerParent)
-			nextMarkerEvent.getCB().setTreeParent(markerParent.getName())
-
-		return ixOfBeginningOfNewLoop
+		# We've tweaked the exec schedule and the tree structure.
+		# Get the tree back to a consistent state.		
+		self._updateExecIDs()
+		self._updateMarkerInheritance()
+		
+		# This schedule must be valid now.
+		assert(self.isValid())
+		return ixOfNewLoop
+	
+	# input: ()
+	# output: ()	
+	#
+	# Ensure the marker events are valid in self.execSchedule.
+	# This may involve modifying self.cbTree to put it in a valid state.
+	# We update the parent, children, and tree_parent fields of the marker events.
+		
+	# Marker events should be in direct lineage INITIAL_STACK -> M1 -> M2 -> M3 -> ...
+	# With the exception of the INITIAL_STACK, markers have no other children.	
+	#
+	# We don't bother updating reg_ids because libuv replay depends only on relative tree position.
+	# If we ever have to do that, though, this seems most easily done by simulating an execution:
+	# stepping through the exec_schedule and setting the reg_id for all children of each executed node in order.	  
+	def _updateMarkerInheritance(self):
+		self._updateExecIDs()
+		
+		initialStackFindFunc = lambda e: e.getCB().getCBType() == "INITIAL_STACK"
+		(initialStackIx, initialStackEvent) = self._findMatchingScheduleEvent(searchFunc=initialStackFindFunc, direction="later", startIx=0)		
+		assert(initialStackEvent is not None and initialStackIx == 0)
+				
+		# markerParent is the ScheduleEvent corresponding to the parent of the next marker.
+		# At the beginning of each loop iteration, it has no markers in its list of children.
+		def _prepMarkerParent (markerParent):
+			children = markerParent.getCB().getChildren()
+			markerParent.getCB().setChildren([c for c in children if c.getCBType() not in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER])
+				
+		markerParent = initialStackEvent
+		_prepMarkerParent(markerParent)
+		
+		markerEvents = [e for e in self.execSchedule if e.getCB().getCBType() in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER]
+		for markerEvent in markerEvents:
+			# Update the markerParent <-> markerEvent relationship
+			mpCB = markerParent.getCB()
+			meCB = markerEvent.getCB()
+			
+			meCB.setTreeLevel(int(mpCB.getTreeLevel()) + 1)
+			mpCB.addChild(meCB)
+			meCB.setParent(mpCB) # Correct CBTree parent
+			meCB.setTreeParent(mpCB.getName()) # Correct libuv parent		
+						
+			markerParent = markerEvent
+			_prepMarkerParent(markerParent)			
 
 	# input: (file)
 	#	 place to write the schedule
@@ -614,7 +705,7 @@ class Schedule (object):
 		regOrder = self._regList()
 		with open(file, 'w') as f:
 			for cb in regOrder:
-				f.write("%s\n" % (cb)) # TODO Timestamps mildly off?
+				f.write("%s\n" % (cb))
 
 #############################
 # ScheduleEvent
