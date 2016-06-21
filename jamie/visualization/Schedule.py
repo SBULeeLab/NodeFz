@@ -484,12 +484,13 @@ class Schedule (object):
 		
 		inserted = False
 		matchIx, matchEvent = self._findMatchingScheduleEvent(searchFunc=findMarkerFunc, direction=searchDirection, startIx=searchStartIx)		
-		if matchIx is not None:
+		if matchIx is not None:			
 			insertIx = calcInsertIxFunc(matchIx)
+			logging.debug("Found an insertion point at index {}".format(insertIx))
 			self.execSchedule.insert(insertIx, event)
 			inserted = True
-		elif nInsertAttempts == 1:
-			# Couldn't find an insertion point on the first attempt.
+		elif nInsertAttempts == 1:			
+			logging.debug("Couldn't find an insertion point on the first attempt.")
 						
 			if event.getCB().isThreadpoolCB():
 				raise ScheduleException("_insertEvent: Sorry, cannot handle threadpool CBs yet")
@@ -510,13 +511,13 @@ class Schedule (object):
 					recursionArgs["afterEvent"] = afterEvent
 				else:
 					assert(not "_insertEvent: How did we get here?")
-				logging.debug("Inserting a new uv run loop and trying again")
+				logging.debug("Inserting a new UV_RUN loop and trying again")
 				self._addUVRunLoop(newLoopLocation)
 				inserted = self._insertEvent(**recursionArgs) # Unpack -- https://docs.python.org/2/tutorial/controlflow.html#unpacking-argument-lists
 				# inserted can still be false here.
 				# Example: perhaps we're trying to insert with afterEvent the final event before an inconvenient EXIT.
 		
-		logging.debug("Returning inserted <{}>".format(inserted))
+		logging.debug("Returning inserted {}".format(inserted))
 		return inserted
 
 	# input: (event, recursive)
@@ -622,34 +623,40 @@ class Schedule (object):
 			calcInsertIxFunc = lambda ix: ix + 1 # Insert after this UV_RUN END
 		(ixOfLoop, scheduleEvent) = self._findMatchingScheduleEvent(searchFunc=searchFunc, direction=searchDirection, startIx=searchStartIx)
 		if ixOfLoop is None:
+			logging.debug("Found no place to insert a new loop, returning None")
 			return None
 		ixOfNewLoop = calcInsertIxFunc(ixOfLoop)
-		
-		# Insert the new stages.
+
+		# Insert the new stages into self.execSchedule.
 		insertIx = ixOfNewLoop
-		dummyCallbackString = self.execSchedule[0].getCB().callbackString		
+		dummyCallbackString = self.execSchedule[0].getCB().callbackString
+		logging.debug("Adding new UV_RUN loop at index {}".format(insertIx))
 		for markerType in markersToInsert:
 			logging.debug("Adding marker of type: {}".format(markerType))
-			# Create a marker CallbackNode.			
+			# Create a marker CallbackNode.
 			markerCB = CB.CallbackNode(dummyCallbackString)
 			markerCB.setCBType(markerType)
 			markerCB.setChildren([])
-			markerCB.setParent(None)				
-			markerCB.setName("0x{}".format(self._getNewEventID())) # Unique name				
-			# Create a marker ScheduleEvent.	
+			markerCB.setParent(None)	
+			markerCB.setName("0x{}".format(self._getNewEventID())) # Unique name						
+			# Create a marker ScheduleEvent.
 			scheduleEvent = ScheduleEvent(markerCB)
 			scheduleEvent.setLibuvLoopStage(Schedule.MARKER_EVENT_TO_STAGE[markerType])
 			# Insert it.
 			self.execSchedule.insert(insertIx, scheduleEvent)
+
 			insertIx += 1
 
 		# We've tweaked the exec schedule and the tree structure.
-		# Get the tree back to a consistent state.		
+		# Get the tree back to a consistent state.
+		logging.debug("Returning tree to a consistent state")
 		self._updateExecIDs()
 		self._updateMarkerInheritance()
-		
+		self.cbTree.repairAfterUpdates()
+
 		# This schedule must be valid now.
 		assert(self.isValid())
+		logging.debug("Tree is valid. Returning {}".format(ixOfNewLoop))
 		return ixOfNewLoop
 	
 	# input: ()
@@ -657,52 +664,50 @@ class Schedule (object):
 	#
 	# Ensure the marker events are valid in self.execSchedule.
 	# This may involve modifying self.cbTree to put it in a valid state.
-	# We update the parent, children, and tree_parent fields of the marker events.
-		
-	# Marker events should be in direct lineage INITIAL_STACK -> M1 -> M2 -> M3 -> ...
-	# With the exception of the INITIAL_STACK, markers have no other children.	
+	# Updates the parent, children, and tree_parent fields of the marker events.	
 	#
-	# We don't bother updating reg_ids because libuv replay depends only on relative tree position.
-	# If we ever have to do that, though, this seems most easily done by simulating an execution:
-	# stepping through the exec_schedule and setting the reg_id for all children of each executed node in order.	  
-	def _updateMarkerInheritance(self):
-		self._updateExecIDs()
-		
+	# Marker events should be in direct lineage INITIAL_STACK -> M1 -> M2 -> M3 -> ...
+	# With the exception of the INITIAL_STACK, markers have no other children.		  
+	def _updateMarkerInheritance(self):		
 		initialStackFindFunc = lambda e: e.getCB().getCBType() == "INITIAL_STACK"
 		(initialStackIx, initialStackEvent) = self._findMatchingScheduleEvent(searchFunc=initialStackFindFunc, direction="later", startIx=0)		
 		assert(initialStackEvent is not None and initialStackIx == 0)
-				
+
 		# markerParent is the ScheduleEvent corresponding to the parent of the next marker.
 		# At the beginning of each loop iteration, it has no markers in its list of children.
 		def _prepMarkerParent (markerParent):
 			children = markerParent.getCB().getChildren()
 			markerParent.getCB().setChildren([c for c in children if c.getCBType() not in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER])
-				
+
 		markerParent = initialStackEvent
 		_prepMarkerParent(markerParent)
-		
+
 		markerEvents = [e for e in self.execSchedule if e.getCB().getCBType() in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER]
 		for markerEvent in markerEvents:
 			# Update the markerParent <-> markerEvent relationship
 			mpCB = markerParent.getCB()
 			meCB = markerEvent.getCB()
-			
+
 			meCB.setTreeLevel(int(mpCB.getTreeLevel()) + 1)
 			mpCB.addChild(meCB)
 			meCB.setParent(mpCB) # Correct CBTree parent
-			meCB.setTreeParent(mpCB.getName()) # Correct libuv parent		
-						
+			meCB.setTreeParent(mpCB.getName()) # Correct libuv parent
+
 			markerParent = markerEvent
-			_prepMarkerParent(markerParent)			
+			_prepMarkerParent(markerParent)
 
 	# input: (file)
 	#	 place to write the schedule
 	# output: ()
-	# Emits this schedule to the specified file.
+	# Emits this schedule to the specified file, sorted on registration order.
 	# May raise IOError
-	def emit(self, file):
-		logging.info("Emitting schedule to file {}".format(file))
+	def emit(self, file):		
 		regOrder = self._regList()
+		# This will fail if self.execSchedule and self.cbTree have gotten significantly out of sync.
+		# There may be unexecuted registered events.
+		assert(len(self.execSchedule) <= len(regOrder))
+		
+		logging.info("Emitting schedule ({} registered events) to file {} in registration order".format(len(regOrder), file))
 		with open(file, 'w') as f:
 			for cb in regOrder:
 				f.write("%s\n" % (cb))

@@ -8,7 +8,6 @@
 import re
 import logging
 
-
 #############################
 # CallbackNodeGroups
 #############################
@@ -63,7 +62,7 @@ class CallbackNodeGroups(object):
 				logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
 				nodeGroups.append(group)
 
-		assert (foundGroup)
+		assert(foundGroup)
 		return nodeGroups
 
 #############################
@@ -99,16 +98,17 @@ class CallbackNode (object):
 	#     'start', 'end' must have value of the form '<Xs Yns>' 
 	def __init__(self, callbackString=""):
 		assert(0 < len(callbackString))
+		self.callbackString = callbackString
 		kvs = callbackString.split("|")
 		for kv in kvs:
 			match = re.search('<(?P<key>.*?)>\s+<(?P<value>.*)>', kv)
 			if (match):
 				setattr(self, match.group('key'), match.group('value'))
 		for key in self.REQUIRED_KEYS:
-			logging.debug("CallbackNode::__init__: Verifying that required field '{}' is defined".format(key))
+			#logging.debug("CallbackNode::__init__: Verifying that required field '{}' is defined".format(key))
 			value = getattr(self, key, None)
 			assert(value is not None)
-			logging.debug("CallbackNode::__init__: '%s' -> '%s'" %(key, value)) 					
+			#logging.debug("CallbackNode::__init__: '%s' -> '%s'" %(key, value)) 					
 						
 		# Convert times in s,ns to ns
 		for timeKey in CallbackNode.TIME_KEYS:
@@ -129,8 +129,8 @@ class CallbackNode (object):
 			self.dependencies = self.dependencies.split(" ")
 		else:
 			self.dependencies = []
-		logging.debug("CallbackNode::__init__: dependencies {}".format(self.dependencies))
-		
+		#logging.debug("CallbackNode::__init__: dependencies {}".format(self.dependencies))
+				
 		self.children = []
 		self.dependents = []
 		self.parent = None
@@ -141,7 +141,7 @@ class CallbackNode (object):
 		self._knowAllDescendantsWithoutDependents = False
 		self._allDescendantsWithoutDependents = []
 
-		logging.debug("CallbackNode::__init__: {}".format(self))
+		#logging.debug("CallbackNode::__init__: {}".format(self))
 
 	def __str__(self):
 		kvStrings = []
@@ -166,7 +166,7 @@ class CallbackNode (object):
 	#setParent(parent)
 	#Set self's parent member to PARENT		
 	def setParent (self, parent):
-		assert(isinstance(parent, CallbackNode))
+		assert(parent is None or isinstance(parent, CallbackNode))
 		self.parent = parent
 	
 	#getParent()
@@ -323,6 +323,9 @@ class CallbackNode (object):
 	
 	def getRegID (self):
 		return self.reg_id
+	
+	def setRegID (self, newID):
+		self.reg_id = str(newID)
 
 	# This is an "external" ID suitable for identifying events in a Schedule
 	def getID (self):
@@ -337,6 +340,9 @@ class CallbackNode (object):
 	def getCBType (self):
 		return self.cb_type
 	
+	def setCBType (self, type):
+		self.cb_type = type
+	
 	def getContext (self):
 		return self.context_type
 	
@@ -345,6 +351,9 @@ class CallbackNode (object):
 		
 	def getTreeLevel (self):
 		return self.tree_level
+	
+	def setTreeLevel (self, treeLevel):
+		self.tree_level = treeLevel		
 		
 	def getLevelEntry (self):
 		return self.level_entry
@@ -459,12 +468,9 @@ class CallbackNodeTree (object):
 		except IOError:
 			logging.error("CallbackNodeTree::__init__: Error, processing inputFile {} gave me an IOError".format(inputFile))
 			raise
-				
-		#construct callbackNodeDict
-		self.callbackNodeDict = {}
-		for node in self.callbackNodes:
-			self.callbackNodeDict[node.name] = node
-			
+
+		self.callbackNodeDict = self._genCallbackNodeDict()		
+
 		#Set the parent-child relationship for each node
 		self.root = None
 		for node in self.callbackNodes:
@@ -482,6 +488,62 @@ class CallbackNodeTree (object):
 			assert(node.getTreeRoot() == self.root)
 		
 		self._updateDependencies()
+
+	# input: ()
+	# output: ()
+	#
+	# Repair this CallbackTree after the addition or removal of nodes using CallbackNode APIs.
+	# Caller should ensure that the exec IDs of the nodes in the tree are correct, else we may assert.	
+	def repairAfterUpdates(self):		
+		logging.debug("Repairing callbackNodes")
+		self.callbackNodes = []		
+		def walkFunc(cbNode, callbackNodes):
+			callbackNodes.append(cbNode)
+		self.walk(walkFunc, self.callbackNodes)
+				
+		logging.debug("Repairing callbackNodeDict")
+		self.callbackNodeDict = self._genCallbackNodeDict()
+		
+		# Repair registration IDs by simulating execution.
+		# This relies on correct execution IDs.
+		logging.debug("Repairing registration IDs")		
+		
+		# Helper function: simulate the execution of node by setting the regID of each of its children.
+		# Returns the next unused regID.
+		def simulateNodeExecution(node, nextRegID):
+			# Register any children
+			for child in node.getChildren():
+				child.setRegID(nextRegID)
+				nextRegID += 1
+				
+				# Verify that child's regID seems valid.
+				if child.getParent() is not None:
+					parentRegID = int(child.getParent().getRegID())
+					childRegID = int(child.getRegID())
+					assert(parentRegID < childRegID)
+				else:
+					assert(childRegID == 0)
+			return nextRegID
+
+		execOrder = [cb for cb in self.getExecOrder() if cb.executed()]
+		rootNode = execOrder[0]
+		assert(rootNode.getCBType() == "INITIAL_STACK")
+		self.root = rootNode
+
+		nextRegID = 1
+		for cbn in execOrder:
+			nextRegID = simulateNodeExecution(cbn, nextRegID)			
+	
+	# input: ()
+	# output: (callbackNodeDict)
+	#   callbackNodeDict     maps CallbackNode.name to CallbackNode
+	#
+	# Walks down self.callbackNodes
+	def _genCallbackNodeDict(self):
+		callbackNodeDict = {}
+		for node in self.callbackNodes:
+			callbackNodeDict[node.name] = node
+		return callbackNodeDict		
 	
 	# Replace the self.dependencies array of string node names in each Node with an array of the corresponding CallbackNodes (node.dependencies).
 	# Inform each antecedent about its dependents (node.dependents).
@@ -535,7 +597,7 @@ class CallbackNodeTree (object):
 		self.walk(remove_walk, None)
 		self.callbackNodes = [n for n in self.callbackNodes if self.contains(n)]
 	
-	#return the tree nodes
+	# Return the tree nodes
 	def getTreeNodes (self):
 		return self.callbackNodes
 
@@ -548,15 +610,16 @@ class CallbackNodeTree (object):
 		else:
 			return self.contains(node.getParent())
 
-	#return the tree nodes in execution order
+	# Return the tree nodes in execution order
+	# The returned list begins with any unexecuted nodes, whose execID is -1 
 	def getExecOrder (self):
 		return sorted(self.getTreeNodes(), key=lambda node: int(node.getExecID()))
 
-	# return the tree nodes in registration order
+	# Return the tree nodes in registration order
 	def getRegOrder(self):
 		return sorted(self.getTreeNodes(), key=lambda node: int(node.getRegID()))
 
-	#return the node preceding NODE in the tree execution order
+	# Return the node preceding NODE in the tree execution order
 	def getNodeExecPredecessor (self, node):
 		execOrder = self.getExecOrder()
 		if (int(node.getExecID()) <= 0):
