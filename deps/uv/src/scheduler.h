@@ -89,8 +89,11 @@ void sched_context_list_destroy_func (struct list_elem *e, void *aux);
 enum schedule_mode
 {
   SCHEDULE_MODE_RECORD,
-  SCHEDULE_MODE_REPLAY
+  SCHEDULE_MODE_MIN = SCHEDULE_MODE_RECORD,
+  SCHEDULE_MODE_REPLAY,
+  SCHEDULE_MODE_MAX
 };
+typedef enum schedule_mode schedule_mode_t;
 
 /* Record mode: SCHEDULE_FILE is where to send output.
    Replay mode: SCHEDULE_FILE is where to find schedule. 
@@ -98,8 +101,11 @@ enum schedule_mode
     The exec_id of each LCBN should indicate the order in which execution occurred. 
 
     The schedule recorded in replay mode is saved to 'SCHEDULE_FILE-replay'. */
-void scheduler_init (enum schedule_mode mode, char *schedule_file);
-enum schedule_mode scheduler_get_mode (void);
+void scheduler_init (schedule_mode_t mode, char *schedule_file);
+
+/* Return the mode of the scheduler. */
+schedule_mode_t scheduler_get_mode (void);
+const char * schedule_mode_to_string (schedule_mode_t);
 
 /* Record. */
 
@@ -166,6 +172,28 @@ int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
    This can be done prior to executing an LCBN provided that the executing
    LCBN is allowed to complete before a new (non-nested) LCBN is invoked. */
 void scheduler_advance (void);
+
+/* In REPLAY mode, LCBN is a just-finished node.
+   Check if it has diverged from the schedule.
+
+   Divergence: if its children are not exactly (number, order, and type)
+    as indicated in the input schedule.
+
+   If divergence is detected, we can no longer REPLAY the input schedule because
+   we are no longer seeing the input schedule. We can respond in one of two ways:
+    - switch back to RECORD mode
+    - blow up
+   At the moment we blow up just to prove we can do it.
+
+   Divergence can happen in one of two ways:
+    - REPLAYing a RECORDed application, encountering non-determinism in some fashion
+      e.g. branches that rely on wall clock time, random numbers, change in inputs
+    - REPLAYing a rescheduled application -- we hoped the schedule would remain the
+      same after changing the order of observed events, but it didn't
+
+   Returns the schedule mode in place afterwards. 
+*/
+schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn);
 
 /* How many LCBNs have already been/remain to be scheduled? 
    remaining: If in RECORD mode, returns -1. */

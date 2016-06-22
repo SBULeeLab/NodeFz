@@ -21,7 +21,7 @@ struct
 {
   int magic;
   /* RECORD, REPLAY modes. */
-  enum schedule_mode mode;
+  schedule_mode_t mode;
   char schedule_file[256];
 
   struct list *registration_schedule; /* List of the registered sched_lcbn_t's, in registration order. */
@@ -41,6 +41,7 @@ struct
 static struct list * uv__ready_handle_lcbns_wrap (void *wrapper, enum execution_context context);
 static struct list * uv__ready_req_lcbns_wrap (void *wrapper, enum execution_context context);
 
+/* Returns 1 if initialized, else 0. */
 static int scheduler_initialized (void)
 {
   int initialized = 0;
@@ -48,6 +49,19 @@ static int scheduler_initialized (void)
   initialized = (scheduler.magic == SCHEDULER_MAGIC);
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_initialized: returning initialized %i\n", initialized));
   return initialized;
+}
+
+/* Set the mode of the scheduler. */
+static void scheduler__set_mode (schedule_mode_t new_mode)
+{
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__set_mode: begin: new_mode %i\n", new_mode));
+
+  assert(scheduler_initialized());
+  mylog(LOG_SCHEDULER, 3, "scheduler__set_mode: current mode <%s> new mode %s\n", 
+    schedule_mode_to_string(scheduler.mode), schedule_mode_to_string(new_mode));
+
+  scheduler.mode = new_mode;
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__set_mode: returning\n"));
 }
 
 static void scheduler_uninitialize (void)
@@ -377,7 +391,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 }
 
 /* Not thread safe. */
-void scheduler_init (enum schedule_mode mode, char *schedule_file)
+void scheduler_init (schedule_mode_t mode, char *schedule_file)
 {
   FILE *f = NULL;
   sched_lcbn_t *sched_lcbn = NULL;
@@ -493,15 +507,32 @@ void scheduler_init (enum schedule_mode mode, char *schedule_file)
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_init: returning\n"));
 }
 
-enum schedule_mode scheduler_get_mode (void)
+schedule_mode_t scheduler_get_mode (void)
 {
-  enum schedule_mode mode = scheduler.mode;
+  schedule_mode_t mode = scheduler.mode;
 
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_get_mode: begin\n"));
   assert(scheduler_initialized());
 
-  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_get_mode: returning mode %i\n", mode));
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_get_mode: returning mode %i (%s)\n", mode, schedule_mode_to_string(mode)));
   return mode;
+}
+
+char *schedule_mode_strings[SCHEDULE_MODE_MAX - SCHEDULE_MODE_MIN] = {
+  "SCHEDULE_MODE_RECORD",
+  "SCHEDULE_MODE_REPLAY"
+};
+
+const char * schedule_mode_to_string (schedule_mode_t mode)
+{
+  char *str = NULL;
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_mode_to_string: begin: mode %i\n", mode));
+
+  assert(SCHEDULE_MODE_MIN <= mode && mode < SCHEDULE_MODE_MAX);
+  str = schedule_mode_strings[mode - SCHEDULE_MODE_MIN];
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_mode_to_string: returning string %s\n", str));
+  return str;
 }
 
 void scheduler_register_lcbn (sched_lcbn_t *sched_lcbn)
@@ -859,6 +890,44 @@ static struct list * uv__ready_req_lcbns_wrap (void *wrapper, enum execution_con
   assert(list_looks_valid(ret));
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "uv__ready_req_lcbns_wrap: returning ret %p\n", ret));
   return ret;
+}
+
+schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
+{
+  int is_diverged = 0;
+  schedule_mode_t schedule_mode = scheduler_get_mode();
+
+  assert(scheduler_initialized());
+  assert(lcbn);
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: begin: lcbn %p (mode %s)\n", lcbn, schedule_mode));
+
+  if (schedule_mode == SCHEDULE_MODE_RECORD)
+  {
+    /* Can't diverge if we're recording. */
+    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: returning mode %s\n", schedule_mode));
+    return schedule_mode;
+  }
+
+  if (is_diverged)
+  {
+    /* TODO: switch back to record, and make adjustments as needed
+              - use special suffix for schedule file, lest we overwrite the input */
+    if (1)
+    {
+      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged. Blowing up!\n");
+      exit(1);
+    }
+    else
+    {
+      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged. Changing mode to SCHEDULE_MODE_RECORD\n");
+      schedule_mode = SCHEDULE_MODE_RECORD;
+      scheduler__set_mode(schedule_mode);
+    }
+  }
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: returning mode %s\n", schedule_mode));
+  return schedule_mode;
 }
 
 int scheduler_already_run (void)

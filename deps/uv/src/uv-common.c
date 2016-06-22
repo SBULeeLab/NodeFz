@@ -1235,6 +1235,12 @@ void invoke_callback (callback_info_t *cbi)
     if (is_user_cb)
       lcbn_current_set(lcbn_orig);
 
+    if (is_user_cb && scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    {
+      /* Replay: Now that the callback is done, check that it made exactly the children we expect. */
+      scheduler_check_for_divergence(lcbn_cur);
+    }
+
     /* Wake up any waiting invoke_callback callers. */
     uv_mutex_lock(&invoke_callback_lcbn_lock); /* Lock to make sure to-be-waiters have begun to wait. */
 
