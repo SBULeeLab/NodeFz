@@ -14,7 +14,7 @@
 #include "uv-common.h" /* uv__malloc/uv__free */
 
 /* Global vars. */
-char *log_class_strings[] = {
+char *log_class_strings[LOG_CLASS_MAX - LOG_CLASS_MIN] = {
   "MAIN",
   "LCBN",
   "SCHEDULER",
