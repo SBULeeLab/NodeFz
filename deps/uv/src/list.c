@@ -233,14 +233,27 @@ void list_push_front (struct list *list, struct list_elem *elem)
 /* Return the element after ELEM. */
 struct list_elem * list_next (struct list_elem *elem)
 {
-  struct list_elem *n = NULL;
+  struct list_elem *next = NULL;
 
   ENTRY_EXIT_LOG((LOG_LIST, 9, "list_next: begin: elem %p\n", elem));
   assert(list_elem_looks_valid(elem));
-  n = elem->next;
-  assert(list_elem_looks_valid(n));
-  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_next: returning next %p\n", n));
-  return n;
+  next = elem->next;
+  assert(list_elem_looks_valid(next));
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_next: returning next %p\n", next));
+  return next;
+}
+
+/* Return the element before ELEM. */
+struct list_elem * list_prev (struct list_elem *elem)
+{
+  struct list_elem *prev = NULL;
+
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_prev: begin: elem %p\n", elem));
+  assert(list_elem_looks_valid(elem));
+  prev = elem->prev;
+  assert(list_elem_looks_valid(prev));
+  ENTRY_EXIT_LOG((LOG_LIST, 9, "list_prev: returning prev %p\n", prev));
+  return prev;
 }
 
 /* Return the list_elem at the front of LIST.

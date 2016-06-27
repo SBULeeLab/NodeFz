@@ -623,6 +623,17 @@ int lcbn_remove_unexecuted (struct list_elem *e, void *aux)
   return executed;
 }
 
+int lcbn_internal (lcbn_t *lcbn)
+{
+  int internal = 0;
+  ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_internal: begin: lcbn %p\n", lcbn));
+  assert(lcbn_looks_valid(lcbn));
+
+  internal = is_internal_event(lcbn->cb_type);
+  ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_internal: returning internal %i\n", internal));
+  return internal;
+}
+
 int lcbn_is_active (lcbn_t *lcbn)
 {
   ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_is_active: begin: lcbn %p\n", lcbn));

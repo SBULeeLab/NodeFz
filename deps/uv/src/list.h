@@ -84,13 +84,20 @@ struct list_elem * list_remove (struct list *list, struct list_elem *elem);
 
 /* For iteration:
 
-   struct list_elem *e;
-   for (e = list_begin (&list); e != list_end (&list); e = list_next (e))
-   {
-      foo
-   } 
+  Forward:
+    struct list_elem *e;
+    for (e = list_begin (&list); e != list_end (&list); e = list_next (e))
+    {
+       foo
+    } 
+  Reverse:
+    struct list_elem *e;
+    for (e = list_back (&list); e != list_head (&list); e = list_prev (e))
+    {
+       foo
+    } 
 
-   Or destructively:
+  Forward, destructively:
 
    struct list_elem *e;
    while (!list_empty (&list))
@@ -100,12 +107,17 @@ struct list_elem * list_remove (struct list *list, struct list_elem *elem);
    } 
   
   Iteration is NOT thread-safe, so use list_lock and list_unlock to protect yourself. */
+
+/* Walk along the chain. */
+struct list_elem * list_prev (struct list_elem *elem);
 struct list_elem * list_next (struct list_elem *elem);
-struct list_elem * list_front (struct list *list);
-struct list_elem * list_back (struct list *list);
-struct list_elem * list_begin (struct list *list);
-struct list_elem * list_end (struct list *list);
-struct list_elem * list_head (struct list *list);
+
+struct list_elem * list_head (struct list *list);  /* HEAD. */
+struct list_elem * list_end (struct list *list);   /* TAIL. */
+
+struct list_elem * list_begin (struct list *list); /* The node after HEAD. */
+struct list_elem * list_front (struct list *list); /* The node after HEAD, or NULL in an empty list. */
+struct list_elem * list_back (struct list *list);  /* The node before TAIL in list. */
 
 void list_apply (struct list *list, list_apply_func f, void *aux);
 /* In-place sort. */

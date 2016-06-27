@@ -123,6 +123,34 @@ static int sched_context_looks_valid (sched_context_t *sched_context)
     return valid;
 }
 
+/* Return the scheduled sched_lcbn corresponding to already-executed SCHED_LCBN, or NULL. 
+   The returned lcbn_t is read-only. 
+   LCBN must have been scheduler_advance()'d and executed already. */
+static sched_lcbn_t * scheduler__find_scheduled_sched_lcbn (sched_lcbn_t *sched_lcbn)
+{
+  sched_lcbn_t *mate = NULL;
+  struct list_elem *e = NULL;
+
+  assert(sched_lcbn_looks_valid(sched_lcbn));
+  assert(lcbn_executed(sched_lcbn->lcbn));
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_scheduled_sched_lcbn: begin: sched_lcbn %p (lcbn %p)\n", sched_lcbn, sched_lcbn->lcbn));
+  /* Search backwards in execution_schedule for a matching exec_id. */
+  for (e = list_back(scheduler.execution_schedule); e != list_head(scheduler.execution_schedule); e = list_prev(e))
+  {
+    sched_lcbn_t *potential_mate = list_entry(e, sched_lcbn_t, elem); 
+    assert(sched_lcbn_looks_valid(potential_mate));
+    if (potential_mate->lcbn->global_exec_id == sched_lcbn->lcbn->global_exec_id)
+    {
+      mate = potential_mate;
+      break;
+    }
+  }
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_scheduled_sched_lcbn: returning mate %p\n", mate));
+  return mate;
+}
+
 /* Internal scheduler lock. 
    These lock routines can be called recursively. Don't mess up. */
 int lock_depth = 0; /* Mimic a recursive mutex. */
@@ -412,7 +440,7 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
   scheduler.shadow_root = NULL;
   scheduler.name_to_lcbn = map_create();
   scheduler.desired_schedule = NULL;
-  scheduler.n_executed = 1; /* Skip initial stack. */
+  scheduler.n_executed = 0;
   uv_mutex_init(&scheduler.lock);
 
   if (scheduler.mode == SCHEDULE_MODE_RECORD)
@@ -460,13 +488,13 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
       else
       {
         /* Locate the parent_lcbn by name; update the tree. 
-           This requires that the input schedule be in REGISTRATION ORDER. */
+           This requires that the input schedule be in REGISTRATION ORDER,
+           since otherwise the parent may not be in the tree yet. */
         mylog(LOG_SCHEDULER, 5, "scheduler_init: looking up parent_lcbn (name %s)\n", sched_lcbn->lcbn->parent_name);
         parent_lcbn = map_lookup(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->parent_name, sizeof sched_lcbn->lcbn->parent_name), &found);
         mylog(LOG_SCHEDULER, 5, "scheduler_init: found %i; parent_lcbn %p\n", found, parent_lcbn);
         assert(found && lcbn_looks_valid(parent_lcbn));
-        /* TODO lcbn_add_child instead? */
-        tree_add_child(&parent_lcbn->tree_node, &sched_lcbn->lcbn->tree_node);
+        lcbn_add_child(parent_lcbn, sched_lcbn->lcbn);
       }
 
       free(line);
@@ -478,27 +506,24 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
     assert(!fclose(f));
     assert(scheduler.shadow_root);
 
-    /* Calculate desired_schedule based on the execution order of the tree we've parsed. */ 
-    mylog(LOG_SCHEDULER, 5, "scheduler_init: calculating desired schedule\n");
+    /* Extract the execution schedule from the tree. */
     scheduler.desired_schedule = tree_as_list(&scheduler.shadow_root->tree_node);
 
-    /* TODO DEBUG: First sort by registration order and print out what we've parsed. */
+    /* Sort by registration order and print out what we've parsed. */
     list_sort(scheduler.desired_schedule, lcbn_sort_by_reg_id, NULL);
     mylog(LOG_SCHEDULER, 1, "scheduler_init: Printing all %u parsed nodes in registration order.\n", list_size(scheduler.desired_schedule));
     list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
 
-    /* Sort by exec order so that we can efficiently handle scheduler queries. 
-       Remove unexecuted nodes. */
-    list_sort(scheduler.desired_schedule, lcbn_sort_by_exec_id, NULL);
-    filtered_nodes = list_filter(scheduler.desired_schedule, lcbn_remove_unexecuted, NULL); 
-    list_destroy(filtered_nodes); /* Leave them in the tree for later divergence testing. */
+    /* Calculate desired_schedule based on the execution order of the tree we've parsed
+        - remove unexecuted nodes from the list (but leave them in the tree for divergence testing).
+        - sort by exec order so that we can efficiently handle scheduler queries
+    */ 
+    mylog(LOG_SCHEDULER, 5, "scheduler_init: calculating desired schedule\n");
 
-    /* Remove "internal" nodes: nodes like the initial stack node are just placeholders, 
-         and will never be executed through invoke_callback.
-       TODO If we have more than one 'internal node', use another filter instead of this more direct approach,
-         or actually include them in the scheduler. */
-    assert(&scheduler.shadow_root->tree_node == list_entry(list_begin(scheduler.desired_schedule), tree_node_t, tree_as_list_elem));
-    list_pop_front(scheduler.desired_schedule);
+    filtered_nodes = list_filter(scheduler.desired_schedule, lcbn_remove_unexecuted, NULL);  /* unexecuted */
+    list_destroy(filtered_nodes);
+
+    list_sort(scheduler.desired_schedule, lcbn_sort_by_exec_id, NULL);
 
     mylog(LOG_SCHEDULER, 1, "scheduler_init: Printing all %u executed nodes in exec order.\n", list_size(scheduler.desired_schedule));
     list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
@@ -896,6 +921,9 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
 {
   int is_diverged = 0;
   schedule_mode_t schedule_mode = scheduler_get_mode();
+  sched_lcbn_t *executed_sched_lcbn = NULL, *scheduled_sched_lcbn = NULL;
+  unsigned executed_n_children = 0, scheduled_n_children = 0, i = 0;
+  struct list_elem *executed_child_elem = NULL, *scheduled_child_elem = NULL;
 
   assert(scheduler_initialized());
   assert(lcbn);
@@ -908,14 +936,50 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
     ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: returning mode %s\n", schedule_mode));
     return schedule_mode;
   }
+  
+  /* Find the REPLAY record corresponding to this observed LCBN. */
+  executed_sched_lcbn = sched_lcbn_create(lcbn);
+  scheduled_sched_lcbn = scheduler__find_scheduled_sched_lcbn(executed_sched_lcbn);
+  assert(scheduled_sched_lcbn);
 
+  /* Same number of children? */
+  executed_n_children  = list_size(executed_sched_lcbn->lcbn->tree_node.children);
+  scheduled_n_children = list_size(scheduled_sched_lcbn->lcbn->tree_node.children);
+  if (executed_n_children != scheduled_n_children)
+  {
+    mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: schedule has diverged: executed_n_children %u != scheduled_n_children %u\n", executed_n_children, scheduled_n_children);
+    is_diverged = 1;
+    goto MAYBE_DIVERGED;
+  }
+
+  /* Children have matching types? */
+  executed_child_elem  = list_front(executed_sched_lcbn->lcbn->tree_node.children);
+  scheduled_child_elem = list_front(scheduled_sched_lcbn->lcbn->tree_node.children);
+  for (i = 0; i < executed_n_children; i++)
+  {
+    lcbn_t *executed_child_lcbn = tree_entry(list_entry(executed_child_elem, tree_node_t, parent_child_list_elem),
+                                             lcbn_t, tree_node);
+    lcbn_t *scheduled_child_lcbn = tree_entry(list_entry(scheduled_child_elem, tree_node_t, parent_child_list_elem),
+                                             lcbn_t, tree_node);
+    assert(lcbn_looks_valid(executed_child_lcbn));
+    assert(lcbn_looks_valid(scheduled_child_lcbn));
+
+    if (executed_child_lcbn->cb_type != scheduled_child_lcbn->cb_type)
+    {
+      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: schedule has diverged: child %u: executed child type %s != scheduled child %u type %s\n", i, callback_type_to_string(executed_child_lcbn->cb_type), callback_type_to_string(scheduled_child_lcbn->cb_type));
+      is_diverged = 1;
+      goto MAYBE_DIVERGED;
+    }
+  }
+
+MAYBE_DIVERGED:
   if (is_diverged)
   {
     /* TODO: switch back to record, and make adjustments as needed
               - use special suffix for schedule file, lest we overwrite the input */
     if (1)
     {
-      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged. Blowing up!\n");
+      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged on exec_id %i. Blowing up!\n", lcbn->global_exec_id);
       exit(1);
     }
     else
@@ -925,6 +989,12 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
       scheduler__set_mode(schedule_mode);
     }
   }
+  else
+  {
+    mylog(LOG_SCHEDULER, 7, "scheduler_check_for_divergence: Schedule has not diverged.\n");
+  }
+
+  sched_lcbn_destroy(executed_sched_lcbn);
 
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: returning mode %s\n", schedule_mode));
   return schedule_mode;

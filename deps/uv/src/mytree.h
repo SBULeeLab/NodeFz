@@ -16,11 +16,12 @@ struct tree_node_s
   int magic;
 
   tree_node_t *parent;
+
   struct list *children;
+  struct list_elem parent_child_list_elem;
 
   unsigned child_num; /* Which entry am I in my parent's list of children? Begins with 0. */
   unsigned depth;     /* How deep in the tree am I? root's depth is 0. */
-  struct list_elem parent_child_list_elem;
 
   /* For tree_as_list. */
   struct list_elem tree_as_list_elem;

@@ -246,3 +246,8 @@ int is_marker_event (enum callback_type cbt)
   assert(CALLBACK_TYPE_MIN <= cbt && cbt < CALLBACK_TYPE_MAX);
   return (MARKER_EVENTS_BEGIN <= cbt && cbt <= MARKER_EVENTS_END);
 }
+
+int is_internal_event (enum callback_type cbt)
+{
+  return (INTERNAL_BEGIN <= cbt && cbt <= INTERNAL_END);
+}

@@ -287,41 +287,6 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     }
     mylog(LOG_MAIN, 5, "uv__io_poll: done epoll'ing\n");
 
-    /* TODO DEBUGGING. */
-#if 0
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
-    {
-      if (223 <= scheduler_already_run() && scheduler_already_run() < 225)
-      {
-        static int num_times_here = 0;
-        mylog(LOG_MAIN, 1, "uv__io_poll: num_times_here %i\n", num_times_here);
-        if (!num_times_here)
-        {
-          mylog(LOG_MAIN, 1, "uv__io_poll: REPLAY mode: n_executed %i, throwing logging into high gear\n", scheduler_already_run());
-          mylog_set_verbosity(LOG_LCBN, 9);
-          mylog_set_verbosity(LOG_SCHEDULER, 9);
-          mylog_set_verbosity(LOG_UV_STREAM, 9);
-          mylog_set_verbosity(LOG_UV_IO, 9);
-        }
-        else if (2 <= num_times_here)
-        {
-          mylog(LOG_MAIN, 1, "uv__io_poll: num_times_here %i, I'm outta here\n", num_times_here);
-          dump_and_exit_sighandler(12);
-        }
-        num_times_here++;
-      }
-      else if (225 <= scheduler_already_run())
-      {
-        mylog(LOG_MAIN, 1, "uv__io_poll: REPLAY mode: over the hump\n");
-        mylog_set_verbosity(LOG_LCBN, 4);
-        mylog_set_verbosity(LOG_SCHEDULER, 5);
-        mylog_set_verbosity(LOG_UV_STREAM, 9);
-        mylog_set_verbosity(LOG_UV_IO, 9);
-      }
-    }
-#endif
-
-
     if (sigmask != 0 && no_epoll_pwait != 0)
       if (pthread_sigmask(SIG_UNBLOCK, &sigset, NULL))
         abort();

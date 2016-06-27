@@ -75,6 +75,8 @@ int lcbn_semantic_equals (lcbn_t *a, lcbn_t *b);
 
 /* Returns non-zero if lcbn has been executed, else zero. */
 int lcbn_executed (lcbn_t *lcbn);
+/* Returns non-zero if lcbn is an internal event, else zero. */
+int lcbn_internal (lcbn_t *lcbn);
 
 /* TODO Define at the caller layer. See notes in logical-callback-node.c for details. */
 int lcbn_sort_on_int (struct list_elem *a, struct list_elem *b, void *aux);

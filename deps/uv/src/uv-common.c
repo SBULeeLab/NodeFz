@@ -948,6 +948,8 @@ static lcbn_t * get_init_stack_lcbn (void)
   static lcbn_t *init_stack_lcbn = NULL;
   if (!init_stack_lcbn)
   {
+    scheduler_advance();
+
     init_stack_lcbn = lcbn_create(NULL, NULL, 0);
 
     init_stack_lcbn->cb_type = INITIAL_STACK;
@@ -966,6 +968,8 @@ static lcbn_t * get_exit_lcbn (void)
   static lcbn_t *exit_lcbn = NULL;
   if (!exit_lcbn)
   {
+    scheduler_advance();
+
     exit_lcbn = lcbn_create(NULL, NULL, 0);
 
     exit_lcbn->cb_type = EXIT;
@@ -1206,7 +1210,6 @@ void invoke_callback (callback_info_t *cbi)
     /* Advance the scheduler prior to invoking the CB. 
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
        the nested ones will perceive themselves as 'next'. */
-
     scheduler_advance();
 
     /* TODO Why not do this? */
@@ -1238,7 +1241,12 @@ void invoke_callback (callback_info_t *cbi)
     if (is_user_cb && scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     {
       /* Replay: Now that the callback is done, check that it made exactly the children we expect. */
-      scheduler_check_for_divergence(lcbn_cur);
+      schedule_mode_t new_mode = scheduler_check_for_divergence(lcbn_cur);
+      if (new_mode != SCHEDULE_MODE_REPLAY)
+      {
+        /* TODO */
+        assert(!"invoke_callback: schedule has diverged!");
+      }
     }
 
     /* Wake up any waiting invoke_callback callers. */
@@ -1372,8 +1380,11 @@ void uv__mark_init_stack_end (void)
   assert(lcbn_looks_valid(init_stack_lcbn));
   lcbn_mark_end(init_stack_lcbn);
   lcbn_current_set(NULL);
+  
+  /* Cannot check for divergence yet because the first marker node and the EXIT node are added to the initial stack node later. 
+     Instead, we check for divergence of the initial stack when we generate the EXIT event. */
 
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_end: inital stack has ended\n"));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_end: INITIAL_STACK has ended\n"));
 }
 
 /* Returns non-zero if we're in the application's initial stack, else 0. */
@@ -1452,7 +1463,13 @@ void uv__mark_exit_end (void)
   lcbn_mark_end(exit_lcbn);
   lcbn_current_set(NULL);
 
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: inital stack has ended\n"));
+  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+  {
+    scheduler_check_for_divergence(get_init_stack_lcbn());
+    scheduler_check_for_divergence(exit_lcbn);
+  }
+
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: EXIT has ended\n"));
 }
 
 /* Tracking whether or not we're in uv__run_pending. */
@@ -1605,6 +1622,39 @@ void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
   invoke_callback(cbi);
 }
 
+/* Go through the motions of executing LCBN
+    - mark it begin/end'ed
+    - acquire an execution ID
+    - advance the scheduler */
+static void execute_internal_lcbn (lcbn_t *lcbn)
+{
+  assert(lcbn);
+  assert(lcbn_internal(lcbn));
+
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "execute_internal_lcbn: begin: lcbn %p\n", lcbn));
+
+  uv_mutex_lock(&invoke_callback_lcbn_lock);
+
+  /* Get an exec id, fake an execution, tell any waiters we're done. */
+  mylog(LOG_MAIN, 7, "execute_internal_lcbn: Invoking lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
+  lcbn_mark_begin(lcbn);
+  lcbn->global_exec_id = lcbn_next_exec_id();
+  lcbn_mark_end(lcbn);
+  mylog(LOG_MAIN, 5, "execute_internal_lcbn: Done with lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
+
+  mylog(LOG_MAIN, 5, "execute_internal_lcbn: lcbn %p (type %s); advancing the scheduler\n", lcbn, callback_type_to_string(lcbn->cb_type));
+  scheduler_advance();
+
+  /* Just in case. 
+     TODO Necessary? */
+  uv_cond_broadcast(&not_my_turn);
+  uv_cond_broadcast(&no_active_lcbn);
+
+  uv_mutex_unlock(&invoke_callback_lcbn_lock);
+
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "execute_internal_lcbn: returning\n"));
+}
+
 /* Marker events are in a registration chain. 
    The first uv_run is a child of the initial stack.
    Each subsequent marker event is a child of the previous one. */
@@ -1643,24 +1693,7 @@ void emit_marker_event (enum callback_type cbt)
     }
   }
 
-  uv_mutex_lock(&invoke_callback_lcbn_lock);
-
-  /* Get an exec id, fake an execution, tell any waiters we're done. */
-  mylog(LOG_MAIN, 7, "invoke_callback: Invoking lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
-  lcbn_mark_begin(lcbn);
-  lcbn->global_exec_id = lcbn_next_exec_id();
-  lcbn_mark_end(lcbn);
-  mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
-
-  mylog(LOG_MAIN, 5, "emit_marker_event: lcbn %p (type %s); advancing the scheduler\n", lcbn, callback_type_to_string(lcbn->cb_type));
-  scheduler_advance();
-
-  /* Just in case. 
-     TODO Necessary? */
-  uv_cond_broadcast(&not_my_turn);
-  uv_cond_broadcast(&no_active_lcbn);
-
-  uv_mutex_unlock(&invoke_callback_lcbn_lock);
+  execute_internal_lcbn(lcbn);
 
   prev_marker_event = lcbn;
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: returning\n"));

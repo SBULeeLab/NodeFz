@@ -2,7 +2,7 @@
 #define UV_UNIFIED_CALLBACK_ENUMS_H_
 
 #ifndef NOT_REACHED
-#define NOT_REACHED assert (0 == 1);
+#define NOT_REACHED assert(!"Not reached");
 #endif
 
 /* Special values for uv__callback_origin. */
@@ -83,9 +83,9 @@ enum callback_type
   UV__WORK_WORK,
   UV__WORK_DONE,
 
-  /* External events. */
-  /* TODO Replace with MARKERs. */
+  /* "External" internal events. */
   INITIAL_STACK,
+  INTERNAL_BEGIN = INITIAL_STACK,
   EXIT,
 
   /* Internal libuv loop events. TODO The scheduler should probably work on events, not callbacks. And there are 'callback' events and 'internal marker' events. */
@@ -109,6 +109,7 @@ enum callback_type
   MARKER_RUN_TIMERS_2_BEGIN,
   MARKER_RUN_TIMERS_2_END,
   MARKER_EVENTS_END = MARKER_RUN_TIMERS_2_END, /* For iteration. */
+  INTERNAL_END = MARKER_EVENTS_END,
 
   CALLBACK_TYPE_ANY,
   CALLBACK_TYPE_MAX
@@ -166,5 +167,10 @@ int is_run_check_cb (enum callback_type cb_type);
 int is_run_idle_cb (enum callback_type cb_type); 
 int is_run_pending_cb (enum callback_type cb_type); 
 int is_marker_event (enum callback_type cb_type);
+
+/* "internal event" -- marker events, initial stack, exit, etc.
+                       events added for schedule tracking that were not originally
+                       present in libuv. */
+int is_internal_event (enum callback_type cb_type);
 
 #endif /* UV_UNIFIED_CALLBACK_ENUMS_H_ */
