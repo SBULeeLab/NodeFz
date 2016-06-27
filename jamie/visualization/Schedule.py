@@ -355,7 +355,7 @@ class Schedule (object):
 		return origRacyExecOrder, eventsToReschedule, pivot
 
 	# input: (racyNodeIDs)
-	#	  racyNodeIDs: list of Callback registration IDs
+	#	  racyNodeIDs: list of Callback execution IDs
 	# output: (origToNewIDs)
 	#   origToNewIDs: dict from racyNodeID entries to newNodeID entries after changing execution order
 	# Modifies the schedule so that the specified Callbacks are executed in reverse order compared to how they actually
@@ -700,6 +700,8 @@ class Schedule (object):
 	#	 place to write the schedule
 	# output: ()
 	# Emits this schedule to the specified file, sorted on registration order.
+	# (sorting in registration order is required by the libuv scheduler API)
+	#
 	# May raise IOError
 	def emit(self, file):		
 		regOrder = self._regList()
