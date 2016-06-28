@@ -1241,12 +1241,9 @@ void invoke_callback (callback_info_t *cbi)
     if (is_user_cb && scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     {
       /* Replay: Now that the callback is done, check that it made exactly the children we expect. */
-      schedule_mode_t new_mode = scheduler_check_for_divergence(lcbn_cur);
-      if (new_mode != SCHEDULE_MODE_REPLAY)
-      {
-        /* TODO */
-        assert(!"invoke_callback: schedule has diverged!");
-      }
+      scheduler_check_for_divergence(lcbn_cur);
+      if (scheduler_has_diverged())
+        mylog(LOG_MAIN, 1, "invoke_callback: schedule has diverged!\n");
     }
 
     /* Wake up any waiting invoke_callback callers. */

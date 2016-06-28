@@ -25,13 +25,14 @@ struct
   char schedule_file[256];
 
   struct list *registration_schedule; /* List of the registered sched_lcbn_t's, in registration order. */
-  struct list *execution_schedule; /* List of the executed sched_lcbn_t's, in order of execution. Subset of registration_schedule. */
 
   /* REPLAY mode. */
   lcbn_t *shadow_root; /* Root of the "shadow tree" -- the registration tree described in the input file. */
   struct map *name_to_lcbn; /* Used to map hash(name) to lcbn. Allows us to re-build the tree. */
-  struct list *desired_schedule; /* A tree_as_list list (rooted at shadow_root) of sched_lcbn_t's, expressing desired execution order, first to last. We discard internal nodes (e.g. initial stack node). We left-shift as we execute nodes. */
+  struct list *desired_schedule; /* A tree_as_list list (rooted at shadow_root) of sched_lcbn_t's, expressing desired execution order, first to last. We discard internal nodes (e.g. initial stack node). */
+  struct list *execution_schedule; /* List of the executed sched_lcbn_t's, in order of execution. Nodes move from desired_schedule to execution_schedule as they are executed. This gives us a cheap way to implement scheduler__find_scheduled_sched_lcbn. */
   int n_executed;
+  int diverged; /* 1 if the REPLAY'd schedule has diverged. */
 
   uv_mutex_t lock;
 } scheduler;
@@ -58,7 +59,7 @@ static void scheduler__set_mode (schedule_mode_t new_mode)
 
   assert(scheduler_initialized());
   mylog(LOG_SCHEDULER, 3, "scheduler__set_mode: current mode <%s> new mode %s\n", 
-    schedule_mode_to_string(scheduler.mode), schedule_mode_to_string(new_mode));
+    schedule_mode_to_string(scheduler_get_mode()), schedule_mode_to_string(new_mode));
 
   scheduler.mode = new_mode;
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__set_mode: returning\n"));
@@ -216,7 +217,7 @@ lcbn_t * scheduler_next_scheduled_lcbn (void)
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_scheduled_lcbn: begin\n"));
   assert(scheduler_initialized());
 
-  if (scheduler.mode != SCHEDULE_MODE_REPLAY)
+  if (scheduler_get_mode() != SCHEDULE_MODE_REPLAY)
   {
     next_lcbn = NULL;
     goto DONE;
@@ -273,7 +274,7 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
   scheduler__lock();
 
   /* RECORD mode: Every queried sched_lcbn is "next". */
-  if (scheduler.mode == SCHEDULE_MODE_RECORD)
+  if (scheduler_get_mode() == SCHEDULE_MODE_RECORD)
   {
     is_next = 1;
     goto DONE;
@@ -283,7 +284,8 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
   /* If nothing left in the schedule, we can't run this. */
   if (!next_lcbn)
   {
-    /* TODO At the moment, I'm only testing replay-ability of a recorded schedule. Consequently this should only happen because we always leave the UV_ASYNC_CB for the threadpool done queue pending. */
+    /* TODO Revisit this once divergence is working. 
+       When written: "At the moment, I'm only testing replay-ability of a recorded schedule. Consequently this should only happen because we always leave the UV_ASYNC_CB for the threadpool done queue pending." */
     assert(ready_sched_lcbn->lcbn->cb_type == UV_ASYNC_CB);
     is_next = 0;
     goto DONE;
@@ -441,9 +443,10 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
   scheduler.name_to_lcbn = map_create();
   scheduler.desired_schedule = NULL;
   scheduler.n_executed = 0;
+  scheduler.diverged = 0;
   uv_mutex_init(&scheduler.lock);
 
-  if (scheduler.mode == SCHEDULE_MODE_RECORD)
+  if (mode == SCHEDULE_MODE_RECORD)
   {
     /* Verify that we can open and close the file; truncate it. */
     f = fopen(scheduler.schedule_file, "w");
@@ -451,7 +454,7 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
     assert(!fclose(f));
     mylog(LOG_SCHEDULER, 5, "scheduler_init: RECORD: file %s looks OK\n", scheduler.schedule_file);
   }
-  else if (scheduler.mode == SCHEDULE_MODE_REPLAY)
+  else if (mode == SCHEDULE_MODE_REPLAY)
   {
     int found = 0;
     size_t dummy = 0;
@@ -585,8 +588,10 @@ void scheduler_emit (void)
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_emit: begin\n"));
   assert(scheduler_initialized());
 
-  if (scheduler.mode == SCHEDULE_MODE_REPLAY)
+  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     strncat(scheduler.schedule_file, "-replay", sizeof scheduler.schedule_file);
+  else if (scheduler_has_diverged())
+    strncat(scheduler.schedule_file, "-diverged", sizeof scheduler.schedule_file);
 
   mylog(LOG_SCHEDULER, 1, "scheduler_emit: Writing schedule to %s\n", scheduler.schedule_file);
 
@@ -630,13 +635,13 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
 
   next_sched_context = NULL;
   /* RECORD mode: execute the first context in the list. */
-  if (scheduler.mode == SCHEDULE_MODE_RECORD)
+  if (scheduler_get_mode() == SCHEDULE_MODE_RECORD)
   {
     next_sched_context = list_entry(list_begin(sched_context_list), sched_context_t, elem);
     assert(sched_context_looks_valid(next_sched_context));
   }
   /* REPLAY mode: if any context has the next_lcbn in it, return that context. */
-  else if (scheduler.mode == SCHEDULE_MODE_REPLAY)
+  else if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
   {
     for (e = list_begin(sched_context_list); e != list_end(sched_context_list); e = list_next(e))
     {
@@ -821,7 +826,7 @@ sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context)
 
     /* RECORD: next_sched_lcbn must be defined.
        REPLAY: we may not have found it. */
-    assert(next_sched_lcbn || scheduler.mode == SCHEDULE_MODE_REPLAY);
+    assert(next_sched_lcbn || scheduler_get_mode() == SCHEDULE_MODE_REPLAY);
 
     ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_next_lcbn: returning next_sched_lcbn %p\n", next_sched_lcbn));
 
@@ -837,7 +842,7 @@ void scheduler_advance (void)
 
   scheduler__lock();
 
-  if (scheduler.mode == SCHEDULE_MODE_REPLAY)
+  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
   {
     assert(!list_empty(scheduler.desired_schedule));
 
@@ -975,23 +980,16 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
 MAYBE_DIVERGED:
   if (is_diverged)
   {
-    /* TODO: switch back to record, and make adjustments as needed
-              - use special suffix for schedule file, lest we overwrite the input */
-    if (1)
-    {
-      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged on exec_id %i. Blowing up!\n", lcbn->global_exec_id);
-      exit(1);
-    }
-    else
-    {
-      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged. Changing mode to SCHEDULE_MODE_RECORD\n");
-      schedule_mode = SCHEDULE_MODE_RECORD;
-      scheduler__set_mode(schedule_mode);
-    }
+    /* Schedule has diverged. 
+       We're breaking new ground; switch back to record mode. */
+    scheduler.diverged = 1;
+    mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged. Changing mode to SCHEDULE_MODE_RECORD\n");
+    schedule_mode = SCHEDULE_MODE_RECORD;
+    scheduler__set_mode(schedule_mode);
   }
   else
   {
-    mylog(LOG_SCHEDULER, 7, "scheduler_check_for_divergence: Schedule has not diverged.\n");
+    mylog(LOG_SCHEDULER, 9, "scheduler_check_for_divergence: Schedule has not diverged.\n");
   }
 
   sched_lcbn_destroy(executed_sched_lcbn);
@@ -1026,9 +1024,9 @@ int scheduler_remaining (void)
 
   scheduler__lock();
 
-  if (scheduler.mode == SCHEDULE_MODE_RECORD)
+  if (scheduler_get_mode() == SCHEDULE_MODE_RECORD)
     n_remaining = -1;
-  else if (scheduler.mode == SCHEDULE_MODE_REPLAY)
+  else if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     n_remaining = list_size(scheduler.desired_schedule);
   else
     NOT_REACHED;
@@ -1037,6 +1035,11 @@ int scheduler_remaining (void)
 
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_remaining: returning n_remaining %i\n", n_remaining));
   return n_remaining;
+}
+
+int scheduler_has_diverged (void)
+{
+  return scheduler.diverged;
 }
 
 /* This leaks memory but NBD. */

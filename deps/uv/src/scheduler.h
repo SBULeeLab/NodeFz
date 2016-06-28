@@ -200,6 +200,9 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn);
 int scheduler_already_run (void);
 int scheduler_remaining (void);
 
+/* Non-zero if scheduler has diverged, else 0. */
+int scheduler_has_diverged (void);
+
 /* Each type of handle and req should declare a function of this type in internal.h
    for use in scheduler_next_context and scheduler_next_lcbn. 
      Name it like: uv__ready_*_lcbns {for * in async, check, fs_event, etc.} 
