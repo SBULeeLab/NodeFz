@@ -12,6 +12,8 @@ import logging
 # CallbackNodeGroups
 #############################
 
+#You specify a file containing groups of node IDs
+#We parse it.
 class CallbackNodeGroups(object):
 	def __init__(self, groupFile):
 		self.nodeGroups = self._parseGroupFile(groupFile)
@@ -31,22 +33,23 @@ class CallbackNodeGroups(object):
 	# Group 3
 	# ...
 	# output: List of lists. Each list is of node IDs and corresponds to a group of nodes.
+	#         Each list is a set (no duplicates)
 	# Throws any errors it encounters during file IO
 	def _parseGroupFile(self, groupFile):
 		nodeGroups = []
-		foundGroup = 0
+		foundGroup = False
 		with open(groupFile) as f:
 			group = None
 			for line in f:
 				line = line.rstrip()
-				logging.debug("CallbackNodeGroups::_parseGroupFile: line <{}>".format(line))
+				logging.info("CallbackNodeGroups::_parseGroupFile: line <{}>".format(line))
 				# Ignore whitespace and lines beginning with a #
 				if re.match('^\s*$', line) or re.match('^\s*#', line):
 					continue
 
 				# New group?
 				if re.match('^\s*Group \d', line, re.IGNORECASE):
-					foundGroup = 1
+					foundGroup = True
 					if group is not None:
 						# Save the current group
 						logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
@@ -56,9 +59,12 @@ class CallbackNodeGroups(object):
 					# Must be a node ID. Add to the current group.
 					assert(re.match('^\s*\d+\s*$', line))
 					assert(group is not None)
-					group.append(int(line.rstrip()))
+					nodeID = int(line.rstrip())
+					if nodeID not in group:
+						group.append(int(line.rstrip()))
 
-			if (group):
+			# Clean up final group
+			if (group is not None):
 				logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
 				nodeGroups.append(group)
 
@@ -154,8 +160,16 @@ class CallbackNode (object):
 				nsPerS = long(1e9)
 				kvStr += " <{:d}s {:d}ns>".format(time_ns/nsPerS, long(time_ns % nsPerS))
 			elif key == "dependencies":
+				# Include dependencies. self.dependencies might be either a list of names or a list of CallbackNodes.
+				# TODO This code would be cleaner if we clarified the contents of that list. It shouldn't be one of two types.
 				deps = getattr(self, key)
-				kvStr += " <{}>".format(", ".join(str(dep) for dep in deps))
+				depStrs = []
+				for d in deps:
+					if type(d) == CallbackNode:
+						depStrs.append(d.getName())
+					else:
+						depStrs.append(str(d))
+				kvStr += " <{}>".format(" ".join(depStrs))
 			else:
 				kvStr += " <{}>".format(getattr(self, key))
 

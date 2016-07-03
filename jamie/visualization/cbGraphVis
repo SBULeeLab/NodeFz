@@ -30,7 +30,7 @@ def getNodeHandle (node, graph):
 
 #add NODE, its children, and a parental edge to GRAPH
 #node handles for NODE and its children will be created if they do not already exist in GRAPH
-#ACTION nodes will be diamonds. RESPONSE nodes will be circles.
+#ACTION nodes will be ellipses. RESPONSE nodes will be squares.
 def addNodeAndChildren (node, graph):
 	assert(isinstance(node, CB.CallbackNode))
 	
@@ -51,7 +51,7 @@ def addNodeAndChildren (node, graph):
 		# All user code is put in squares so that the 'striped' style works
 		shape = "square"
 	else:
-		shape = "diamond"
+		shape = "ellipse"
 	gv.setv(nodeHandle, "shape", shape)
 	
 	#Edges: parent -> children
@@ -137,19 +137,42 @@ def addColors(tree, digraph, coloredNodes):
 	allColoredNodes = {}  # Avoid duplicate entries; maps ID to node
 	palette = Palette.Palette(len(coloredNodes))
 
+	treeExecOrder = tree.getExecOrder()
 	for colorGroup in coloredNodes:
+		logging.info("colorGroup {}".format(colorGroup))
 		rgb = palette.nextColor()
-		colorGroupNodes = [n for n in tree.getExecOrder() if int(n.getID()) in colorGroup]
+		colorGroupNodes = [n for n in treeExecOrder if int(n.getExecID()) in colorGroup]
+		assert(len(colorGroup) == len(colorGroupNodes))
 		for n in colorGroupNodes:
 			colors = getattr(n, "_colors", [])
 			colors.append(rgb)
 			setattr(n, "_colors", colors)
-			allColoredNodes[n.getID()] = n
+			logging.info("node {} colors {}".format(n.getExecID(), colors))
+			allColoredNodes[n.getExecID()] = n
 
 	for n in allColoredNodes.values():
 		h = getNodeHandle(n, digraph)
-		gv.setv(h, "style", "striped")
-		gv.setv(h, "fillcolor", ':'.join([rgbToGVColor(rgb) for rgb in n._colors]))
+		logging.info("Coloring node {} (handle {})".format(n.getExecID(), h))
+
+		kv = {}
+
+		rgbs = n._colors
+		fillColor = ':'.join([rgbToGVColor(rgb) for rgb in rgbs])
+		kv["fillcolor"] = fillColor
+
+		if len(n._colors) == 1:
+			kv["style"] = "filled"
+		else:
+			shape = gv.getv(h, "shape")
+			if shape == "ellipse":
+				kv["style"] = "wedged"
+			elif shape == "square":
+				kv["style"] = "striped"
+			else:
+				raise Error("Error, unexpected shape {}".format(shape))
+
+		for k in kv.keys():
+			gv.setv(h, k, kv[k])
 		del n._colors
 
 def main():

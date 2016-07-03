@@ -31,7 +31,7 @@ void mylog_init (void);
 /* Higher values are more verbose. */
 void mylog_set_verbosity (enum log_class, int level);
 void mylog_set_all_verbosity (int level);
-/* Blab. */
+/* Blab. format must end in \n. */
 void mylog (enum log_class, int verbosity, const char *format, ...);
 /* Print buf as LEN char's. */
 void mylog_buf (enum log_class, int verbosity, char *buf, int len);
