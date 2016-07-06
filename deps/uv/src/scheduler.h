@@ -196,7 +196,9 @@ void scheduler_advance (void);
 schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn);
 
 /* How many LCBNs have already been/remain to be scheduled? 
-   remaining: If in RECORD mode, returns -1. */
+   Notes:
+    scheduler_already_run    As exec_ids begin at 0, this also returns the next exec_id.
+    scheduler_remaining      If in RECORD mode, returns -1. */
 int scheduler_already_run (void);
 int scheduler_remaining (void);
 

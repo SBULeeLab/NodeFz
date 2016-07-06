@@ -664,7 +664,7 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list)
     mylog(LOG_SCHEDULER, 3, "scheduler_next_context: sched_context %p is next\n", next_sched_context);
   }
   else
-    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: None of the %u sched_contexts were next (next type: %s; exec_id %i)\n", list_size(sched_context_list), callback_type_to_string(scheduler_next_lcbn_type()), scheduler_already_run()+1);
+    mylog(LOG_SCHEDULER, 3, "scheduler_next_context: None of the %u sched_contexts were next (next type: %s; exec_id %i)\n", list_size(sched_context_list), callback_type_to_string(scheduler_next_lcbn_type()), scheduler_already_run());
 
   DONE:
     scheduler__unlock();
