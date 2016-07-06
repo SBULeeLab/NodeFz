@@ -23,9 +23,10 @@ class ScheduleException(Exception):
 # Schedule
 #############################
 
-# Representation of a libuv callback schedule
-# External functions always return leaving the Schedule with isValid True.
-# Internal functions (self._*) might not. 
+# Representation of a libuv callback schedule.
+# The constructor and public functions always return leaving the Schedule with self.isValid() == True.
+# Private functions (self._*) might not.
+# Method calls may throw a ScheduleException.
 class Schedule (object):
 	# CBs of these types are asynchronous, and can be moved from one loop to another provided that they do not violate
 	# happens-before order
@@ -58,6 +59,10 @@ class Schedule (object):
 
 	LIBUV_LOOP_OUTER_STAGE_MARKER_ORDER = [runBegin, runEnd]
 	LIBUV_LOOP_INNER_STAGE_MARKER_ORDER = LIBUV_LOOP_STAGE_MARKER_ORDER[1:-1]
+
+	LIBUV_THREADPOOL_DONE_BEGINNING_TYPE = ["UV_ASYNC_CB"]
+	LIBUV_THREADPOOL_DONE_CB_TYPES = ["UV_AFTER_WORK_CB"]
+	LIBUV_THREADPOOL_DONE_CHILDREN_CB_TYPES = ["UV_FS_CB", "UV_GETADDRINFO_CB", "UV_GETNAMEINFO_CB"]
 
 	def __init__ (self, scheduleFile):
 		logging.debug("scheduleFile {}".format(scheduleFile))
@@ -136,7 +141,8 @@ class Schedule (object):
 	#	  - execID
 	#   - libuv stages in the correct order
 	#   - non-marker events occur within the correct stage
-	# The validity of a schedule is an invariant to be maintained by each Schedule method. 
+	#   - TP 'done' events (UV_AFTER_WORK_CB and children) are always preceded by another TP 'done' event or a UV_ASYNC_CB in the TP's async chain
+	# The validity of a schedule is an invariant to be maintained by each public Schedule method.
 	def isValid(self):
 		# Stack of the current libuv run stage.
 		# Each element is in LIBUV_RUN_ALL_STAGES.
@@ -147,6 +153,8 @@ class Schedule (object):
 		lastEndedInnerStage = Schedule.LIBUV_RUN_INNER_STAGES[-1]
 		# If we've encountered the EXIT event
 		exiting = False
+		# The previous looper event (i.e. not prevLooperEvent.isThreadpoolCB()) we encountered
+		prevLooperEvent = None
 		
 		for execID, event in enumerate(self.execSchedule):
 			# Extract some details about this event for convenience			
@@ -226,30 +234,79 @@ class Schedule (object):
 				elif eventCBType == "EXIT":			
 					exiting = True
 				else:
-					# By process of elimination, this must be a valid event in the current stage.
+					# By process of elimination, this is a "normal CB" of some kind.
+					# It must be a valid event in the current stage.
 					if not inAnyStage:
 						logging.debug("eventCBType {} but we are not in any stage".format(eventCBType))
 						return False		
-			
+
 					# If we're in a libuv stage, verify that we're looking at a valid eventCB type
 					# cf. unified-callback-enums.c::is_X_cb
 					currentStage = currentLibuvLoopStage[-1]
-					logging.debug("We're in stage {}; verifying current eventCB type {} is appropriate to the stage".format(currentStage, eventCBType))
-					if (currentStage == "RUN_TIMERS_1" and eventCB.isRunTimersCB()) or \
-						 (currentStage == "RUN_PENDING" and eventCB.isRunPendingCB()) or \
-						 (currentStage == "RUN_IDLE" and eventCB.isRunIdleCB()) or \
-						 (currentStage == "RUN_PREPARE" and eventCB.isRunPrepareCB()) or \
-						 (currentStage == "IO_POLL" and eventCB.isIOPollCB()) or \
-						 (currentStage == "RUN_CHECK" and eventCB.isRunCheckCB()) or \
-						 (currentStage == "RUN_CLOSING" and eventCB.isRunClosingCB()) or \
-						 (currentStage == "RUN_TIMERS_2" and eventCB.isRunTimersCB()):
-						#We checked each stage that can contain events, omitting UV_RUN which should never contain user events.						
-						logging.debug("We're in stage {}; eventCBType {} is appropriate".format(currentStage, eventCBType))
-					else:						
-						logging.debug("We're in stage {}; eventCBType {} is not appropriate".format(currentStage, eventCBType))
+					assert(prevLooperEvent is not None)
+					valid = self._isValidNormalEvent(currentStage, event, prevLooperEvent)
+					if not valid:
+						logging.debug("Not a valid normal event")
 						return False
-					
+
+				prevLooperEvent = event
+
 		logging.debug("All events looked valid")
+		return True
+
+	# input: (currentStage, event, prevEvent)
+	#   currentStage    the current stage we're in in as we traverse the schedule. must not be "UV_RUN"
+	#   event           the event we're currently assessing
+	#   prevEvent       the looper event that preceded us
+	# output: isValid   True or False
+	#
+	# This is a helper for self.isValid.
+	# Apply it to "normal" events (not a marker, not during exit, etc.)
+	def _isValidNormalEvent(self, currentStage, event, prevEvent):
+		# Extract some details about these events for convenience
+		eventCB, eventLoopStage = event.getCB(), event.getLibuvLoopStage()
+		eventCBType = eventCB.getCBType()
+
+		prevEventCB, prevEventLoopStage = prevEvent.getCB(), prevEvent.getLibuvLoopStage()
+		prevEventCBType = prevEventCB.getCBType()
+		assert(not prevEventCB.isThreadpoolCB())
+
+		# Confirm that event is in the right stage
+		assert(currentStage != "UV_RUN")
+		logging.debug("We're in stage {}; verifying current eventCB type {} is appropriate to the stage".format(currentStage, eventCBType))
+		if (currentStage == "RUN_TIMERS_1" and eventCB.isRunTimersCB()) or \
+			 (currentStage == "RUN_PENDING" and eventCB.isRunPendingCB()) or \
+			 (currentStage == "RUN_IDLE" and eventCB.isRunIdleCB()) or \
+			 (currentStage == "RUN_PREPARE" and eventCB.isRunPrepareCB()) or \
+			 (currentStage == "IO_POLL" and eventCB.isIOPollCB()) or \
+			 (currentStage == "RUN_CHECK" and eventCB.isRunCheckCB()) or \
+			 (currentStage == "RUN_CLOSING" and eventCB.isRunClosingCB()) or \
+			 (currentStage == "RUN_TIMERS_2" and eventCB.isRunTimersCB()):
+			# We checked each stage that can contain events, omitting UV_RUN which should never contain user events.
+			logging.debug("We're in stage {}; eventCBType {} is appropriate".format(currentStage, eventCBType))
+		else:
+			logging.debug("We're in stage {}; eventCBType {} is not appropriate".format(currentStage, eventCBType))
+			return False
+
+		# Threadpool 'done' events must obey extra rules about the types of nodes they can follow
+		if eventCBType in Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES:
+			#See nodejsrr/jamie/libuv_src_notes for the rules on this
+			validPredecessorTypes = Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE + Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES + Schedule.LIBUV_THREADPOOL_DONE_CHILDREN_CB_TYPES
+			if prevEventCBType in validPredecessorTypes:
+				logging.debug("LIBUV_THREADPOOL_DONE_CB_TYPE {}; predecessor cbType {} is valid".format(eventCBType, prevEventCBType))
+			else:
+				logging.debug("LIBUV_THREADPOOL_DONE_CB_TYPE {}; predecessor cbType {} is not valid (must be in {})".format(eventCBType, prevEventCBType, validPredecessorTypes))
+				return False
+
+		if eventCBType in Schedule.LIBUV_THREADPOOL_DONE_CHILDREN_CB_TYPES:
+			#See nodejsrr/jamie/libuv_src_notes for the rules on this
+			validPredecessorTypes = Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES
+			if prevEventCBType in validPredecessorTypes:
+				logging.debug("LIBUV_THREADPOOL_DONE_CB_TYPE {}; predecessor cbType {} is valid".format(eventCBType, prevEventCBType))
+			else:
+				logging.debug("LIBUV_THREADPOOL_DONE_CHILDREN_CB_TYPE {}; predecessor cbType {} is not valid (must be in {})".format(eventCBType, prevEventCBType, validPredecessorTypes))
+				return False
+
 		return True
 	
 	def _isBeginMarkerEvent(self, cb):
@@ -362,9 +419,11 @@ class Schedule (object):
 	# executed in this Schedule.
 	# Throws a ScheduleException if the requested exchange is not feasible
 	def reschedule(self, racyNodeIDs):
-		assert(0 < len(racyNodeIDs))
-		if len(racyNodeIDs) != 2:
-			raise ScheduleException('Error, cannot reschedule more than 2 events')
+		# Need exactly 2 IDs
+		racyNodeIDs_set = set(racyNodeIDs)
+		if len(racyNodeIDs_set) != 2:
+			raise ScheduleException("reschedule: Error, I can only reschedule 2 events; you requested {} unique events: <{}>".format(len(racyNodeIDs_set), racyNodeIDs_set))
+
 		origToNewIDs = {}
 
 		events, eventsToReschedule, pivot = self._validateRescheduleIDs(racyNodeIDs)
@@ -703,7 +762,8 @@ class Schedule (object):
 	# (sorting in registration order is required by the libuv scheduler API)
 	#
 	# May raise IOError
-	def emit(self, file):		
+	def emit(self, file):
+		assert (self.isValid())
 		regOrder = self._regList()
 		# This will fail if self.execSchedule and self.cbTree have gotten significantly out of sync.
 		# There may be unexecuted registered events.
