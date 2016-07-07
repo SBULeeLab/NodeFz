@@ -102,10 +102,11 @@ class Schedule (object):
 
 		tpDoneAsyncRootCandidates = []
 		for id in asyncCBExecIDs:
-			nextLooper = self._getNextLooperScheduleEvent(id)
-			logging.debug("candidate id {}: nextLooper {} (type {})".format(id, nextLooper, nextLooper.getCB().getCBType()))
-			if nextLooper.getCB().getCBType() in Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES:
-				tpDoneAsyncRootCandidates.append(nextLooper)
+			nextLooperIx, nextLooper = self._findMatchingScheduleEvent(lambda se: not se.getCB().isThreadpoolCB(), "later", id + 1)
+			if nextLooper is not None:
+				logging.debug("candidate id {}: nextLooper {} (type {})".format(id, nextLooper, nextLooper.getCB().getCBType()))
+				if nextLooper.getCB().getCBType() in Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES:
+					tpDoneAsyncRootCandidates.append(nextLooper)
 
 		# There can't be more than one of these -- otherwise we have competing threadpool done chains
 		assert(len(tpDoneAsyncRootCandidates) <= 1)
@@ -116,20 +117,6 @@ class Schedule (object):
 			tpDoneAsyncRoot = tpDoneAsyncRootCandidates[0]
 			assert(tpDoneAsyncRoot.getCB().getCBType() in Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES)
 		return tpDoneAsyncRoot
-
-	# input: (execID)
-	# output: (nextLooperScheduleEvent)
-	#
-	# Returns the next looper ScheduleEvent after execID
-	# e.g. if execID == 5, returns SE with 6 <= SE.getCB().getExecID()
-	def _getNextLooperScheduleEvent(self, execID):
-		execID = int(execID)
-		assert(0 <= execID < len(self.execSchedule))
-		for id in range(execID+1, len(self.execSchedule)):
-			candidate = self.execSchedule[id]
-			if not candidate.getCB().isThreadpoolCB():
-				return candidate
-		return None
 
 	# input: ()
 	# output: (newEventID)
@@ -802,6 +789,7 @@ class Schedule (object):
 		(initialStackIx, initialStackEvent) = self._findMatchingScheduleEvent(searchFunc=initialStackFindFunc, direction="later", startIx=0)		
 		assert(initialStackEvent is not None and initialStackIx == 0)
 
+		# Helper for _updateMarkerInheritance.
 		# markerParent is the ScheduleEvent corresponding to the parent of the next marker.
 		# At the beginning of each loop iteration, it has no markers in its list of children.
 		def _prepMarkerParent (markerParent):
