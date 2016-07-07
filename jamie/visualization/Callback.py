@@ -559,12 +559,14 @@ class CallbackNodeTree (object):
 			callbackNodeDict[node.name] = node
 		return callbackNodeDict		
 	
-	# Replace the self.dependencies array of string node names in each Node with an array of the corresponding CallbackNodes (node.dependencies).
-	# Inform each antecedent about its dependents (node.dependents).
+	# Replace the self.dependencies array of string node names in each Node with an array of the corresponding CallbackNodes (update node.dependencies).
+	# Inform each antecedent about its dependent (append to each dependency's node.dependents).
 	def _updateDependencies(self):
 		for node in self.callbackNodes:
-			for n in node.dependencies:
-				logging.debug("CallbackNodeTree::_updateDependencies: dependency {}".format(n))
+			# Logging
+			for d in node.dependencies:
+				logging.debug("CallbackNodeTree::_updateDependencies: dependency {}".format(d))
+			# Turn node.dependencies from a list of strings to a list of CBNs.
 			node.dependencies = [self.callbackNodeDict[n] for n in node.dependencies]
 			for antecedent in node.dependencies:
 				antecedent.addDependent(node)
