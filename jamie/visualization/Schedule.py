@@ -61,7 +61,7 @@ class Schedule (object):
 	LIBUV_LOOP_INNER_STAGE_MARKER_ORDER = LIBUV_LOOP_STAGE_MARKER_ORDER[1:-1]
 
 	LIBUV_THREADPOOL_DONE_BEGINNING_TYPE = ["UV_ASYNC_CB"]
-	LIBUV_THREADPOOL_DONE_CB_TYPES = ["UV_AFTER_WORK_CB"]
+	LIBUV_THREADPOOL_DONE_CB_TYPES = ["UV_AFTER_WORK_CB"] # TODO Also UV_FS_EVENT_CB, but that can come directly from IO poll too.
 	LIBUV_THREADPOOL_DONE_CHILDREN_CB_TYPES = ["UV_FS_CB", "UV_GETADDRINFO_CB", "UV_GETNAMEINFO_CB"]
 
 	def __init__ (self, scheduleFile):
@@ -69,11 +69,66 @@ class Schedule (object):
 		self.scheduleFile = scheduleFile
 		self.cbTree = CB.CallbackNodeTree(self.scheduleFile)
 		self.execSchedule = self._genExecSchedule(self.cbTree) # List of annotated ScheduleEvents
+
+		# TODO DEBUGGING: This is either None or a ScheduleEvent
+		self.tpDoneAsyncRoot = self._findTPDoneAsyncRoot()
+		logging.debug("tpDoneAsyncRoot {}".format(self.tpDoneAsyncRoot))
 		
 		self.nextNewEventID = 999999
 		
 		if not self.isValid():
 			raise ScheduleException("The input schedule was not valid")		
+
+	# input: ()
+	# output: (tpDoneAsyncRoot)
+	#
+	# The threadpool associates a uv_async object with its 'done' items.
+	# When the threadpool finishes a work item, it places it on the 'done' queue and uv_async_send's to
+	#   set the associated async fd, causing uv__io_poll to go off.
+	# All 'TP done' events are thus nested under UV_ASYNC_CBs in the same chain.
+	#
+	# This method returns the first ScheduleEvent in this UV_ASYNC_CB chain, or None if there isn't one.
+	# It can be called during the Schedule constructor, but self.execSchedule must have been initialized.
+	def _findTPDoneAsyncRoot(self):
+		assert(0 < len(self.execSchedule))
+
+		# If there is an async root, it is a direct child of the INITIAL_STACK...
+		asyncCBs = [cbn for cbn in self.cbTree.root.getChildren() if cbn.getCBType() in Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE]
+
+		# ...and the first non-threadpool event after it is in Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES
+		asyncCBExecIDs = [int(cbn.getExecID()) for cbn in asyncCBs if cbn.executed()]
+		logging.debug("Candidate exec IDs: {} (len(execSchedule) == {})".format(asyncCBExecIDs, len(self.execSchedule)))
+
+		tpDoneAsyncRootCandidates = []
+		for id in asyncCBExecIDs:
+			nextLooper = self._getNextLooperScheduleEvent(id)
+			logging.debug("candidate id {}: nextLooper {} (type {})".format(id, nextLooper, nextLooper.getCB().getCBType()))
+			if nextLooper.getCB().getCBType() in Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES:
+				tpDoneAsyncRootCandidates.append(nextLooper)
+
+		# There can't be more than one of these -- otherwise we have competing threadpool done chains
+		assert(len(tpDoneAsyncRootCandidates) <= 1)
+
+		# Did we find one?
+		tpDoneAsyncRoot = None
+		if len(tpDoneAsyncRootCandidates) == 1:
+			tpDoneAsyncRoot = tpDoneAsyncRootCandidates[0]
+			assert(tpDoneAsyncRoot.getCB().getCBType() in Schedule.LIBUV_THREADPOOL_DONE_CB_TYPES)
+		return tpDoneAsyncRoot
+
+	# input: (execID)
+	# output: (nextLooperScheduleEvent)
+	#
+	# Returns the next looper ScheduleEvent after execID
+	# e.g. if execID == 5, returns SE with 6 <= SE.getCB().getExecID()
+	def _getNextLooperScheduleEvent(self, execID):
+		execID = int(execID)
+		assert(0 <= execID < len(self.execSchedule))
+		for id in range(execID+1, len(self.execSchedule)):
+			candidate = self.execSchedule[id]
+			if not candidate.getCB().isThreadpoolCB():
+				return candidate
+		return None
 
 	# input: ()
 	# output: (newEventID)
@@ -443,17 +498,20 @@ class Schedule (object):
 		for event in eventsToReschedule:
 			eventToEventsToMove[event] = self._removeEvent(event, recursive=True)
 
+		# Address each eventToReschedule
 		for eventToReschedule in eventsToReschedule:
 			# Insert eventToReschedule and its descendants
 			eventsToMove = eventToEventsToMove[eventToReschedule]
-			if not self._insertEvent(eventToReschedule, pivotEvent=pivot):
+			inserted, insertIx = self._insertEvent(eventToReschedule, pivotEvent=pivot)
+			if not inserted:
 				raise ScheduleException("Error, cannot insert eventToReschedule {}: {}".format(eventToReschedule, eventToReschedule.getCB()))
-			
+
 			# Maintain the execution order within the descendant tree
 			descendantsToMove = sorted([e for e in eventsToMove if e is not eventToReschedule], key=lambda e: int(e.getCB().getExecID()))			
 			mustComeAfterEvent = eventToReschedule
 			for descendantToMove in descendantsToMove:
-				if not self._insertEvent(descendantToMove, afterEvent=mustComeAfterEvent):
+				inserted, insertIx = self._insertEvent(descendantToMove, afterEvent=mustComeAfterEvent)
+				if not inserted:
 					raise ScheduleException("Error, cannot insert descendant {}: {}".format(descendantToMove, descendantToMove.getCB()))
 				mustComeAfterEvent = descendantToMove
 
@@ -479,7 +537,9 @@ class Schedule (object):
 	#   pivotEvent: if defined, insert event on the opposite side of pivot
 	#   afterEvent: if defined, insert event after this event
 	#   beforeEvent: if defined, insert event before this event
-	# output: (successfullyInserted) True if we inserted, else False
+	# output: (successfullyInserted, newIx)
+	#   successfullyInserted     True if we inserted, else False
+	#   newIx                    if successfullyInserted: the new index of event
 	#
 	# Insert an event into self.execSchedule relative to some other event.
 	# It must already be in self.cbTree.
@@ -492,6 +552,7 @@ class Schedule (object):
 		if len(notNones) != 1:
 			raise ScheduleException("_insertEvent: Error, you must provide exactly one of {pivotEvent, beforeEvent, afterEvent}")
 
+		# TODO Deal with this later
 		assert(not event.getCB().isThreadpoolCB())
 
 		evExecID = int(event.getCB().getExecID())
@@ -541,7 +602,7 @@ class Schedule (object):
 		# If we're inserting after, we look "right" (larger ix) for the nearest END marker event of the correct type
 		assert(findMarkerFunc is not None and searchStartIx is not None and searchDirection is not None and calcInsertIxFunc is not None)
 		
-		inserted = False
+		inserted, insertIx = False, -1
 		matchIx, matchEvent = self._findMatchingScheduleEvent(searchFunc=findMarkerFunc, direction=searchDirection, startIx=searchStartIx)		
 		if matchIx is not None:			
 			insertIx = calcInsertIxFunc(matchIx)
@@ -572,12 +633,12 @@ class Schedule (object):
 					assert(not "_insertEvent: How did we get here?")
 				logging.debug("Inserting a new UV_RUN loop and trying again")
 				self._addUVRunLoop(newLoopLocation)
-				inserted = self._insertEvent(**recursionArgs) # Unpack -- https://docs.python.org/2/tutorial/controlflow.html#unpacking-argument-lists
+				inserted, insertIx = self._insertEvent(**recursionArgs) # Unpack -- https://docs.python.org/2/tutorial/controlflow.html#unpacking-argument-lists
 				# inserted can still be false here.
 				# Example: perhaps we're trying to insert with afterEvent the final event before an inconvenient EXIT.
 		
-		logging.debug("Returning inserted {}".format(inserted))
-		return inserted
+		logging.debug("Returning inserted {} insertIx {}".format(inserted, insertIx))
+		return inserted, insertIx
 
 	# input: (event, recursive)
 	#   event: event to remove from self.execSchedule
@@ -605,12 +666,14 @@ class Schedule (object):
 			self.execSchedule.remove(e)
 		return allRemovedEvents
 
-	# input: ()
+	# input: ([startingID])
+	#   startingID    Update exec IDs beginning with this ID
+	#                 This is for efficiency, use carefully. Default is 0.
 	# output: ()
 	# Update the execID of each event in self.execSchedule based on its list index
-	def _updateExecIDs(self):
-		for ix, event in enumerate(self.execSchedule):
-			event.getCB().setExecID(ix)
+	def _updateExecIDs(self, startingID=0):
+		for ix, event in enumerate(self.execSchedule[startingID:]):
+			event.getCB().setExecID(ix + startingID)
 
 	# input: (searchFunc, direction, startIx)
 	#   searchFunc: when invoked on a ScheduleEvent, returns True if match, else False
