@@ -199,7 +199,7 @@ class CallbackNode (object):
 		self.children.append(child)
 
 	def addDependent(self, dependent):
-		self.dependents += [dependent]
+		self.dependents.append(dependent)
 
 	def getDependents(self):
 		return self.dependents
@@ -610,7 +610,36 @@ class CallbackNodeTree (object):
 				
 		self.walk(remove_walk, None)
 		self.callbackNodes = [n for n in self.callbackNodes if self.contains(n)]
-	
+
+	# input: ()
+	# output: (isValid)
+	#   isValid       True or False
+	#
+	# Assess this tree for validity
+	#    - nodes have an exec ID preceding their children and dependents
+	def isValid(self):
+
+		execID_invalidNodes = []
+		# invalidNodes: list of nodes for which execIDOrdering is not correct
+		def execIDOrdering_walkFunc (node, invalidNodes):
+			isInvalid = False
+			executedChildrenAndDependents = [n for n in node.getChildren() + node.getDependents() if n.executed()]
+			for child in executedChildrenAndDependents:
+				if int(child.getExecID()) < int(node.getExecID()):
+					logging.debug("isValid: my child or dependent cbn has execID {} < my execID {}; my child cannot precede me".format(child.getExecID(), node.getExecID()))
+					isInvalid = True
+					break
+
+			if isInvalid:
+				invalidNodes.append(node)
+
+		self.walk(execIDOrdering_walkFunc, execID_invalidNodes)
+		if execID_invalidNodes:
+			logging.debug("isValid: found {} invalid nodes".format(len(execID_invalidNodes)))
+			return False
+
+		return True
+
 	# Return the tree nodes
 	def getTreeNodes (self):
 		return self.callbackNodes

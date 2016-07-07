@@ -74,7 +74,8 @@ class Schedule (object):
 		self.tpDoneAsyncRoot = self._findTPDoneAsyncRoot()
 		logging.debug("tpDoneAsyncRoot {}".format(self.tpDoneAsyncRoot))
 		
-		self.nextNewEventID = 999999
+		# nextNewEventID and all larger numbers are unique registration IDs for new nodes
+		self.nextNewEventID = max([int(cb.getRegID()) for cb in self.cbTree.getTreeNodes()]) + 1
 		
 		if not self.isValid():
 			raise ScheduleException("The input schedule was not valid")		
@@ -197,8 +198,14 @@ class Schedule (object):
 	#   - libuv stages in the correct order
 	#   - non-marker events occur within the correct stage
 	#   - TP 'done' events (UV_AFTER_WORK_CB and children) are always preceded by another TP 'done' event or a UV_ASYNC_CB in the TP's async chain
+	#   - that self.cbTree.isValid()
 	# The validity of a schedule is an invariant to be maintained by each public Schedule method.
 	def isValid(self):
+
+		if not self.cbTree.isValid():
+			logging.debug("cbTree is not valid")
+			return False
+
 		# Stack of the current libuv run stage.
 		# Each element is in LIBUV_RUN_ALL_STAGES.
 		# A stage is append()'d when its BEGIN is encountered, and pop()'d when its END is encountered
@@ -446,12 +453,12 @@ class Schedule (object):
 		eventsToReschedule = None
 		if nFixedEvents == 0:
 			# All events are async.
-			# Pivot defaults to the latest-scheduled event
+			# Pivot defaults to the earliest-scheduled event
 			# TODO This should be a policy decision
 			#pivot = origRacyExecOrder[-1]
 			pivot = origRacyExecOrder[0]
 			eventsToReschedule = [e for e in origRacyExecOrder if e is not pivot]
-			logging.debug("All events are async. Using the latest-scheduled ({}) as the pivot".format(pivot))
+			logging.debug("All events are async. Using the earliest-scheduled node ({}) as the pivot".format(pivot))
 		elif nFixedEvents == 1:
 			# One event is not async, so that's the pivot.
 			eventsToReschedule = asyncEvents

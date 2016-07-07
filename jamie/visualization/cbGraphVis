@@ -140,9 +140,12 @@ def addColors(tree, digraph, coloredNodes):
 	treeExecOrder = tree.getExecOrder()
 	for colorGroup in coloredNodes:
 		logging.info("colorGroup {}".format(colorGroup))
-		rgb = palette.nextColor()
 		colorGroupNodes = [n for n in treeExecOrder if int(n.getExecID()) in colorGroup]
+		logging.info("colorGroup {} colorGroupNodes {} -- should be same length".format(colorGroup, colorGroupNodes))
 		assert(len(colorGroup) == len(colorGroupNodes))
+
+		rgb = palette.nextColor()
+
 		for n in colorGroupNodes:
 			colors = getattr(n, "_colors", [])
 			colors.append(rgb)
