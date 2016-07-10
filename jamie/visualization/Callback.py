@@ -82,20 +82,28 @@ class CallbackNodeGroups(object):
 class CallbackNode (object):
 	REQUIRED_KEYS = ["name", "context", "context_type", "cb_type", "cb_behavior", "tree_number", "tree_level", "level_entry", "exec_id", "reg_id", "callback_info", "registrar", "tree_parent", "registration_time", "start_time", "end_time", "executing_thread", "active", "finished", "extra_info", "dependencies"]
 
-	TP_NESTED_WORK = ["UV_FS_WORK_CB", "UV_GETADDRINFO_WORK_CB", "UV_GETNAMEINFO_WORK_CB"]
-	TP_WORK = ["UV_WORK_CB"] + TP_NESTED_WORK
+	TP_WORK_INITIAL_TYPES = ["UV_WORK_CB"]
+	TP_WORK_NESTED_TYPES = ["UV_FS_WORK_CB", "UV_GETADDRINFO_WORK_CB", "UV_GETNAMEINFO_WORK_CB"]
+	TP_WORK_TYPES = TP_WORK_INITIAL_TYPES + TP_WORK_NESTED_TYPES
 
-	TP_NESTED_DONE = ["UV_FS_CB", "UV_GETADDRINFO_CB", "UV_GETNAMEINFO_CB"]
-	TP_DONE = ["UV_AFTER_WORK_CB"] + TP_NESTED_DONE
-	TP_TYPES = TP_WORK + TP_DONE # The types of all CBNs that a threadpool thread might invoke
+	TP_DONE_INITIAL_TYPES = ["UV_AFTER_WORK_CB"] # TODO Also UV_FS_EVENT_CB, but that can come directly from IO poll too?
+	TP_DONE_NESTED_TYPES = ["UV_FS_CB", "UV_GETADDRINFO_CB", "UV_GETNAMEINFO_CB"]
+	TP_DONE_TYPES = TP_DONE_INITIAL_TYPES + TP_DONE_NESTED_TYPES
+
+  # The types of all CBNs that might be invoked related to the threadpool,
+  # either by a threadpool thread or by the looper thread handling 'done' items.
+	TP_TYPES = TP_WORK_TYPES + TP_DONE_TYPES
 
 	# UV_ASYNC_CB is not included here because its "async" behavior is actually well defined.
+	# This matters if the application makes use of its own uv_async objects.
+	# The internal uv_async associated with the TP can be manipulated freely.
+	#
 	# Network-driven asynchronous events (e.g. UV_READ_CB or UV_CONNECT[ION]_CB are also not included, because
 	# changing when those occur relative to other nodes runs up against nodejsrr's requirement that all external inputs
 	# be repeated precisely. We can, however, change the order of async events AROUND them.
 	MISC_ASYNC_TYPES = ["UV_TIMER_CB"]
 
-	ASYNC_TYPES = MISC_ASYNC_TYPES + TP_TYPES
+	ASYNC_TYPES = TP_TYPES + MISC_ASYNC_TYPES
 
 	TIME_KEYS = ["registration_time", "start_time", "end_time"]
 	
@@ -380,7 +388,7 @@ class CallbackNode (object):
 
 	# Returns True if this CBN was executed by a threadpool thread.
 	def isThreadpoolCB (self):		
-		return (self.getCBType() in CallbackNode.TP_WORK)
+		return (self.getCBType() in CallbackNode.TP_WORK_TYPES)
 		
 	def isRunTimersCB (self):		
 		validOptions = ["UV_TIMER_CB"]
@@ -400,8 +408,6 @@ class CallbackNode (object):
 
 	def isIOPollCB (self):
 		cbType = self.getCBType()
-		#TODO Is this list complete? If so, update unified-callback-enums.c
-		#if (cbType == "UV_ASYNC_CB" or cbType in CallbackNode.TP_DONE or cbType == "UV_WRITE_CB" or cbType == "UV_READ_CB" or cbType == "UV_CONNECT_CB"):
 		
 		#TODO This is a hack.
 		if (cbType != "MARKER_IO_POLL_END"):
@@ -454,7 +460,7 @@ class CallbackNode (object):
 	# Returns None if no such node was found
 	def findNearestReschedulable(self):
 		if self.isAsync():
-			return self.getCBType() not in CallbackNode.TP_NESTED_WORK and self.getCBType() not in CallbackNode.TP_NESTED_DONE
+			return self.getCBType() not in CallbackNode.TP_WORK_NESTED_TYPES and self.getCBType() not in CallbackNode.TP_DONE_NESTED_TYPES
 		elif self.getParent() is not None:
 			return self.getParent().findNearestReschedulable()
 		logging.debug("CallbackNode::findNearestReschedulable: Sorry, ran out of parents. This node is not reschedulable at all.")
@@ -507,7 +513,8 @@ class CallbackNodeTree (object):
 	# output: ()
 	#
 	# Repair this CallbackTree after the addition or removal of nodes using CallbackNode APIs.
-	# Caller should ensure that the exec IDs of the nodes in the tree are correct, else we may assert.	
+	#   - recompute registration IDs
+	# The exec IDs of the nodes in the tree MUST be correct prior to invoking this function.
 	def repairAfterUpdates(self):		
 		logging.debug("Repairing callbackNodes")
 		self.callbackNodes = []		
@@ -546,7 +553,9 @@ class CallbackNodeTree (object):
 
 		nextRegID = 1
 		for cbn in execOrder:
-			nextRegID = simulateNodeExecution(cbn, nextRegID)			
+			nextRegID = simulateNodeExecution(cbn, nextRegID)
+
+		assert(self.isValid())
 	
 	# input: ()
 	# output: (callbackNodeDict)
