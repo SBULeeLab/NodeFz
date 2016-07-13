@@ -480,7 +480,7 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
 
       /* Add the new lcbn to the name map. */
       mylog(LOG_SCHEDULER, 5, "scheduler_init: Adding new lcbn (name %s)\n", sched_lcbn->lcbn->name);
-      map_insert(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->name, sizeof sched_lcbn->lcbn->name), sched_lcbn->lcbn);
+      map_insert(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->name, strlen(sched_lcbn->lcbn->name)), sched_lcbn->lcbn);
 
       if (!scheduler.shadow_root)
       {
@@ -494,7 +494,7 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
            This requires that the input schedule be in REGISTRATION ORDER,
            since otherwise the parent may not be in the tree yet. */
         mylog(LOG_SCHEDULER, 5, "scheduler_init: looking up parent_lcbn (name %s)\n", sched_lcbn->lcbn->parent_name);
-        parent_lcbn = map_lookup(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->parent_name, sizeof sched_lcbn->lcbn->parent_name), &found);
+        parent_lcbn = map_lookup(scheduler.name_to_lcbn, map_hash(sched_lcbn->lcbn->parent_name, strlen(sched_lcbn->lcbn->parent_name)), &found);
         mylog(LOG_SCHEDULER, 5, "scheduler_init: found %i; parent_lcbn %p\n", found, parent_lcbn);
         assert(found && lcbn_looks_valid(parent_lcbn));
         lcbn_add_child(parent_lcbn, sched_lcbn->lcbn);
