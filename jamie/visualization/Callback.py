@@ -562,7 +562,8 @@ class CallbackNodeTree (object):
 	# output: (callbackNodeDict)
 	#   callbackNodeDict     maps CallbackNode.name to CallbackNode for all nodes in this CallbackNodeTree
 	#
-	# Walks the tree starting at the root to generate this dictionary
+	# Walks the tree starting at the root to generate this dictionary.
+	# Use this function to obtain the latest version of all nodes in the tree.
 	def _genCallbackNodeDict(self):
 		callbackNodeDict = {}
 		def walkFunc (node, dict):
