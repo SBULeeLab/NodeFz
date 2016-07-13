@@ -186,10 +186,17 @@ class CallbackNode (object):
 		return string
 	
 	#setParent(parent)
-	#Set self's parent member to PARENT		
+	# - Set self's parent member (a CallbackNode) to PARENT for tree traversal
+	# - Update self's tree_parent field (the name of the parent)
+	# - Update self's registrar field (the name of the parent)
 	def setParent (self, parent):
-		assert(parent is None or isinstance(parent, CallbackNode))
+		assert(not parent or isinstance(parent, CallbackNode))
 		self.parent = parent
+		if parent:
+			parentName = parent.getName()
+		else:
+			parentName = "NONE"
+		self.tree_parent, self.registrar = parentName, parentName
 	
 	#getParent()
 	#Returns the parent of this CBN. Must have been set using setParent.		
@@ -200,10 +207,13 @@ class CallbackNode (object):
 	#Adds CHILD to self's list of children
 	def addChild (self, child):
 		assert(isinstance(child, CallbackNode))
-		#must be in same tree
+
+		logging.debug("me {}: tree_number {} tree_level {}; child {}: tree_number {} tree_level {}".format(self, self.tree_number, self.tree_level, child, child.tree_number, child.tree_level))
+		# Must be in same tree
 		assert(int(self.tree_number) == int(child.tree_number))
-		#must be a direct child
+		# Must be a direct child
 		assert(int(self.tree_level) + 1 == int(child.tree_level))
+
 		self.children.append(child)
 
 	def addDependent(self, dependent):
@@ -214,6 +224,7 @@ class CallbackNode (object):
 
 	# input: (maybeChild)
 	# output: (True/False)
+	#
 	# Remove maybeChild from this node if it was a child; returns True if we did anything
 	def removeChild (self, maybeChild):
 		origLen = len(self.children)
@@ -355,9 +366,6 @@ class CallbackNode (object):
 
 	def getTreeParent (self):
 		return self.tree_parent
-
-	def setTreeParent(self, treeParent):
-		self.tree_parent = treeParent
 	
 	def getCBType (self):
 		return self.cb_type
@@ -471,43 +479,45 @@ class CallbackNode (object):
 #############################
 
 #Representation of a tree of CallbackNodes from libuv
-#Members: callbackNodes (nodes of the tree; list of CallbackNode)
-#					callbackNodeDict (maps CallbackNode.name to CallbackNode)
-#					root (root node of the tree)
+#Members:   root    root node of the tree
 class CallbackNodeTree (object):
 	#inputFile must contain lines matching the requirements of the constructor for CallbackNode, one CallbackNode per line
 	def __init__ (self, inputFile):
-		#construct callbackNodes
-		self.callbackNodes = []
+		callbackNodes = []
 		try:
 			with open(inputFile) as f:
 				lines = f.readlines()
 				for l in lines:
 					node = CallbackNode(l)
-					self.callbackNodes.append(node)
+					callbackNodes.append(node)
 		except IOError:
 			logging.error("CallbackNodeTree::__init__: Error, processing inputFile {} gave me an IOError".format(inputFile))
 			raise
 
-		self.callbackNodeDict = self._genCallbackNodeDict()		
+		callbackNodeDict = { n.name: n for n in callbackNodes }
 
-		#Set the parent-child relationship for each node
+		# Set the parent-child relationship for each node
 		self.root = None
-		for node in self.callbackNodes:
-			if (node.registrar in self.callbackNodeDict):
-				parent = self.callbackNodeDict[node.registrar]
+		for node in callbackNodes:
+			logging.debug("Setting parent-child relationship for node {}".format(node))
+			if (node.registrar in callbackNodeDict):
+				parent = callbackNodeDict[node.registrar]
+				logging.debug("node {} has registrar {}; adding node as child of parent {}".format(node, node.registrar, parent))
 				parent.addChild(node)
 				node.setParent(parent)
 			else:
+				assert(node.getCBType() == "INITIAL_STACK")
 				assert(not self.root)
 				self.root = node
-				
-		#Does the tree look valid?
-		assert(self.root)		
-		for node in self.callbackNodes:
-			assert(node.getTreeRoot() == self.root)
-		
+
+		# Convert dependencies (strings) to dependencies (CallbackNodes)
 		self._updateDependencies()
+
+		# Tree must be valid
+		assert(self.root)		
+		for node in callbackNodes:
+			assert(node.getTreeRoot() == self.root)
+		assert(self.isValid())
 
 	# input: ()
 	# output: ()
@@ -515,16 +525,7 @@ class CallbackNodeTree (object):
 	# Repair this CallbackTree after the addition or removal of nodes using CallbackNode APIs.
 	#   - recompute registration IDs
 	# The exec IDs of the nodes in the tree MUST be correct prior to invoking this function.
-	def repairAfterUpdates(self):		
-		logging.debug("Repairing callbackNodes")
-		self.callbackNodes = []		
-		def walkFunc(cbNode, callbackNodes):
-			callbackNodes.append(cbNode)
-		self.walk(walkFunc, self.callbackNodes)
-				
-		logging.debug("Repairing callbackNodeDict")
-		self.callbackNodeDict = self._genCallbackNodeDict()
-		
+	def repairAfterUpdates(self):
 		# Repair registration IDs by simulating execution.
 		# This relies on correct execution IDs.
 		logging.debug("Repairing registration IDs")		
@@ -559,24 +560,27 @@ class CallbackNodeTree (object):
 	
 	# input: ()
 	# output: (callbackNodeDict)
-	#   callbackNodeDict     maps CallbackNode.name to CallbackNode
+	#   callbackNodeDict     maps CallbackNode.name to CallbackNode for all nodes in this CallbackNodeTree
 	#
-	# Walks down self.callbackNodes
+	# Walks the tree starting at the root to generate this dictionary
 	def _genCallbackNodeDict(self):
 		callbackNodeDict = {}
-		for node in self.callbackNodes:
-			callbackNodeDict[node.name] = node
+		def walkFunc (node, dict):
+			dict[node.name] = node
+		self.walk(walkFunc, callbackNodeDict)
 		return callbackNodeDict		
 	
 	# Replace the self.dependencies array of string node names in each Node with an array of the corresponding CallbackNodes (update node.dependencies).
 	# Inform each antecedent about its dependent (append to each dependency's node.dependents).
 	def _updateDependencies(self):
-		for node in self.callbackNodes:
-			# Logging
+		callbackNodeDict = self._genCallbackNodeDict()
+		for node in callbackNodeDict.values():
+			# dependencies must be strings at this point
 			for d in node.dependencies:
+				assert(type(d) is str)
 				logging.debug("CallbackNodeTree::_updateDependencies: dependency {}".format(d))
 			# Turn node.dependencies from a list of strings to a list of CBNs.
-			node.dependencies = [self.callbackNodeDict[n] for n in node.dependencies]
+			node.dependencies = [callbackNodeDict[n] for n in node.dependencies]
 			for antecedent in node.dependencies:
 				antecedent.addDependent(node)
 			logging.debug("CallbackNodeTree::_updateDependencies: Node {}'s dependencies: {}".format(node.getName(), node.dependencies))
@@ -584,7 +588,7 @@ class CallbackNodeTree (object):
 	#input: (regID)
 	#output: (node) node with specified regID, or None
 	def getNodeByRegID(self, regID):
-		for node in self.callbackNodes:
+		for node in self._genCallbackNodeDict().values():
 			if (node.getRegID() == str(regID)):
 				return node
 		return None
@@ -592,7 +596,7 @@ class CallbackNodeTree (object):
 	#input: (execID)
 	#output: (node) node with specified execID, or None
 	def getNodeByExecID(self, execID):
-		for node in self.callbackNodes:
+		for node in self._genCallbackNodeDict().values():
 			if (node.getExecID() == str(execID)):
 				return node
 		return None
@@ -614,55 +618,64 @@ class CallbackNodeTree (object):
 		def remove_walk (node, arg):
 			if (func(node)):
 				logging.debug("CallbackNodeTree::removeNodes: removing node: {}".format(node))
-				#Remove NODE from the tree
-				if (node.parent):					
-					node.parent.children = [x for x in node.parent.children if x.name != node.name]
+				if (node.parent):
+					node.parent.removeChild(node)
 					node.parent = None
-				
 		self.walk(remove_walk, None)
-		self.callbackNodes = [n for n in self.callbackNodes if self.contains(n)]
 
 	# input: ()
 	# output: (isValid)
 	#   isValid       True or False
 	#
 	# Assess this tree for validity
-	#    - nodes have an exec ID preceding their children and dependents
+	#    - Nodes have an exec ID preceding their children and dependents
+	#    - Each node's tree_level is one higher than its parent's
 	def isValid(self):
 
-		execID_invalidNodes = []
-		# invalidNodes: list of nodes for which execIDOrdering is not correct
-		def execIDOrdering_walkFunc (node, invalidNodes):
+		invalidNodes = []
+		# invalidNodes: list of nodes for which something is not correct
+		def valid_walkFunc (node, invalidNodes):
+			#logging.debug("Assessing node {} (type {}) for validity".format(node, node.getCBType()))
 			isInvalid = False
-			executedChildrenAndDependents = [n for n in node.getChildren() + node.getDependents() if n.executed()]
-			for child in executedChildrenAndDependents:
-				if int(child.getExecID()) < int(node.getExecID()):
-					logging.debug("isValid: my child or dependent cbn has execID {} < my execID {}; my child cannot precede me".format(child.getExecID(), node.getExecID()))
+			childrenAndDependents = [n for n in node.getChildren() + node.getDependents()]
+			treeLevel = int(node.getTreeLevel())
+			for child in childrenAndDependents:
+				# This is imprecise, but nested nodes have the same tree level.
+				possibleTreeLevels = [treeLevel, treeLevel+1]
+				if int(child.getTreeLevel()) not in possibleTreeLevels:
+					logging.debug("My child or dependent cbn (type {}) has tree_level {}; valid tree levels {}; my child cannot precede me structurally".format(child.getCBType(), child.getTreeLevel(), possibleTreeLevels))
+					isInvalid = True
+					break
+				if child.executed() and int(child.getExecID()) < int(node.getExecID()):
+					logging.debug("My child or dependent cbn (type {}) has execID {} < my execID {}; my child cannot precede me executionally".format(child.getCBType(), child.getExecID(), node.getExecID()))
 					isInvalid = True
 					break
 
 			if isInvalid:
 				invalidNodes.append(node)
 
-		self.walk(execIDOrdering_walkFunc, execID_invalidNodes)
-		if execID_invalidNodes:
-			logging.debug("isValid: found {} invalid nodes".format(len(execID_invalidNodes)))
+		self.walk(valid_walkFunc, invalidNodes)
+		if invalidNodes:
+			logging.debug("Found {} invalid nodes in tree of size {}".format(len(invalidNodes), len(self._genCallbackNodeDict().keys())))
 			return False
 
 		return True
 
 	# Return the tree nodes
 	def getTreeNodes (self):
-		return self.callbackNodes
+		return self._genCallbackNodeDict().values()
 
+	# input: (node)
+	# output: (nodeIsInThisTree) True or False
+	#
+	# Determines whether or not node is in the tree by climbing
+	# until we get to the root of this tree, or None
 	def contains (self, node):
-		if (not node):
-			return False
-		assert (isinstance(node, CallbackNode))
-		if (node.getName() == self.root.getName()):
-			return True
-		else:
-			return self.contains(node.getParent())
+		while node:
+			if (node.getName() == self.root.getName()):
+				return True
+			node = node.getParent()
+		return False
 
 	# Return the tree nodes in execution order
 	# The returned list begins with any unexecuted nodes, whose execID is -1 
