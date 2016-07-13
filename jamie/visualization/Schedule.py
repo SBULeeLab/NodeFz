@@ -40,6 +40,7 @@ class RelocationClass:
 # Representation of a libuv callback schedule.
 # The constructor and public functions always return leaving the Schedule with self.isValid() == True.
 # Private functions (self._*) might not.
+#   In private functions, use self.execSchedule.index() rather than cb.getExecID() to determine the location of a ScheduleEvent in the execSchedule.
 # Method calls may throw a ScheduleException.
 class Schedule (object):
 	# CBs of these types are asynchronous, and can be moved from one loop to another provided that they do not violate
@@ -76,7 +77,7 @@ class Schedule (object):
 	LIBUV_LOOP_OUTER_STAGE_MARKER_ORDER = [runBegin, runEnd]
 	LIBUV_LOOP_INNER_STAGE_MARKER_ORDER = LIBUV_LOOP_STAGE_MARKER_ORDER[1:-1]
 
-	LIBUV_THREADPOOL_DONE_BEGINNING_TYPES = ["UV_ASYNC_CB"]
+	LIBUV_THREADPOOL_DONE_BEGINNING_TYPE = "UV_ASYNC_CB"
 
 	def __init__ (self, scheduleFile):
 		logging.debug("scheduleFile {}".format(scheduleFile))
@@ -84,18 +85,38 @@ class Schedule (object):
 		self.cbTree = CB.CallbackNodeTree(self.scheduleFile)
 		self.execSchedule = self._genExecSchedule(self.cbTree) # List of annotated ScheduleEvents
 
-		# TODO DEBUGGING: This is either None or a ScheduleEvent
+		self.initialStackEvent = self.execSchedule[0]
+		assert(self.initialStackEvent.getCB().getCBType() == "INITIAL_STACK")
+		assert(self.initialStackEvent.getCB() == self.cbTree.root)
+
 		self.tpDoneAsyncRoot = self._findTPDoneAsyncRoot()
+		if self.tpDoneAsyncRoot:
+			assert(self.tpDoneAsyncRoot.getCB().getCBType() == self.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE)
 		logging.debug("tpDoneAsyncRoot {}".format(self.tpDoneAsyncRoot))
 		
 		# nextNewEventID and all larger numbers are unique registration IDs for new nodes
 		self.nextNewEventID = max([int(cb.getRegID()) for cb in self.cbTree.getTreeNodes()]) + 1
 		
 		if not self.isValid():
-			raise ScheduleException("The input schedule was not valid")		
+			raise ScheduleException("The input schedule was not valid")
+		logging.debug("Processed an exec schedule with {} executed nodes (tree contains {} registered nodes)".format(len(self.execSchedule), len(self._regList())))
+
+	# input: (cb)
+	#   cb    CallbackNode whose ScheduleEvent we desire
+	# output: (ix, se)
+	#   ix    index of the corresponding ScheduleEvent, or None
+	#   se    the corresponding ScheduleEvent, or None
+	#
+	# If the performance is cruddy, add a field to CB.CallbackNode for a fast lookup.
+	def _cbToScheduleEvent(self, cb):
+		for ix, se in enumerate(self.execSchedule):
+			if se.getCB() == cb:
+				return ix, se
+		return None, None
 
 	# input: ()
 	# output: (tpDoneAsyncRoot)
+	#   tpDoneAsyncRoot    The first ScheduleEvent in the 'threadpool done' UV_ASYNC_CB chain.
 	#
 	# The threadpool associates a uv_async object with its 'done' items.
 	# When the threadpool finishes a work item, it places it on the 'done' queue and uv_async_send's to
@@ -108,21 +129,22 @@ class Schedule (object):
 		assert(0 < len(self.execSchedule))
 
 		# If there is an async root, it is an executed direct child of the INITIAL_STACK...
-		asyncCBs = [cbn for cbn in self.cbTree.root.getChildren() if cbn.getCBType() in Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPES and cbn.executed()]
+		asyncCBs = [cbn for cbn in self.initialStackEvent.getCB().getChildren() if cbn.getCBType() == Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE and cbn.executed()]
 
 		# ...and the first non-threadpool event after it is in CB.CallbackNode.TP_DONE_INITIAL_TYPES
 		# Search all of root's async children for candidates for the head of the TP UV_ASYNC_CB.
-		asyncExecIDToAsyncCB = { int(asyncCB.getExecID()): asyncCB for asyncCB in asyncCBs }
-		asyncCBExecIDs = [int(cbn.getExecID()) for cbn in asyncCBs if cbn.executed()]
-		logging.debug("Candidate exec IDs: {} (len(execSchedule) == {})".format(asyncCBExecIDs, len(self.execSchedule)))
+		asyncCBIxs = [self._cbToScheduleEvent(cb)[0] for cb in asyncCBs]
+		logging.debug("Candidate asyncCB execSchedule ixs: {}".format(asyncCBIxs))
 
 		tpDoneAsyncRootCandidates = []
-		for id in asyncCBExecIDs:
-			nextLooperIx, nextLooper = self._findNextLooperScheduleEvent(id + 1)
+		for asyncCBIx in asyncCBIxs:
+			# There's no registration relationship between the 'TP done' ASYNC_CB events
+			# and the 'TP done' events that follow them. The relationship is rather in execution order.
+			nextLooperIx, nextLooper = self._findNextLooperScheduleEvent(asyncCBIx + 1)
 			if nextLooper is not None:
-				logging.debug("Candidate id {}: nextLooper {} (type {})".format(id, nextLooper, nextLooper.getCB().getCBType()))
+				logging.debug("Candidate id {}: nextLooper {} (type {})".format(asyncCBIx, nextLooper, nextLooper.getCB().getCBType()))
 				if nextLooper.getCB().getCBType() in CB.CallbackNode.TP_DONE_TYPES:
-					tpDoneAsyncRootCandidates.append(nextLooper)
+					tpDoneAsyncRootCandidates.append(self.execSchedule[asyncCBIx])
 
 		# There can't be more than one of these -- otherwise we have competing threadpool done chains
 		assert(len(tpDoneAsyncRootCandidates) <= 1)
@@ -131,7 +153,7 @@ class Schedule (object):
 		tpDoneAsyncRoot = None
 		if len(tpDoneAsyncRootCandidates) == 1:
 			tpDoneAsyncRoot = tpDoneAsyncRootCandidates[0]
-			assert(tpDoneAsyncRoot.getCB().getCBType() in Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPES)
+			assert(tpDoneAsyncRoot.getCB().getCBType() in Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE)
 		return tpDoneAsyncRoot
 
 	# input: ()
@@ -161,10 +183,10 @@ class Schedule (object):
 		for ix, event in enumerate(execSchedule):
 			cb = event.getCB()
 			logging.debug("ix {} cbType {} libuvLoopCount {} libuvLoopStage {}".format(ix, cb.getCBType(), libuvLoopCount, libuvLoopStage))
-			if cb.isThreadpoolCB():
-				event.setLibuvLoopStage(Schedule.THREADPOOL_STAGE)
-			elif cb.getCBType() == "INITIAL_STACK":
+			if cb.getCBType() == "INITIAL_STACK":
 				pass
+			elif cb.isThreadpoolCB():
+				event.setLibuvLoopStage(Schedule.THREADPOOL_STAGE)
 			elif cb.getCBType() == "EXIT":
 				exiting = True
 				libuvLoopStage = "EXITING"
@@ -211,6 +233,10 @@ class Schedule (object):
 			if not self.cbTree.isValid():
 				logging.debug("cbTree is not valid")
 				return False
+			# This will fail if self.execSchedule and self.cbTree have gotten significantly out of sync.
+			# There may be unexecuted registered events.
+			logging.debug("execSchedule contains {} executed nodes (tree contains {} registered nodes)".format(len(self.execSchedule), len(self._regList())))
+			assert(len(self.execSchedule) <= len(self._regList()))
 
 		# Stack of the current libuv run stage.
 		# Each element is in LIBUV_RUN_ALL_STAGES.
@@ -360,7 +386,7 @@ class Schedule (object):
 			# Threadpool 'done' events must obey extra rules about the types of nodes they can follow
 			# See nodejsrr/jamie/libuv_src_notes for the rules on this
 			if eventCBType in CB.CallbackNode.TP_DONE_INITIAL_TYPES:
-				validPredecessorTypes = Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE + CB.CallbackNode.TP_DONE_INITIAL_TYPES + CB.CallbackNode.TP_DONE_NESTED_TYPES
+				validPredecessorTypes = [Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE] + CB.CallbackNode.TP_DONE_INITIAL_TYPES + CB.CallbackNode.TP_DONE_NESTED_TYPES
 			elif eventCBType in CB.CallbackNode.TP_DONE_NESTED_TYPES:
 				validPredecessorTypes = CB.CallbackNode.TP_DONE_INITIAL_TYPES
 			else:
@@ -584,9 +610,9 @@ class Schedule (object):
 
 		# Insert a new UV_RUN loop to hold the family, either before (for beforeEvent) or after (for afterEvent)
 		if beforeEvent:
-			newUV_RUNLoopIx = self._findMatchingScheduleEvent(lambda se: se.getCB().getCBType() == Schedule.runBegin, 'earlier', relativeEventIx)
+			newUV_RUNLoopIx, _ = self._findMatchingScheduleEvent(lambda se: se.getCB().getCBType() == Schedule.runBegin, 'earlier', relativeEventIx)
 		else:
-			newUV_RUNLoopIx = self._findMatchingScheduleEvent(lambda se: se.getCB().getCBType() == Schedule.runBegin, 'later', relativeEventIx)
+			newUV_RUNLoopIx, _ = self._findMatchingScheduleEvent(lambda se: se.getCB().getCBType() == Schedule.runBegin, 'later', relativeEventIx)
 		if not newUV_RUNLoopIx:
 			# This can occur when we have afterEvent and the schedule terminates prematurely, e.g. via an explicit exit() call or an exception
 			# It cannot occur with beforeEvent because there is always an initial UV_RUN loop
@@ -607,30 +633,24 @@ class Schedule (object):
 		assert(self.execSchedule[newUV_RUNLoopIx].getCB().getCBType() == Schedule.runBegin)
 
 		# Re-insert the family
-		logging.debug("Replacing the relocationFamily")
 		if relocationClass == RelocationClass.TP_WORK:
 			# TP_WORK items can be scheduled safely anywhere that isn't between another nested family.
 			# We have a whole UV_RUN loop to play with, so place the family immediately after the beginning of the new UV_RUN loop.
 			insertIx = newUV_RUNLoopIx
-			logging.debug("relocationClass {}: Replacing the relocationFamily at insertIx {}".format(relocationClass, insertIx))
-			for event in relocationFamily:
-				self.execSchedule.insert(insertIx, event)
-				insertIx += 1
 		elif relocationClass == RelocationClass.TP_DONE:
-			# Threadpool done items must be executed in the IO_POLL stage, and we need to add a UV_ASYNC_CB to the TP ASYNC chain to hold them.
-			# TODO
-			# THIS IS NEXT
-			raise ScheduleException("_relocateEvent: Error, unsupported relocationClass {}".format(relocationClass))
+			# TP_DONE items need to occur after one of the UV_ASYNC_CBs in the 'TP done' chain.
+			insertIx = 1 + self._insertThreadpoolDoneStage(newUV_RUNLoopIx)
 		elif relocationClass == RelocationClass.GENERAL_LOOPER:
 			# Place GENERAL_LOOPER family members after the BEGIN marker of the appropriate type in our new loop and insert it
 			searchFunc = lambda se: self._isBeginMarkerEvent(se.getCB()) and se.getLibuvLoopStage() == event.getLibuvLoopStage()
-			markerIx = self._findMatchingScheduleEvent(searchFunc, "later", newUV_RUNLoopIx)
+			markerIx, _ = self._findMatchingScheduleEvent(searchFunc, "later", newUV_RUNLoopIx)
 			assert(markerIx)
 			insertIx = markerIx + 1
-			logging.debug("relocationClass {}: Replacing the relocationFamily at insertIx {}".format(relocationClass, insertIx))
-			for event in relocationFamily:
-				self.execSchedule.insert(insertIx, event)
-				insertIx += 1
+
+		logging.debug("relocationClass {}: Replacing the relocationFamily at insertIx {}".format(relocationClass, insertIx))
+		for event in relocationFamily:
+			self.execSchedule.insert(insertIx, event)
+			insertIx += 1
 
 		# TODO Recurse up or down event's tree to ensure it hasn't jumped over an ancestor (beforeEvent) or a descendant (afterEvent)
 
@@ -698,7 +718,6 @@ class Schedule (object):
 			else:
 				raise ScheduleException("_findRelocationFamily: Error, unexpected combination of relocationClass {} eventIx {} eventType {}".format(relocationClass, eventIx, eventType))
 
-			siblingEvent = self.execSchedule[siblingEventIx]
 			siblingEventType = siblingEvent.getCB().getCBType()
 			if siblingEventType not in siblingTypeList:
 				raise ScheduleException("_findRelocationFamily: Error, relocationClass {} eventIx {} eventType {}: unexpected siblingCB type {}".format(relocationClass, eventIx, eventType, siblingEventType))
@@ -756,32 +775,31 @@ class Schedule (object):
 	def _updateExecIDs(self, startingIx=0):
 		for ix, event in enumerate(self.execSchedule[startingIx:]):
 			newExecID = startingIx + ix
-			logging.debug("event {} type {}: newExecID {}".format(event, event.getCB().getCBType(), newExecID))
 			event.getCB().setExecID(newExecID)
 
 	# input: (startIx)
-	# output: (eventIx)
+	# output: (eventIx, event)
 	# Finds the first "looper" ScheduleEvent in self.execSchedule after startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findNextLooperScheduleEvent(self, startIx):
 		return self._findMatchingScheduleEvent(lambda se: not se.getCB().isThreadpoolCB(), "later", startIx)
 
 	# input: (startIx)
-	# output: (eventIx)
+	# output: (eventIx, event)
 	# Finds the first "looper" ScheduleEvent in self.execSchedule before startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findPrevLooperScheduleEvent(self, startIx):
 		return self._findMatchingScheduleEvent(lambda se: not se.getCB().isThreadpoolCB(), "earlier", startIx)
 
 	# input: (startIx)
-	# output: (eventIx)
+	# output: (eventIx, event)
 	# Finds the first threadpool ScheduleEvent in self.execSchedule after startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findNextTPScheduleEvent(self, startIx):
 		return self._findMatchingScheduleEvent(lambda se: se.getCB().isThreadpoolCB(), "later", startIx)
 
 	# input: (startIx)
-	# output: (eventIx)
+	# output: (eventIx, event)
 	# Finds the first threadpool ScheduleEvent in self.execSchedule before startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findPrevTPScheduleEvent(self, startIx):
@@ -791,10 +809,10 @@ class Schedule (object):
 	#   searchFunc: when invoked on a ScheduleEvent, returns True if match, else False
 	#   direction: 'earlier' or 'later'
 	#   startIx: where to start looking?	
-	# output: (eventIx)
+	# output: (eventIx, event)
 	# Find the index of the first ScheduleEvent in self.execSchedule for which searchFunc(e) evaluates to True
 	# The first considered event is at startIx and we continue in the direction specified
-	# Returns (None) if not found
+	# Returns (None, None) if not found
 	def _findMatchingScheduleEvent(self, searchFunc, direction, startIx):
 		assert(searchFunc is not None)
 		assert(direction in ['earlier', 'later'])
@@ -819,8 +837,8 @@ class Schedule (object):
 				logging.debug("Match!")
 				realIx = startIx + sliceStride*i
 				assert(self.execSchedule[realIx] == scheduleEvent) # Math is hard, did I get it right?
-				return realIx
-		return None
+				return realIx, self.execSchedule[realIx]
+		return None, None
 
 	# input: (newLoopIx, [enterLoop])
 	#		newLoopIx		 ix of a MARKER_UV_RUN_BEGIN event before which we will insert a new loop
@@ -832,8 +850,10 @@ class Schedule (object):
 	# Modifies self.execSchedule and self.cbTree.
 	# The execIDs of all events after newLoopIx nodes are modified.
 	def _insertUVRunLoop(self, newLoopIx, enterLoop=True):
-		#newLoopIx must be to a MARKER_UV_RUN_BEGIN CB.
+		# newLoopIx must be to a MARKER_UV_RUN_BEGIN CB.
 		assert(self.execSchedule[newLoopIx].getCB().getCBType() == Schedule.runBegin)
+
+		beginExecScheduleLen, beginTreeSize = len(self.execSchedule), len(self._regList())
 
 		logging.debug("Adding new UV_RUN loop at index {}".format(newLoopIx))
 
@@ -847,7 +867,6 @@ class Schedule (object):
 		dummyCallbackString = self.execSchedule[0].getCB().callbackString
 		for i, markerType in enumerate(markersToInsert):
 			insertIx = newLoopIx + i
-			logging.debug("Inserting marker of type {} at index {}".format(markerType, insertIx))
 			# Create a marker CallbackNode.
 			markerCB = CB.CallbackNode(dummyCallbackString)
 			markerCB.setCBType(markerType)
@@ -860,8 +879,8 @@ class Schedule (object):
 			# Insert it.
 			self.execSchedule.insert(insertIx, scheduleEvent)
 
-		# We've tweaked the exec schedule and the tree structure.
-		# Get the tree back to a consistent state.
+		# We've tweaked self.execSchedule and self.cbTree.
+		# Restore them to a consistent state.
 		logging.debug("Returning self.execSchedule and self.cbTree to a consistent state")
 		self._updateExecIDs() # Need to do this in order to repair the cbTree
 		self._updateMarkerInheritance()
@@ -874,9 +893,144 @@ class Schedule (object):
 		# and the original loop is still there, right?
 		assert(self.execSchedule[newLoopIx + len(markersToInsert)].getCB().getCBType() == Schedule.runBegin)
 
+		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
+		logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
+		assert(len(markersToInsert) == finalExecScheduleLen - beginExecScheduleLen == finalTreeSize - beginTreeSize)
+
 		logging.debug("Returning newLoopIx {} (the new loop runs from indices {} to {})".format(newLoopIx, newLoopIx, newLoopIx + len(markersToInsert) - 1))
 		return newLoopIx
-	
+
+	# input: (loopIx)
+	#   loopIx          index of a UV_RUN loop into which the new stage should be added
+	# output: (newStageIx)
+	#   newStageIx      index of the new stage we add
+	#
+	# In libuv, 'threadpool done' events are executed at a particular point in the UV_RUN loop.
+	# This function adds such a point to the specified loop.
+	# The loop must not already contain such a point.
+	# The schedule must contain at least one other threadpool done stage.
+	def _insertThreadpoolDoneStage(self, loopIx):
+		assert(self.execSchedule[loopIx].getCB().getCBType() == Schedule.runBegin)
+		assert(self.tpDoneAsyncRoot)
+
+		beginExecScheduleLen, beginTreeSize = len(self.execSchedule), len(self._regList())
+
+		# 'Threadpool done' events occur during the IO_POLL stage of the UV_RUN loop.
+		searchFunc = lambda se: se.getCB().getCBType() == "MARKER_IO_POLL_BEGIN"
+		ioPollIx, _ = self._findMatchingScheduleEvent(searchFunc, "later", loopIx)
+		assert(ioPollIx)
+
+		# Insert a new Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE event into self.execSchedule.
+		dummyCallbackString = self.tpDoneAsyncRoot.getCB().callbackString
+		cbType = Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE
+		# Create a CallbackNode.
+		asyncCB = CB.CallbackNode(dummyCallbackString)
+		asyncCB.setCBType(cbType)
+		asyncCB.setChildren([])
+		asyncCB.setParent(None)
+		asyncCB.setName("0x{}".format(self._getNewEventID())) # Unique name
+		# Create a ScheduleEvent.
+		scheduleEvent = ScheduleEvent(asyncCB)
+		scheduleEvent.setLibuvLoopStage(self.tpDoneAsyncRoot.getLibuvLoopStage())
+		# Insert it.
+		insertIx = ioPollIx + 1
+		logging.debug("Inserting 'TP done' event of type {} at index {}".format(cbType, insertIx))
+		self.execSchedule.insert(insertIx, scheduleEvent)
+
+		# The ASYNC_CB that precedes 'threadpool done' events is part of a
+		# chain descended from the INITIAL_STACK node.
+		# Update self.cbTree appropriately.
+		self._updateCBTreeWithTPDoneStage(scheduleEvent)
+
+		logging.debug("Inserted new 'TP done' CB: {} ({})".format(self.execSchedule[insertIx], self.execSchedule[insertIx].getCB()))
+
+		# We've tweaked self.execSchedule and self.cbTree.
+		# Restore them to a consistent state.
+		logging.debug("Returning self.execSchedule and self.cbTree to a consistent state")
+		self._updateExecIDs() # Need to do this in order to repair the cbTree
+		self.cbTree.repairAfterUpdates()
+
+		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
+		logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
+		assert(1 == finalExecScheduleLen - beginExecScheduleLen == finalTreeSize - beginTreeSize)
+
+		return insertIx
+
+	# input: (asyncCBEvent)
+	#   asyncCBEvent    The ScheduleEvent of a new 'TP done' UV_ASYNC_CB event in self.execSchedule.
+	# output: ()
+	#
+	# In libuv, the 'TP done' events are preceded by a UV_ASYNC_CB event
+	# that's part of a chain of such events dedicated to the TP.
+	# Add asyncCBEvent to that chain.
+	def _updateCBTreeWithTPDoneStage(self, asyncCBEvent):
+		assert(self.tpDoneAsyncRoot)
+
+		beginExecScheduleLen, beginTreeSize = len(self.execSchedule), len(self._regList())
+
+		tpDoneNewIx = self.execSchedule.index(asyncCBEvent)
+
+		# Generate a list of all 'TP done' CBNs in the tree -- the complete 'TP done' chain.
+		tpDoneCBs = [self.tpDoneAsyncRoot.getCB()]
+		nextChainCB = tpDoneCBs[-1]
+		while nextChainCB:
+			asyncChildren = [child for child in nextChainCB.getChildren() if child.getCBType() == Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE and child.executed()]
+			assert(len(asyncChildren) <= 1)
+			if asyncChildren:
+				nextChainCB = asyncChildren[0]
+				tpDoneCBs.append(nextChainCB)
+			else:
+				break
+		tpDoneEvent_ixAndSEs = [self._cbToScheduleEvent(cb) for cb in tpDoneCBs]
+		assert(tpDoneEvent_ixAndSEs)
+
+		# Insert asyncCBEvent into its appropriate place in tpDoneCBs
+		tpDoneNew_ixAndSE = (tpDoneNewIx, asyncCBEvent)
+		inserted = False
+		for ix, tpDoneEvent_ixAndSE in enumerate(tpDoneEvent_ixAndSEs):
+			tpDoneEventIx = tpDoneEvent_ixAndSE[0]
+			if tpDoneNewIx < tpDoneEventIx:
+				logging.debug("Inserting asyncCBEvent at index {} in tpDoneEvent_ixAndSEs".format(ix))
+				tpDoneEvent_ixAndSEs.insert(ix, tpDoneNew_ixAndSE)
+				inserted = True
+				break
+		if not inserted:
+			logging.debug("Inserting asyncCBEvent at the end of tpDoneEvent_ixAndSEs")
+			tpDoneEvent_ixAndSEs.append(tpDoneNew_ixAndSE)
+
+		# Now tpDoneCBs is the record of what the 'TP done' chain should look like.
+		# Update the parent-child relationships in self.cbTree to match.
+		assert(2 <= len(tpDoneEvent_ixAndSEs)) # Must have begun with one, and caller has added one.
+		# If asyncCBEvent is the beginning of the list, set its parentage and tree level appropriately.
+		if tpDoneEvent_ixAndSEs[0][1] == asyncCBEvent:
+			asyncCBEvent.getCB().setParent(self.initialStackEvent.getCB())
+			asyncCBEvent.setTreeLevel(1 + int(asyncCBEvent.getCB().getParent().getTreeLevel()))
+
+		logging.debug("Updating the relationships between the {} tpDoneEvents".format(len(tpDoneEvent_ixAndSEs)))
+		for ix in range(len(tpDoneEvent_ixAndSEs) - 1):
+			parentCB = tpDoneEvent_ixAndSEs[ix][1].getCB()
+			childCB = tpDoneEvent_ixAndSEs[ix+1][1].getCB()
+			assert(parentCB.getCBType() == childCB.getCBType() == Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE)
+
+			assert(len(parentCB.getChildren()) <= 1)
+			parentCB.setChildren([childCB])
+			childCB.setParent(parentCB)
+			childCB.setTreeLevel(1 + int(parentCB.getTreeLevel()))
+
+		# Update self.tpDoneAsyncRoot
+		if self.tpDoneAsyncRoot != tpDoneEvent_ixAndSEs[0][1]:
+			logging.debug("The old tpDoneAsyncRoot has been dethroned by the newcomer")
+			# Out with the old
+			self.cbTree.root.removeChild(self.tpDoneAsyncRoot.getCB())
+			# In with the new
+			self.tpDoneAsyncRoot = tpDoneEvent_ixAndSEs[0][1]
+			self.cbTree.root.addChild(self.tpDoneAsyncRoot.getCB())
+
+		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
+		logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
+		assert(finalExecScheduleLen - beginExecScheduleLen == 0) # The new 'TP done' event was already in self.execSchedule
+		assert(finalTreeSize - beginTreeSize == 1) # Added the new 'TP done' event to self.cbTree
+
 	# input: ()
 	# output: ()	
 	#
@@ -888,9 +1042,9 @@ class Schedule (object):
 	# With the exception of the INITIAL_STACK, markers have no other children.		  
 	def _updateMarkerInheritance(self):		
 		initialStackFindFunc = lambda e: e.getCB().getCBType() == "INITIAL_STACK"
-		initialStackIx = self._findMatchingScheduleEvent(searchFunc=initialStackFindFunc, direction="later", startIx=0)
-		initialStackEvent = self.execSchedule[initialStackIx]
-		assert(initialStackIx == 0 and initialStackEvent is not None)
+		initialStackIx, initialStackEvent = self._findMatchingScheduleEvent(searchFunc=initialStackFindFunc, direction="later", startIx=0)
+		assert(initialStackIx is not None and initialStackEvent)
+		assert(initialStackEvent == self.initialStackEvent)
 
 		# Helper for _updateMarkerInheritance.
 		# markerParent is the ScheduleEvent corresponding to the parent of the next marker.
@@ -910,8 +1064,7 @@ class Schedule (object):
 
 			meCB.setTreeLevel(int(mpCB.getTreeLevel()) + 1)
 			mpCB.addChild(meCB)
-			meCB.setParent(mpCB) # Correct CBTree parent
-			meCB.setTreeParent(mpCB.getName()) # Correct libuv parent
+			meCB.setParent(mpCB)
 
 			markerParent = markerEvent
 			_prepMarkerParent(markerParent)
@@ -924,11 +1077,8 @@ class Schedule (object):
 	#
 	# May raise IOError
 	def emit(self, file):
-		assert (self.isValid())
+		assert(self.isValid())
 		regOrder = self._regList()
-		# This will fail if self.execSchedule and self.cbTree have gotten significantly out of sync.
-		# There may be unexecuted registered events.
-		assert(len(self.execSchedule) <= len(regOrder))
 		
 		logging.info("Emitting schedule ({} registered events) to file {} in registration order".format(len(regOrder), file))
 		with open(file, 'w') as f:
