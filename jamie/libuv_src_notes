@@ -918,3 +918,29 @@ uv memory allocation:
 
 uv__work_cancel:
   work items that can be cancelled (those not yet grabbed by a threadpool thread and not yet executed) have their work set to uv__cancelled and are added to loop->wq to get picked up by uv__work_done. In uv__work_done, if w->work == uv__cancelled then w->done is invoked with UV_ECANCELED
+
+-----------------
+
+ASYNC_CBs are invoked when a signal'd async object is handled.
+These are used internally, too:
+  - threadpool (ASYNC_CB -> uv__work_done -> UV_AFTER_WORK_CBs) 
+  - fsevents   (ASYNC_CB -> uv__fsevents_cb -> UV_FS_EVENT_CBs)
+UV_FS_EVENT_CBs are also invoked in linux-inotify.c (in uv__inotify_read, which is registered as the loop's inotify_read_watcher)
+
+When considering schedule validity, here are some rules related to TP 'done' events:
+  UV_AFTER_WORK_CBs (executed when the threadpool finishes a job) can legally be preceded by one of the following types:
+    - A UV_ASYNC_CB in the TP's chain of UV_ASYNC_CBs
+    - UV_AFTER_WORK_CB      (predecessor had no "nested" children; an external job submitted via uv_queue_work)
+    - UV_FS_CB              (predecessor was uv__fs_done)
+    - UV_GETADDRINFO_CB     (predecessor was uv__getaddrinfo_done)
+    - UV_GETNAMEINFO_CB     (predecessor was uv__getnameinfo_done)
+
+  UV_{FS,GETADDRINFO,GETNAMEINFO}_CBs can legally be preceded only by a UV_AFTER_WORK_CB
+
+  UV_AFTER_WORK_CBs (executed when the threadpool finishes a job) can legally be followed by one of the following types:
+    - MARKER_IO_POLL_END    (no more 'done' events)
+    - UV_AFTER_WORK_CB      (no "nested" children; an external job submitted via uv_queue_work)
+    - UV_FS_CB              (uv__fs_done)
+    - UV_GETADDRINFO_CB     (uv__getaddrinfo_done)
+    - UV_GETNAMEINFO_CB     (uv__getnameinfo_done)
+    - any other IO poll CBs (yuck, so looking forward is harder than looking backward)
