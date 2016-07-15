@@ -190,13 +190,19 @@ class CallbackNode (object):
 	# - Update self's tree_parent field (the name of the parent)
 	# - Update self's registrar field (the name of the parent)
 	def setParent (self, parent):
-		assert(not parent or isinstance(parent, CallbackNode))
 		self.parent = parent
 		if parent:
 			parentName = parent.getName()
 		else:
 			parentName = "NONE"
 		self.tree_parent, self.registrar = parentName, parentName
+		
+		newTreeLevel = None
+		if parent:
+			newTreeLevel = 1 + int(parent.getTreeLevel())
+		else:
+			newTreeLevel = 0
+		self.setTreeLevel(newTreeLevel)
 	
 	#getParent()
 	#Returns the parent of this CBN. Must have been set using setParent.		
@@ -206,19 +212,16 @@ class CallbackNode (object):
 	#addChild(child)
 	#Adds CHILD to self's list of children
 	def addChild (self, child):
-		assert(isinstance(child, CallbackNode))
-
-		logging.debug("me {}: tree_number {} tree_level {}; child {}: tree_number {} tree_level {}".format(self, self.tree_number, self.tree_level, child, child.tree_number, child.tree_level))
-		# Must be in same tree
-		assert(int(self.tree_number) == int(child.tree_number))
-		# Must be a direct child
-		assert(int(self.tree_level) + 1 == int(child.tree_level))
-
 		self.children.append(child)
+		child.setTreeLevel(1 + int(self.getTreeLevel()))
 
 	def addDependent(self, dependent):
 		self.dependents.append(dependent)
 
+  # input: ()
+  # output: CBN's dependents
+  #
+  # Dependents: The nodes which cannot occur until after the execution of this node. Opposite of dependencies.
 	def getDependents(self):
 		return self.dependents
 
@@ -230,6 +233,24 @@ class CallbackNode (object):
 		origLen = len(self.children)
 		self.children = [c for c in self.children if c is not maybeChild]
 		return (origLen == len(self.children))
+	
+	# input: (keepFilter_func)
+	#   keepFilter_func   keepFilter_func(CBN) evaluates to True if we should keep CBN as our child
+	# output: (filteredOutNodes)
+	#   filteredOutNodes  list of CBNs that were filtered out
+	def filterChildren (self, keepFilter_func):
+		keep = []
+		filterOut = []
+		for c in self.getChildren():
+			if keepFilter_func(c):
+				keep.append(c)
+			else:
+				filterOut.append(c)
+		
+		for c in filterOut:
+			self.removeChild(c)
+		return filterOut
+			
 
 	# input: ()
 	# output: ()
@@ -240,8 +261,11 @@ class CallbackNode (object):
 	def getChildren(self):
 		return self.children
 
-	# Return this node's list of dependencies
-	# This will either be a list of strings or (if via CallbackTree) a list of CallbackNodes
+	# input: ()
+	# output: CBN's dependencies
+	#
+	# Dependencies: Nodes which must be executed prior to the execution of this node. Opposite of dependents.
+	# This will either be a list of strings (node names) or (if CBN is in a CallbackTree) a list of CallbackNodes
 	def getDependencies(self):
 		return self.dependencies
 
@@ -387,6 +411,10 @@ class CallbackNode (object):
 		
 	def getLevelEntry (self):
 		return self.level_entry
+	
+	# This is the same as the CBN's child number in its parent. 
+	def setLevelEntry (self, levelEntry):
+		self.level_entry = levelEntry
 
 	def isMarkerNode (self):
 		if (re.search('^MARKER_.*', self.getCBType())):
@@ -522,10 +550,42 @@ class CallbackNodeTree (object):
 	# input: ()
 	# output: ()
 	#
-	# Repair this CallbackTree after the addition or removal of nodes using CallbackNode APIs.
-	#   - recompute registration IDs
+	# Recalculate the tree_level of the nodes in this CallbackTree after the addition or removal of nodes using CallbackNode APIs.
+	def recalculateTreeLevels(self):
+		assert(int(self.root.getTreeLevel()) == 0)
+		logging.debug("Repairing tree levels")
+
+		def walkFunc(node, _):
+			if node.getParent():
+				node.setTreeLevel(1 + int(node.getParent().getTreeLevel()))
+			else:
+				assert(node == self.root)
+		self.walk(walkFunc, None)
+
+	# input: ()
+	# output: ()
+	#
+	# Recalculate the level_entry of the nodes in this CallbackTree after the addition or removal of nodes using CallbackNode APIs.
+	# The level_entry field == "child number" == index in the parent's list of children. 
+	def recalculateChildNumbers(self):
+		logging.debug("Repairing level entries")
+		
+		def walkFunc(node, _):
+			if node.getParent():
+				parentsChildren = node.getParent().getChildren()
+				assert(node in parentsChildren)
+				node.setLevelEntry(parentsChildren.index(node))
+			else:
+				assert(node == self.root)
+		self.walk(walkFunc, None)
+
+	# input: ()
+	# output: ()
+	#
+	# Recalculate the registration IDs of the nodes in this CallbackTree after the addition or removal of nodes using CallbackNode APIs.
 	# The exec IDs of the nodes in the tree MUST be correct prior to invoking this function.
-	def repairAfterUpdates(self):
+	# The registration ID assigned depends on the order of the children in each CBN.
+	def recalculateRegIDs(self):
 		# Repair registration IDs by simulating execution.
 		# This relies on correct execution IDs.
 		logging.debug("Repairing registration IDs")		
@@ -556,8 +616,7 @@ class CallbackNodeTree (object):
 		for cbn in execOrder:
 			nextRegID = simulateNodeExecution(cbn, nextRegID)
 
-		assert(self.isValid())
-	
+
 	# input: ()
 	# output: (callbackNodeDict)
 	#   callbackNodeDict     maps CallbackNode.name to CallbackNode for all nodes in this CallbackNodeTree
@@ -604,7 +663,8 @@ class CallbackNodeTree (object):
 		
 	#walk(node, func, funcArg)
 	#apply FUNC to each member of the tree, starting at NODE (defaults to tree root)
-	#FUNC will be invoked as FUNC(callbackNode, FUNCARG)	
+	#FUNC will be invoked as FUNC(callbackNode, FUNCARG)
+	#A DFS walk is used.	
 	def walk (self, func, funcArg, node=None):
 		if (not node):
 			node = self.root
@@ -644,11 +704,11 @@ class CallbackNodeTree (object):
 				# This is imprecise, but nested nodes have the same tree level.
 				possibleTreeLevels = [treeLevel, treeLevel+1]
 				if int(child.getTreeLevel()) not in possibleTreeLevels:
-					logging.debug("My child or dependent cbn (type {}) has tree_level {}; valid tree levels {}; my child cannot precede me structurally".format(child.getCBType(), child.getTreeLevel(), possibleTreeLevels))
+					logging.debug("I have tree_level {} type {}, and my child or dependent has tree_level {} type {}. Valid child tree levels are {}. My child cannot precede me structurally.".format(node.getTreeLevel(), node.getCBType(), child.getTreeLevel(), child.getCBType(), possibleTreeLevels))
 					isInvalid = True
 					break
 				if child.executed() and int(child.getExecID()) < int(node.getExecID()):
-					logging.debug("My child or dependent cbn (type {}) has execID {} < my execID {}; my child cannot precede me executionally".format(child.getCBType(), child.getExecID(), node.getExecID()))
+					logging.debug("I have execID {} type {}, and my child or dependent has execID {} type {}. My child cannot precede me in execution.".format(node.getExecID(), node.getCBType(), child.getExecID(), child.getCBType()))
 					isInvalid = True
 					break
 

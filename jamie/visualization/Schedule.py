@@ -55,7 +55,7 @@ class Schedule (object):
 	LIBUV_RUN_ALL_STAGES = ["UV_RUN"] + LIBUV_RUN_INNER_STAGES
 	MARKER_EVENT_TO_STAGE = {} # Map LIBUV_LOOP_STAGE_MARKER_ORDER elements to one of LIBUV_STAGES.
 
-	THREADPOOL_STAGE = ["THREADPOOL"] # We label all threadpool events as being in this dummy stage.
+	THREADPOOL_STAGE = "THREADPOOL" # We label all threadpool events as being in this dummy stage.
 
 	# MARKER_UV_RUN_BEGIN begins
 	runBegin, runEnd = ("MARKER_%s_BEGIN" % (LIBUV_RUN_OUTER_STAGES[0]), "MARKER_%s_END" % (LIBUV_RUN_OUTER_STAGES[0]))
@@ -84,6 +84,9 @@ class Schedule (object):
 		self.scheduleFile = scheduleFile
 		self.cbTree = CB.CallbackNodeTree(self.scheduleFile)
 		self.execSchedule = self._genExecSchedule(self.cbTree) # List of annotated ScheduleEvents
+		
+		logging.debug("Dumping initial execSchedule")
+		self._printExecSchedule()
 
 		self.initialStackEvent = self.execSchedule[0]
 		assert(self.initialStackEvent.getCB().getCBType() == "INITIAL_STACK")
@@ -218,6 +221,7 @@ class Schedule (object):
 	# input: ([checkCBTree])
 	#    checkCBTree        Check validity of self.cbTree? Default is True
 	# output: (isValid) True if this schedule "looks valid" (i.e. like a legal libuv schedule)
+	#
 	# Goes through each event and verifies that it occurs in a legal place in the schedule
 	# Checks: 
 	#	  - execID
@@ -225,7 +229,7 @@ class Schedule (object):
 	#   - non-marker events occur within the correct stage
 	#   - TP 'done' events (UV_AFTER_WORK_CB and children) are always preceded by another TP 'done' event or a UV_ASYNC_CB in the TP's async chain
 	#   - that self.cbTree.isValid()
-	# The validity of a schedule is an invariant to be maintained by each public Schedule method.
+	# self.isValid() should hold at the beginning and end of each public Schedule method.
 	def isValid(self, checkCBTree=True):
 
 		if checkCBTree:
@@ -483,7 +487,7 @@ class Schedule (object):
 		if nFixedEvents == 0:
 			# All events are async.
 			# Pivot defaults to the earliest-scheduled event
-			# TODO This should be a policy decision
+			# TODO This should be a policy decision, or perhaps we should try both in the event of a failure
 			#pivot = origRacyExecOrder[-1]
 			pivot = origRacyExecOrder[0]
 			eventsToReschedule = [e for e in origRacyExecOrder if e is not pivot]
@@ -507,46 +511,57 @@ class Schedule (object):
 	#	  racyNodeIDs: list of Callback execIDs
 	# output: (origToNewExecIDs)
 	#   origToNewIDs: dict from racyNodeID to the new execID of the corresponding ScheduleEvent after changing execution order
-	# Modifies the schedule so that the ScheduleEvents corresponding to racyNodeIDs are executed in "reverse" order compared to how they actually
-	# executed in this Schedule.
+	#
+	# Normalizes self.
+	# Modifies self so that the ScheduleEvents corresponding to racyNodeIDs are executed in "reverse" order compared to how they actually executed in self.
 	# Throws a ScheduleException if the requested exchange is not feasible.
 	def reschedule(self, racyNodeIDs):
+		assert(self.isValid())
+
 		racyNodeIDs_set = set(racyNodeIDs)
 		# Need exactly 2 IDs
 		if len(racyNodeIDs_set) != 2:
 			raise ScheduleException("reschedule: Error, I can only reschedule 2 events; you requested {} unique events: <{}>".format(len(racyNodeIDs_set), racyNodeIDs_set))
-
+		
 		events, eventsToReschedule, pivot = self._validateRescheduleIDs(racyNodeIDs)
-		eventIDs = [e.getCB().getID() for e in events]
-		eventsToRescheduleIDs = [e.getCB().getID() for e in eventsToReschedule]
+		
+		# Now that we've mapped racyNodeIDs to the corresponding events,
+		# we can normalize the schedule (potentially invalidating racyNodeIDs)
+		self.normalize()
+		
+		eventIDs = [self.execSchedule.index(e) for e in events]
+		eventsToRescheduleIDs = [self.execSchedule.index(e) for e in eventsToReschedule]
 		logging.info("eventIDs {} eventsToRescheduleIDs {} pivotID {}".format(eventIDs, eventsToRescheduleIDs, pivot.getCB().getID()))
 
 		# Save original IDs so that we can populate origToNewIDs later
-		eventToOrigID = { event: event.getCB().getID() for event in events }
+		eventToOrigID = { event: event.getCB().getExecID() for event in events }
 
 		# Recursively relocate each event and its affected relations.
-		for eventToReschedule in eventsToReschedule:
-			logging.debug("relocating {}".format(eventToReschedule))
-			inserted, insertedIx = self._relocateEvent(eventToReschedule, pivotEvent=pivot)
-			if inserted:
-				logging.debug("Moved event {} from index {} to index {}".format(eventToReschedule, eventToOrigID[eventToReschedule], insertedIx))
-			else:
-				raise ScheduleException("Error, could not relocate eventToReschedule {}: {}".format(eventToReschedule, eventToReschedule.getCB()))
+		try:
+			for eventToReschedule in eventsToReschedule:
+				logging.debug("relocating {}".format(eventToReschedule))
+				inserted, insertedIx = self._relocateEvent(eventToReschedule, pivotEvent=pivot)
+				if inserted:
+					logging.debug("Moved event {} from index {} to index {}".format(eventToReschedule, eventToOrigID[eventToReschedule], insertedIx))
+				else:
+					raise ScheduleException("Error, could not relocate eventToReschedule {}: {}".format(eventToReschedule, eventToReschedule.getCB()))
+		except ScheduleException as se:
+			logging.info("Could not relocate eventToReschedule {} type {}".format(eventToReschedule, eventToReschedule.getCB()))
+			self._printExecSchedule()
+			raise
 
-		# Update the execID of the events in the schedule
-		self._updateExecIDs()
+		# We've tweaked self.execSchedule and self.cbTree. Repair them.
+		self._repairAfterModifications()
 
-		# Public method, so we must be valid
-		assert(self.isValid())
-
-		# TODO Revisit this and make sure it's correct
 		# Get the new execID of the rescheduled events
 		# (other events have also been rescheduled, but the caller doesn't care about them)
 		# At least one ID must have changed, otherwise we haven't done anything!
-		origToNewIDs = { eventToOrigID[event]: event.getCB().getID() for event in events }
+		origToNewIDs = { eventToOrigID[event]: event.getCB().getExecID() for event in events }
 		changedIDs = [id for id in origToNewIDs.keys() if id != origToNewIDs[id]]
-		assert(len(changedIDs))
+		logging.debug("{} out of {} events changed location".format(len(changedIDs), len(origToNewIDs.keys())))
+		assert(changedIDs)
 
+		assert(self.isValid())
 		return origToNewIDs
 
 	# input: (event, [pivotEvent], [beforeEvent], [afterEvent])
@@ -571,6 +586,8 @@ class Schedule (object):
 		notNones = [e for e in [pivotEvent, beforeEvent, afterEvent] if e is not None]
 		if len(notNones) != 1:
 			raise ScheduleException("_relocateEvent: Error, you must provide exactly one of {pivotEvent, beforeEvent, afterEvent}")
+		
+		logging.debug("Relocating event {} (type {}) with pivotEvent={} beforeEvent={} afterEvent={}".format(event, event.getCB().getCBType(), pivotEvent, beforeEvent, afterEvent))
 
 		eventCB, eventType, eventIx = event.getCB(), event.getCB().getCBType(), self.execSchedule.index(event)
 
@@ -584,35 +601,39 @@ class Schedule (object):
 				logging.debug("pivot {} initially preceded event {}, using it as beforeEvent".format(pivotIx, eventIx))
 				beforeEvent = pivotEvent
 				pivotEvent = None
-			elif pivotIx < eventExecID:
+			elif eventIx < pivotIx:
 				logging.debug("pivot {} initially came after event {}, using it as afterEvent".format(pivotIx, eventIx))
 				afterEvent = pivotEvent
 				pivotEvent = None
 			else:
-				raise ScheduleException("_relocateEvent: Error, pivotEvent {} and event {} have the same exec ID ({})".format(pivotEvent, event, eventIx))
+				raise ScheduleException("_relocateEvent: Error, pivotEvent {} and event {} have the same index ({})".format(pivotEvent, event, eventIx))
 		assert(not pivotEvent)
 		
 		# Obtain the index of the 'relative event' relative to which we are relocating event.
 		# Ensure the caller's request make sense -- event must be before afterEvent or after beforeEvent.
+		relativeEventIx = None
 		if beforeEvent:
 			relativeEventIx = self.execSchedule.index(beforeEvent)
 			if eventIx < relativeEventIx:
 				raise ScheduleException("_relocateEvent: Error, event already occurs prior to beforeEvent")
-		else:
+		elif afterEvent:
 			relativeEventIx = self.execSchedule.index(afterEvent)
 			if relativeEventIx < eventIx:
 				raise ScheduleException("_relocateEvent: Error, event already occurs after afterEvent")
+		else:
+			assert(not "Error, how did I get here?")
 
 		# Identify the event's relocation class and family
-		relocationClass = self._getRelocationClass(event)
-		relocationFamily = self._findRelocationFamily(event, relocationClass)
+		relocationClass, relocationFamily = self._getRelocationClass(event), self._findRelocationFamily(event)
 		logging.debug("eventType {} relocationClass {} relocationFamily {}".format(eventType, relocationClass, relocationFamily))
 
 		# Insert a new UV_RUN loop to hold the family, either before (for beforeEvent) or after (for afterEvent)
 		if beforeEvent:
 			newUV_RUNLoopIx, _ = self._findMatchingScheduleEvent(lambda se: se.getCB().getCBType() == Schedule.runBegin, 'earlier', relativeEventIx)
-		else:
+		elif afterEvent:
 			newUV_RUNLoopIx, _ = self._findMatchingScheduleEvent(lambda se: se.getCB().getCBType() == Schedule.runBegin, 'later', relativeEventIx)
+		else:
+			assert(not "Error, how did I get here?")
 		if not newUV_RUNLoopIx:
 			# This can occur when we have afterEvent and the schedule terminates prematurely, e.g. via an explicit exit() call or an exception
 			# It cannot occur with beforeEvent because there is always an initial UV_RUN loop
@@ -629,7 +650,7 @@ class Schedule (object):
 
 		# Recalculate the ix of the new loop (easy because the relocationFamily was adjacent in self.execSchedule)
 		if afterEvent:
-			newUV_RUNLoopIx += len(relocationFamily)
+			newUV_RUNLoopIx -= len(relocationFamily)
 		assert(self.execSchedule[newUV_RUNLoopIx].getCB().getCBType() == Schedule.runBegin)
 
 		# Re-insert the family
@@ -652,10 +673,59 @@ class Schedule (object):
 			self.execSchedule.insert(insertIx, event)
 			insertIx += 1
 
-		# TODO Recurse up or down event's tree to ensure it hasn't jumped over an ancestor (beforeEvent) or a descendant (afterEvent)
+		# TODO Move this code into a separate function for readability.
+
+		# We may have moved events in the relocationFamily before their ancestors or after their children,
+		#  which would be pretty hard to convince libuv to achieve!
+		# Recurse on the affected relatives.
+		relative_pivotSE = None # The pivot to use for the relatives of event
+		getRelativesFunc = None # in: SE, out: list of CB relatives
+		shouldRelocateFunc = None # in: pivotsIx, relativesIx, out: True if we should relocate the relative 
+		if beforeEvent:
+			# We've moved earlier in the exec schedule, so ancestors may need to be relocated.
+			relative_pivotSE = relocationFamily[0] # The earliest event in the relocationFamily
+			getRelativesFunc = lambda se: [se.getCB().getParent()] + se.getCB().getDependencies()
+			shouldRelocateFunc = lambda pivotsIx, relativesIx: pivotsIx < relativesIx
+		elif afterEvent:
+			# We've moved later in the exec schedule, so descendants may need to be relocated
+			relative_pivotSE = relocationFamily[-1] # The latest event in the relocationFamily
+			getRelativesFunc = lambda se: se.getCB().getChildren() + se.getCB().getDependents()
+			shouldRelocateFunc = lambda pivotsIx, relativesIx: relativesIx < pivotsIx
+		else:
+			assert(not "Error, how did I get here?")
+
+		relative_pivotIx = self.execSchedule.index(relative_pivotSE)
+		logging.debug("relative_pivotIx {}".format(relative_pivotIx))
+		relativeSEsToRelocate = []
+		for se in relocationFamily:
+			for relativeCB in getRelativesFunc(se):
+				relativeSE = self._cbToScheduleEvent(relativeCB)[1]
+				if shouldRelocateFunc(relative_pivotIx, self.execSchedule.index(relativeSE)):
+					relativeSEsToRelocate.append(relativeSE)
+
+		# Remove duplicates
+		relativeSEsToRelocate = set(relativeSEsToRelocate)
+		# Keep only one relative per relocation family present in relativeSEsToRelocate
+		relativeSEs_familyRepresentatives = set()
+		for relativeSE in relativeSEsToRelocate:
+			family = self._findRelocationFamily(relativeSE)
+			if not (set(family) & relativeSEs_familyRepresentatives):
+				logging.debug("Keeping relativeSE {} as a family representative".format(relativeSE))
+				relativeSEs_familyRepresentatives.add(relativeSE) 
+			else:
+				logging.debug("There is already a representative from the family of relativeSE {}".format(relativeSE))
+
+		for relativeSE in relativeSEs_familyRepresentatives:
+			logging.debug("Relocating relative {} (type {})".format(relativeSE, relativeSE.getCB().getCBType()))
+			didInsertRelative, newRelativeIx = self._relocateEvent(relativeSE, pivotEvent=relative_pivotSE)
+			if didInsertRelative:
+				logging.debug("Relocated relative {} (type {}) to ix {}".format(relativeSE, relativeSE.getCB().getCBType(), newRelativeIx))
+			else:
+				raise ScheduleException("_relocateEvent: Error, could not relocate relative {} (type {})".format(relativeSE, relativeSE.getCB().getCBType()))
+
+		# TODO Is it possible that while relocating one SE I discomfit another SE that I already relocated?  
 
 		newEventIx = self.execSchedule.index(event)
-
 		return True, newEventIx
 
 	# input: (event)
@@ -683,38 +753,52 @@ class Schedule (object):
 	# input: (event)
 	#   event             self.execSchedule index of a ScheduleEvent. Must be async.
 	# output: (relocationFamily)
-	#   relocationFamily  A 'family' of nodes that must be relocated together because they are really nested CBs.
+	#   relocationFamily  A 'family' of ScheduleEvents that must be relocated together because they are really nested CBs.
 	#                     All members of the 'family' are in the same libuv loop stage.
-	#                     All members of the 'family' occur one after another (exec IDs go up by one).
+	#                     All members of the 'family' are adjacent to each other in the execution of their thread.
+	#                     ('TP work' events may be interrupted by marker events from the looper thread.)
 	#                     relocationFamily is sorted by increasing self.execSchedule index order.
-	#
-	# This is a helper for _relocateEvent.
-	def _findRelocationFamily(self, event, relocationClass):
+	def _findRelocationFamily(self, event):
 		assert(event.getCB().isAsync())
-		assert(relocationClass in RelocationClass.relocationClasses)
-		
+
+		relocationClass = self._getRelocationClass(event)
 		eventIx, eventType = self.execSchedule.index(event), event.getCB().getCBType()
 
 		relocationFamily = [event]
 		if relocationClass in RelocationClass.tpClasses:
 			# TP_WORK
-			if eventType in CB.CallbackNode.TP_WORK_INITIAL_TYPES:
-				assert(relocationClass == RelocationClass.TP_WORK)
-				siblingEvent = self.execSchedule[eventIx + 1]
-				siblingTypeList = CB.CallbackNode.TP_WORK_NESTED_TYPES
-			elif eventType in CB.CallbackNode.TP_WORK_NESTED_TYPES:
-				assert(relocationClass == RelocationClass.TP_WORK)
-				siblingEvent = self.execSchedule[eventIx - 1]
-				siblingTypeList = CB.CallbackNode.TP_WORK_INITIAL_TYPES
-			# TP_DONE
-			elif eventType in CB.CallbackNode.TP_DONE_INITIAL_TYPES:
-				assert(relocationClass == RelocationClass.TP_DONE)
-				siblingEvent = self.execSchedule[eventIx + 1]
-				siblingTypeList = CB.CallbackNode.TP_DONE_NESTED_TYPES
-			elif eventType in CB.CallbackNode.TP_DONE_NESTED_TYPES:
-				assert(relocationClass == RelocationClass.TP_DONE)
-				siblingEvent = self.execSchedule[eventIx - 1]
-				siblingTypeList = CB.CallbackNode.TP_DONE_INITIAL_TYPES
+			# TP events, nested and serialized, so no intervening looper events except possibly markers.
+			if eventType in CB.CallbackNode.TP_WORK_TYPES:
+				if eventType in CB.CallbackNode.TP_WORK_INITIAL_TYPES:
+					assert(relocationClass == RelocationClass.TP_WORK)
+					siblingIx, siblingEvent = self._findNextTPScheduleEvent(eventIx + 1)
+					siblingTypeList = CB.CallbackNode.TP_WORK_NESTED_TYPES
+				elif eventType in CB.CallbackNode.TP_WORK_NESTED_TYPES:
+					assert(relocationClass == RelocationClass.TP_WORK)
+					siblingIx, siblingEvent = self._findPrevTPScheduleEvent(eventIx - 1)
+					siblingTypeList = CB.CallbackNode.TP_WORK_INITIAL_TYPES
+				else:
+					assert(not "How did I get here?")
+				# The only legal intervening events are markers
+				minIx, maxIx = min(eventIx, siblingIx), max(eventIx, siblingIx) 
+				interveningEvents = self.execSchedule[minIx + 1 : maxIx]
+				for interveningEvent in interveningEvents:
+					if interveningEvent.getCB().getCBType() not in Schedule.MARKER_EVENT_TO_STAGE:
+						raise ScheduleException("_findRelocationFamily: Error, unexpected interveningEvent {} (ix {} name {} type {})".format(interveningEvent, self.execSchedule.index(interveningEvent), interveningEvent.getCB().getName(), interveningEvent.getCB().getCBType()))				
+
+			elif eventType in CB.CallbackNode.TP_DONE_TYPES:
+				# TP_DONE
+				# Looper events, nested and serialized, so no intervening TP events.
+				if eventType in CB.CallbackNode.TP_DONE_INITIAL_TYPES:
+					assert(relocationClass == RelocationClass.TP_DONE)
+					siblingEvent = self.execSchedule[eventIx + 1]
+					siblingTypeList = CB.CallbackNode.TP_DONE_NESTED_TYPES
+				elif eventType in CB.CallbackNode.TP_DONE_NESTED_TYPES:
+					assert(relocationClass == RelocationClass.TP_DONE)
+					siblingEvent = self.execSchedule[eventIx - 1]
+					siblingTypeList = CB.CallbackNode.TP_DONE_INITIAL_TYPES
+				else:
+					assert(not "How did I get here?")
 			else:
 				raise ScheduleException("_findRelocationFamily: Error, unexpected combination of relocationClass {} eventIx {} eventType {}".format(relocationClass, eventIx, eventType))
 
@@ -728,6 +812,7 @@ class Schedule (object):
 		else:
 			raise ScheduleException("_findRelocationFamily: Error, unexpected relocationClass {}".format(relocationClass))
 
+		logging.debug("relocationFamily {}, class {}, types {}, loop stages {}".format(relocationFamily, relocationClass, [se.getCB().getCBType() for se in relocationFamily], [se.getLibuvLoopStage() for se in relocationFamily]))
 		# event must be in relocationFamily
 		assert(event in relocationFamily)
 
@@ -779,28 +864,28 @@ class Schedule (object):
 
 	# input: (startIx)
 	# output: (eventIx, event)
-	# Finds the first "looper" ScheduleEvent in self.execSchedule after startIx
+	# Finds the first "looper" ScheduleEvent in self.execSchedule at or after startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findNextLooperScheduleEvent(self, startIx):
 		return self._findMatchingScheduleEvent(lambda se: not se.getCB().isThreadpoolCB(), "later", startIx)
 
 	# input: (startIx)
 	# output: (eventIx, event)
-	# Finds the first "looper" ScheduleEvent in self.execSchedule before startIx
+	# Finds the first "looper" ScheduleEvent in self.execSchedule at or before startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findPrevLooperScheduleEvent(self, startIx):
 		return self._findMatchingScheduleEvent(lambda se: not se.getCB().isThreadpoolCB(), "earlier", startIx)
 
 	# input: (startIx)
 	# output: (eventIx, event)
-	# Finds the first threadpool ScheduleEvent in self.execSchedule after startIx
+	# Finds the first threadpool ScheduleEvent in self.execSchedule at or after startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findNextTPScheduleEvent(self, startIx):
 		return self._findMatchingScheduleEvent(lambda se: se.getCB().isThreadpoolCB(), "later", startIx)
 
 	# input: (startIx)
 	# output: (eventIx, event)
-	# Finds the first threadpool ScheduleEvent in self.execSchedule before startIx
+	# Finds the first threadpool ScheduleEvent in self.execSchedule at or before startIx
 	# See _findMatchingScheduleEvent for details.
 	def _findPrevTPScheduleEvent(self, startIx):
 		return self._findMatchingScheduleEvent(lambda se: se.getCB().isThreadpoolCB(), "earlier", startIx)
@@ -840,10 +925,9 @@ class Schedule (object):
 				return realIx, self.execSchedule[realIx]
 		return None, None
 
-	# input: (newLoopIx, [enterLoop])
+	# input: (newLoopIx, [enterLoop=True])
 	#		newLoopIx		 ix of a MARKER_UV_RUN_BEGIN event before which we will insert a new loop
-	#   enterLoop    Insert just the UV_RUN stage or the inner stages (timers, etc.) too?
-	#                Default is True
+	#   enterLoop    Insert the UV_RUN stage with inner stages (timers, etc.)?
 	# output: (ixOfBeginningOfNewLoop)
 	#   ixOfBeginningOfNewLoop    The index of the MARKER_UV_RUN_BEGIN ScheduleEvent beginning the new loop
 	#
@@ -873,19 +957,15 @@ class Schedule (object):
 			markerCB.setChildren([])
 			markerCB.setParent(None)	
 			markerCB.setName("0x{}".format(self._getNewEventID())) # Unique name						
-			# Create a marker ScheduleEvent.
+			# Create and insert a ScheduleEvent.
 			scheduleEvent = ScheduleEvent(markerCB)
 			scheduleEvent.setLibuvLoopStage(Schedule.MARKER_EVENT_TO_STAGE[markerType])
-			# Insert it.
+			logging.debug("Inserting new scheduleEvent {} (type {}) at index {}".format(scheduleEvent, scheduleEvent.getCB().getCBType(), insertIx))
 			self.execSchedule.insert(insertIx, scheduleEvent)
 
-		# We've tweaked self.execSchedule and self.cbTree.
-		# Restore them to a consistent state.
-		logging.debug("Returning self.execSchedule and self.cbTree to a consistent state")
-		self._updateExecIDs() # Need to do this in order to repair the cbTree
+		#TODO Much cheaper to fix up only the markers prior to markersToInsert[0] and after markersToInsert[-1]
 		self._updateMarkerInheritance()
-		self.cbTree.repairAfterUpdates()
-
+		
 		# We don't know if self.isValid() because we don't know the state of things when we were called.
 
 		# Since we inserted this loop before the existing loop, newLoopIx is the beginning of the new loop.
@@ -929,12 +1009,11 @@ class Schedule (object):
 		asyncCB.setChildren([])
 		asyncCB.setParent(None)
 		asyncCB.setName("0x{}".format(self._getNewEventID())) # Unique name
-		# Create a ScheduleEvent.
+		# Create and insert a ScheduleEvent.
 		scheduleEvent = ScheduleEvent(asyncCB)
 		scheduleEvent.setLibuvLoopStage(self.tpDoneAsyncRoot.getLibuvLoopStage())
-		# Insert it.
 		insertIx = ioPollIx + 1
-		logging.debug("Inserting 'TP done' event of type {} at index {}".format(cbType, insertIx))
+		logging.debug("Inserting new 'TP done' event {} (type {}) at index {}".format(scheduleEvent, scheduleEvent.getCB().getCBType(), insertIx))
 		self.execSchedule.insert(insertIx, scheduleEvent)
 
 		# The ASYNC_CB that precedes 'threadpool done' events is part of a
@@ -943,12 +1022,6 @@ class Schedule (object):
 		self._updateCBTreeWithTPDoneStage(scheduleEvent)
 
 		logging.debug("Inserted new 'TP done' CB: {} ({})".format(self.execSchedule[insertIx], self.execSchedule[insertIx].getCB()))
-
-		# We've tweaked self.execSchedule and self.cbTree.
-		# Restore them to a consistent state.
-		logging.debug("Returning self.execSchedule and self.cbTree to a consistent state")
-		self._updateExecIDs() # Need to do this in order to repair the cbTree
-		self.cbTree.repairAfterUpdates()
 
 		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
 		logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
@@ -1004,7 +1077,6 @@ class Schedule (object):
 		# If asyncCBEvent is the beginning of the list, set its parentage and tree level appropriately.
 		if tpDoneEvent_ixAndSEs[0][1] == asyncCBEvent:
 			asyncCBEvent.getCB().setParent(self.initialStackEvent.getCB())
-			asyncCBEvent.setTreeLevel(1 + int(asyncCBEvent.getCB().getParent().getTreeLevel()))
 
 		logging.debug("Updating the relationships between the {} tpDoneEvents".format(len(tpDoneEvent_ixAndSEs)))
 		for ix in range(len(tpDoneEvent_ixAndSEs) - 1):
@@ -1015,7 +1087,6 @@ class Schedule (object):
 			assert(len(parentCB.getChildren()) <= 1)
 			parentCB.setChildren([childCB])
 			childCB.setParent(parentCB)
-			childCB.setTreeLevel(1 + int(parentCB.getTreeLevel()))
 
 		# Update self.tpDoneAsyncRoot
 		if self.tpDoneAsyncRoot != tpDoneEvent_ixAndSEs[0][1]:
@@ -1046,15 +1117,11 @@ class Schedule (object):
 		assert(initialStackIx is not None and initialStackEvent)
 		assert(initialStackEvent == self.initialStackEvent)
 
-		# Helper for _updateMarkerInheritance.
 		# markerParent is the ScheduleEvent corresponding to the parent of the next marker.
 		# At the beginning of each loop iteration, it has no markers in its list of children.
-		def _prepMarkerParent (markerParent):
-			children = markerParent.getCB().getChildren()
-			markerParent.getCB().setChildren([c for c in children if c.getCBType() not in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER])
-
 		markerParent = initialStackEvent
-		_prepMarkerParent(markerParent)
+		filterOutMarker_func = lambda cbn: cbn.getCBType() not in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER
+		markerParent.getCB().filterChildren(filterOutMarker_func)
 
 		markerEvents = [e for e in self.execSchedule if e.getCB().getCBType() in Schedule.LIBUV_LOOP_STAGE_MARKER_ORDER]
 		for markerEvent in markerEvents:
@@ -1062,12 +1129,62 @@ class Schedule (object):
 			mpCB = markerParent.getCB()
 			meCB = markerEvent.getCB()
 
-			meCB.setTreeLevel(int(mpCB.getTreeLevel()) + 1)
 			mpCB.addChild(meCB)
 			meCB.setParent(mpCB)
 
 			markerParent = markerEvent
-			_prepMarkerParent(markerParent)
+			markerParent.getCB().filterChildren(filterOutMarker_func)
+
+	# input: ()
+	# output: ()
+	#
+	# Repair self.execSchedule and self.cbTree after you are done making modifications to them.
+	# If you have modified self, call this before calling self.isValid()
+	def _repairAfterModifications(self):
+		logging.debug("Repairing after modifications")
+		self._updateExecIDs()
+		self.cbTree.recalculateRegIDs()
+		self.cbTree.recalculateTreeLevels()
+		self.cbTree.recalculateChildNumbers()
+
+	# input: ()
+	# output: ()
+	#
+	# "Normalize" this schedule to make it easier to work with.
+	# Operations:
+	#   - put nested 'TP work' events adjacent in the execSchedule
+	def normalize(self):
+		assert(self.isValid())
+		
+		logging.debug("Normalizing schedule")
+		
+		# Nested 'TP work' events might have intervening marker events between them in the self.execSchedule.
+		# Detect and shuffle events to avoid this.
+		# No change to self.cbTree or to schedule behavior, just a tweak to the ordering of self.execSchedule.
+		logging.debug("Making nested 'TP work' events adjacent to their family members")
+		tpWorkSEs = [se for se in self.execSchedule if se.getCB().isThreadpoolCB()]
+		for tpWorkSE in tpWorkSEs:
+			family = self._findRelocationFamily(tpWorkSE)
+			familyIxs = [self.execSchedule.index(se) for se in family]
+			minIx, maxIx = familyIxs[0], familyIxs[-1]
+			if minIx + len(familyIxs) - 1 != maxIx:
+				# The only legal intervening events are markers
+				logging.debug("Found events between a 'TP work' family, relocating them")
+				interveningEvents = self.execSchedule[minIx + 1 : maxIx]
+				for interveningEvent in interveningEvents:
+					if interveningEvent.getCB().getCBType() not in Schedule.MARKER_EVENT_TO_STAGE:
+						raise ScheduleException("normalize: Error, unexpected interveningEvent {} (ix {} name {} type {})".format(interveningEvent, self.execSchedule.index(interveningEvent), interveningEvent.getCB().getName(), interveningEvent.getCB().getCBType()))
+				# Remove and replace them after the final 'TP work' event in the family.
+ 				for interveningEvent in interveningEvents:
+ 					self.execSchedule.remove(interveningEvent)
+ 				insertIx = maxIx - len(interveningEvents) + 1 # One after the final event in family
+ 				assert(insertIx == self.execSchedule.index(family[-1]) + 1) # TODO Debugging, can take this out
+ 				for interveningEvent in interveningEvents:
+ 					self.execSchedule.insert(insertIx, interveningEvent)
+ 					insertIx += 1
+		
+		self._repairAfterModifications()
+		assert(self.isValid())
 
 	# input: (file)
 	#	 place to write the schedule
@@ -1084,6 +1201,14 @@ class Schedule (object):
 		with open(file, 'w') as f:
 			for cb in regOrder:
 				f.write("%s\n" % (cb))
+	
+	# input: ()
+	# output: ()
+	#
+	# logs self.execSchedule
+	def _printExecSchedule(self):
+		for ix, se in enumerate(self.execSchedule):
+			logging.info("execID {}: se {} name {} type {}".format(ix, se, se.getCB().getName(), se.getCB().getCBType()))
 
 #############################
 # ScheduleEvent
@@ -1110,5 +1235,4 @@ class ScheduleEvent(object):
 		self.libuvLoopStage = stage
 
 	def getLibuvLoopStage(self):
-		assert (self.libuvLoopCount is not None)
 		return self.libuvLoopStage
