@@ -42,7 +42,7 @@ def addNodeAndChildren (node, graph):
 		extraInfo = "\\nExtra info: {}".format(extraInfo)
 	else:
 		extraInfo = ""
-	nodeStr = "node <Reg {}, Exec {}> ({},{})\\nCB type {}\\nContext {}\\nBehavior {}\\nExecuted {} {}".format(node.getRegID(), node.getExecID(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed(), extraInfo)
+	nodeStr = "node <Reg {}, Exec {}>\\nTree level {}, Tree entry {}\\nCB type {}\\nContext {}\\nBehavior {}\\nExecuted {} {}".format(node.getRegID(), node.getExecID(), node.getTreeLevel(), node.getLevelEntry(), node.getCBType(), node.getContext(), node.getBehavior(), node.executed(), extraInfo)
 	gv.setv(nodeHandle, "label", nodeStr)
 	
 	#assign shape based on behavior
