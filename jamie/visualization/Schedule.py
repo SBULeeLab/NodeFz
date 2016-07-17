@@ -598,11 +598,11 @@ class Schedule (object):
 			# pivotEvent is convenient shorthand. Convert to beforeEvent or afterEvent.
 			pivotIx = self.execSchedule.index(pivotEvent)
 			if pivotIx < eventIx:
-				logging.debug("pivot {} initially preceded event {}, using it as beforeEvent".format(pivotIx, eventIx))
+				logging.debug("pivotIx {} initially preceded eventIx {}, using beforeEvent=pivotEvent".format(pivotIx, eventIx))
 				beforeEvent = pivotEvent
 				pivotEvent = None
 			elif eventIx < pivotIx:
-				logging.debug("pivot {} initially came after event {}, using it as afterEvent".format(pivotIx, eventIx))
+				logging.debug("pivotIx {} initially came after eventIx {}, using afterEvent=pivotEvent".format(pivotIx, eventIx))
 				afterEvent = pivotEvent
 				pivotEvent = None
 			else:
@@ -657,7 +657,7 @@ class Schedule (object):
 		if relocationClass == RelocationClass.TP_WORK:
 			# TP_WORK items can be scheduled safely anywhere that isn't between another nested family.
 			# We have a whole UV_RUN loop to play with, so place the family immediately after the beginning of the new UV_RUN loop.
-			insertIx = newUV_RUNLoopIx
+			insertIx = newUV_RUNLoopIx + 1
 		elif relocationClass == RelocationClass.TP_DONE:
 			# TP_DONE items need to occur after one of the UV_ASYNC_CBs in the 'TP done' chain.
 			insertIx = 1 + self._insertThreadpoolDoneStage(newUV_RUNLoopIx)
@@ -700,6 +700,7 @@ class Schedule (object):
 		for se in relocationFamily:
 			for relativeCB in getRelativesFunc(se):
 				relativeSE = self._cbToScheduleEvent(relativeCB)[1]
+				assert(relativeSE)
 				if shouldRelocateFunc(relative_pivotIx, self.execSchedule.index(relativeSE)):
 					relativeSEsToRelocate.append(relativeSE)
 
@@ -779,12 +780,11 @@ class Schedule (object):
 					siblingTypeList = CB.CallbackNode.TP_WORK_INITIAL_TYPES
 				else:
 					assert(not "How did I get here?")
-				# The only legal intervening events are markers
-				minIx, maxIx = min(eventIx, siblingIx), max(eventIx, siblingIx) 
-				interveningEvents = self.execSchedule[minIx + 1 : maxIx]
-				for interveningEvent in interveningEvents:
-					if interveningEvent.getCB().getCBType() not in Schedule.MARKER_EVENT_TO_STAGE:
-						raise ScheduleException("_findRelocationFamily: Error, unexpected interveningEvent {} (ix {} name {} type {})".format(interveningEvent, self.execSchedule.index(interveningEvent), interveningEvent.getCB().getName(), interveningEvent.getCB().getCBType()))				
+
+				family = [self.execSchedule[eventIx], self.execSchedule[siblingIx]]
+				isValid, interveningEvents = self.__isTPWorkFamilyValid(family)
+				if not isValid:
+					raise ScheduleException("_findRelocationFamily: Error, family {} is not valid".format(family))
 
 			elif eventType in CB.CallbackNode.TP_DONE_TYPES:
 				# TP_DONE
@@ -919,10 +919,11 @@ class Schedule (object):
 
 		for i, scheduleEvent in enumerate(self.execSchedule[startIx:lastIx:sliceStride]):
 			if searchFunc(scheduleEvent):
-				logging.debug("Match!")
-				realIx = startIx + sliceStride*i
-				assert(self.execSchedule[realIx] == scheduleEvent) # Math is hard, did I get it right?
-				return realIx, self.execSchedule[realIx]
+				matchIx = startIx + i*sliceStride
+				logging.debug("Match! (matchIx {} startIx {} direction {})".format(matchIx, startIx, direction))
+				return matchIx, self.execSchedule[matchIx]
+
+		logging.debug("Found no matching scheduleEvent (startIx {} direction {})".format(startIx, direction))
 		return None, None
 
 	# input: (newLoopIx, [enterLoop=True])
@@ -948,7 +949,8 @@ class Schedule (object):
 			markersToInsert = Schedule.LIBUV_LOOP_OUTER_STAGE_MARKER_ORDER
 
 		# Insert the new stages into self.execSchedule.
-		dummyCallbackString = self.execSchedule[0].getCB().callbackString
+		_, templateSE = self._findMatchingScheduleEvent(lambda se: se.getCB().isMarkerNode(), "later", 0)
+		dummyCallbackString = templateSE.getCB().callbackString
 		for i, markerType in enumerate(markersToInsert):
 			insertIx = newLoopIx + i
 			# Create a marker CallbackNode.
@@ -1001,7 +1003,8 @@ class Schedule (object):
 		assert(ioPollIx)
 
 		# Insert a new Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE event into self.execSchedule.
-		dummyCallbackString = self.tpDoneAsyncRoot.getCB().callbackString
+		templateSE = self.tpDoneAsyncRoot
+		dummyCallbackString = templateSE.getCB().callbackString
 		cbType = Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE
 		# Create a CallbackNode.
 		asyncCB = CB.CallbackNode(dummyCallbackString)
@@ -1147,6 +1150,28 @@ class Schedule (object):
 		self.cbTree.recalculateTreeLevels()
 		self.cbTree.recalculateChildNumbers()
 
+	# input: (family)
+	#   family     list of SEs in the same relocationFamily
+	# output: (isFamilyValid, interveningEvents)
+	#   isFamilyValid      True or False
+	#   interveningEvents  The SEs that occur in self.execSchedule in the 'exec range' of the family
+	#
+	# Determines whether the family is valid
+	#   - checks whether intervening events are non-user CBs 
+	def __isTPWorkFamilyValid(self, family):
+		assert(family)
+		assert(2 <= len(family))
+		
+		familyIxs = [self.execSchedule.index(se) for se in family]
+		minIx, maxIx = min(familyIxs), max(familyIxs)
+		
+		interveningEvents = self.execSchedule[minIx + 1 : maxIx]
+		for interveningEvent in interveningEvents:
+			if interveningEvent.getCB().isUserCode():
+				logging.debug("Unexpected interveningEvent {} (ix {} name {} type {}) -- user code".format(interveningEvent, self.execSchedule.index(interveningEvent), interveningEvent.getCB().getName(), interveningEvent.getCB().getCBType()))				
+				return False, None
+		return True, interveningEvents
+
 	# input: ()
 	# output: ()
 	#
@@ -1166,14 +1191,12 @@ class Schedule (object):
 		for tpWorkSE in tpWorkSEs:
 			family = self._findRelocationFamily(tpWorkSE)
 			familyIxs = [self.execSchedule.index(se) for se in family]
-			minIx, maxIx = familyIxs[0], familyIxs[-1]
+			minIx, maxIx = min(familyIxs), max(familyIxs)
 			if minIx + len(familyIxs) - 1 != maxIx:
-				# The only legal intervening events are markers
-				logging.debug("Found events between a 'TP work' family, relocating them")
-				interveningEvents = self.execSchedule[minIx + 1 : maxIx]
-				for interveningEvent in interveningEvents:
-					if interveningEvent.getCB().getCBType() not in Schedule.MARKER_EVENT_TO_STAGE:
-						raise ScheduleException("normalize: Error, unexpected interveningEvent {} (ix {} name {} type {})".format(interveningEvent, self.execSchedule.index(interveningEvent), interveningEvent.getCB().getName(), interveningEvent.getCB().getCBType()))
+				isValid, interveningEvents = self.__isTPWorkFamilyValid(family)
+				if not isValid:
+					raise ScheduleException("normalize: Error, family {} is not valid".format(family))
+
 				# Remove and replace them after the final 'TP work' event in the family.
  				for interveningEvent in interveningEvents:
  					self.execSchedule.remove(interveningEvent)
