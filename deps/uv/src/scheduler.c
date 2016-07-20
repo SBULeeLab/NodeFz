@@ -928,6 +928,7 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
   schedule_mode_t schedule_mode = scheduler_get_mode();
   sched_lcbn_t *executed_sched_lcbn = NULL, *scheduled_sched_lcbn = NULL;
   unsigned executed_n_children = 0, scheduled_n_children = 0, i = 0;
+  unsigned executed_min_n_children = 0, executed_max_n_children = 0;
   struct list_elem *executed_child_elem = NULL, *scheduled_child_elem = NULL;
 
   assert(scheduler_initialized());
@@ -950,9 +951,17 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
   /* Same number of children? */
   executed_n_children  = list_size(executed_sched_lcbn->lcbn->tree_node.children);
   scheduled_n_children = list_size(scheduled_sched_lcbn->lcbn->tree_node.children);
-  if (executed_n_children != scheduled_n_children)
+
+  /* Fudge the numbers for INITIAL_STACK, which may get a MARKER_UV_RUN_BEGIN child and an EXIT child added later. */
+  executed_max_n_children = scheduled_n_children;
+  if (lcbn->cb_type == INITIAL_STACK)
+    executed_min_n_children = scheduled_n_children - 2;
+  else
+    executed_min_n_children = scheduled_n_children;
+
+  if (!(executed_min_n_children <= executed_n_children && executed_n_children <= executed_max_n_children))
   {
-    mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: schedule has diverged: executed_n_children %u != scheduled_n_children %u\n", executed_n_children, scheduled_n_children);
+    mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: schedule has diverged: is_initial_stack %i executed_n_children %u (min_n_children %u max_n_children %u)\n", lcbn->cb_type == INITIAL_STACK, executed_n_children, executed_min_n_children, executed_max_n_children);
     is_diverged = 1;
     goto MAYBE_DIVERGED;
   }
@@ -960,6 +969,8 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
   /* Children have matching types? */
   executed_child_elem  = list_front(executed_sched_lcbn->lcbn->tree_node.children);
   scheduled_child_elem = list_front(scheduled_sched_lcbn->lcbn->tree_node.children);
+  /* INITIAL_STACK: executed_n_children may be missing MARKER_UV_RUN_BEGIN and EXIT.
+     If present, these CBs are at the end of the scheduled_sched_lcbn list and will not interfere with this check. */
   for (i = 0; i < executed_n_children; i++)
   {
     lcbn_t *executed_child_lcbn = tree_entry(list_entry(executed_child_elem, tree_node_t, parent_child_list_elem),

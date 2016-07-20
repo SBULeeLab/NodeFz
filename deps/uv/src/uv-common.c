@@ -1377,6 +1377,16 @@ void uv__mark_init_stack_end (void)
   assert(lcbn_looks_valid(init_stack_lcbn));
   lcbn_mark_end(init_stack_lcbn);
   lcbn_current_set(NULL);
+
+  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+  {
+    scheduler_check_for_divergence(init_stack_lcbn);
+    if (scheduler_has_diverged())
+    {
+      mylog(LOG_MAIN, 1, "uv__mark_init_stack_end: Error, schedule has diverged at the completion of the INITIAL_STACK. This implies that the something in the starting environment (source code, FS, daemons, databases, etc.) has changed.\n");
+      exit(1);
+    }
+  }
   
   /* Cannot check for divergence yet because the first marker node and the EXIT node are added to the initial stack node later. 
      Instead, we check for divergence of the initial stack when we generate the EXIT event. */
