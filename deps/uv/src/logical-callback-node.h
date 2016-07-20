@@ -88,6 +88,9 @@ int lcbn_looks_valid (lcbn_t *lcbn);
 
 int lcbn_is_active (lcbn_t *lcbn);
 
+/* Note that the lcbn is non-user in its extra_info field. */
+void lcbn_mark_non_user (lcbn_t *lcbn);
+
 /* Tests lcbn APIs. */
 void lcbn_UT (void);
 

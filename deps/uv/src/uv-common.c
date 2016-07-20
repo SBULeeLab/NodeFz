@@ -667,8 +667,8 @@ void uv_loop_delete(uv_loop_t* loop) {
 static lcbn_t * get_init_stack_lcbn (void);
 static lcbn_t * get_exit_lcbn (void);
 
+#if 0
 static void dump_lcbn_globalorder (void);
-
 static void dump_lcbn_globalorder(void)
 {
   int fd;
@@ -714,14 +714,19 @@ static void dump_lcbn_globalorder(void)
 
   list_destroy(lcbn_list);
 }
+#endif
 
 void dump_and_exit_sighandler (int signum)
 {
+#if 0
   mylog(LOG_MAIN, 0, "Got signal %i. Dumping and exiting.\n", signum);
   mylog(LOG_MAIN, 0, "lcbn global order\n");
   dump_lcbn_globalorder();
   fflush(NULL);
-  exit(0);
+#endif
+  mylog(LOG_MAIN, 0, "dump_and_exit_sighandler: Got signum %i, exiting 1 (should trigger any atexit routines\n", signum);
+  fflush(NULL);
+  exit(1);
 }
 
 /* Indexed by value of 'enum callback_type'. */
@@ -1125,12 +1130,7 @@ void invoke_callback (callback_info_t *cbi)
       snprintf(lcbn_cur->extra_info + len, remaining, "<%li = read(%i)>", (ssize_t) cbi->args[1], ((uv_stream_t *) cbi->args[0])->io_watcher.fd);
     }
     if (!is_user_cb)
-    {
-      size_t size      = sizeof(lcbn_cur->extra_info),
-             len       = strnlen(lcbn_cur->extra_info, size),
-             remaining = size - len; 
-      snprintf(lcbn_cur->extra_info + len, remaining, "<non-user>");
-    }
+      lcbn_mark_non_user(lcbn_cur);
 
     /* Execution parent (if nested). */
     lcbn_orig = lcbn_current_get();
@@ -1663,6 +1663,8 @@ void emit_marker_event (enum callback_type cbt)
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: begin: cbt %s\n", callback_type_to_string(cbt)));
   assert(is_marker_event(cbt));
+
+  lcbn_mark_non_user(lcbn);
 
   /* Register as child of the parent. */
   if (prev_marker_event)

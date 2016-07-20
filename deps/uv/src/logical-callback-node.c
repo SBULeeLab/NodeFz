@@ -643,6 +643,21 @@ int lcbn_is_active (lcbn_t *lcbn)
   return lcbn->active;
 }
 
+void lcbn_mark_non_user (lcbn_t *lcbn)
+{
+  size_t size = 0, len = 0, remaining = 0;
+
+  ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_mark_non_user: begin: lcbn %p\n", lcbn));
+  assert(lcbn_looks_valid(lcbn));
+
+  size      = sizeof(lcbn->extra_info);
+  len       = strnlen(lcbn->extra_info, size);
+  remaining = size - len; 
+  snprintf(lcbn->extra_info + len, remaining, "<non-user>");
+
+  ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_mark_non_user: returning\n"));
+}
+
 /* Unit test for the LCBN class. */
 void lcbn_UT (void)
 {

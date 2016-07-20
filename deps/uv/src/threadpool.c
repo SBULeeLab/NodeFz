@@ -62,6 +62,17 @@ static void uv__cancelled(struct uv__work* w) {
   abort();
 }
 
+static void post(QUEUE* q) {
+  uv_mutex_lock(&mutex);
+  QUEUE_INSERT_TAIL(&wq, q);
+  if (idle_threads > 0)
+  {
+    mylog(LOG_THREADPOOL, 9, "Signal'ing the threadpool work cond\n");
+    uv_cond_signal(&cond);
+  }
+  uv_mutex_unlock(&mutex);
+}
+
 
 /* To avoid deadlock with uv_cancel() it's crucial that the worker
  * never holds the global mutex and the loop-local mutex at the same time.
@@ -78,6 +89,7 @@ static void worker(void* arg) {
   (void) arg;
 
   for (;;) {
+    int foundExit = 0;
     mylog(LOG_THREADPOOL, 1, "worker: begins\n");
     uv_mutex_lock(&mutex);
 
@@ -106,13 +118,26 @@ static void worker(void* arg) {
     /* Interpret wq_buf as list of uv__work contexts. */
     pending_work = list_create();
     QUEUE_FOREACH(q, &wq_buf) {
-      w = QUEUE_DATA(q, struct uv__work, wq);
-      req = container_of(w, uv_work_t, work_req);
-      assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
-      /* All threadpool users must go through uv_queue_work. */
-      assert(req->work_req.work == uv__queue_work);
-      sched_context = sched_context_create(EXEC_CONTEXT_THREADPOOL_WORKER, CALLBACK_CONTEXT_REQ, req);
-      list_push_back(pending_work, &sched_context->elem);
+      if (q == &exit_message)
+      {
+        mylog(LOG_THREADPOOL, 1, "worker: Found exit_message in wq_buf\n");
+        foundExit = 1;
+      }
+      if (foundExit)
+      {
+        post(&exit_message);
+        break;
+      }
+      else
+      {
+        w = QUEUE_DATA(q, struct uv__work, wq);
+        req = container_of(w, uv_work_t, work_req);
+        assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
+        /* All threadpool users must go through uv_queue_work. */
+        assert(req->work_req.work == uv__queue_work);
+        sched_context = sched_context_create(EXEC_CONTEXT_THREADPOOL_WORKER, CALLBACK_CONTEXT_REQ, req);
+        list_push_back(pending_work, &sched_context->elem);
+      }
     }
 
     /* Find, remove, and execute the work next in the schedule. */
@@ -163,23 +188,17 @@ static void worker(void* arg) {
     }
     uv_mutex_unlock(&mutex);
 
+    if (foundExit)
+    {
+      mylog(LOG_THREADPOOL, 5, "worker: found exit in wq_buf, so breaking\n");
+      break;
+    }
+
 #if 0
     /* TODO */
     list_destroy_full(pending_work, sched_context_list_destroy_func, NULL); 
 #endif
   }
-}
-
-
-static void post(QUEUE* q) {
-  uv_mutex_lock(&mutex);
-  QUEUE_INSERT_TAIL(&wq, q);
-  if (idle_threads > 0)
-  {
-    mylog(LOG_THREADPOOL, 9, "Signal'ing the threadpool work cond\n");
-    uv_cond_signal(&cond);
-  }
-  uv_mutex_unlock(&mutex);
 }
 
 

@@ -944,3 +944,13 @@ When considering schedule validity, here are some rules related to TP 'done' eve
     - UV_GETADDRINFO_CB     (uv__getaddrinfo_done)
     - UV_GETNAMEINFO_CB     (uv__getnameinfo_done)
     - any other IO poll CBs (yuck, so looking forward is harder than looking backward)
+
+-----------------
+
+The order in which children of the INITIAL_STACK are registered:
+  2 internal UV_ASYNC_CBs (the 'TP done' chain first)
+  Then its misc. 'application children'
+  Second to last is the UV_RUN_BEGIN marker.
+  Last (and much later in the exec schedule) is the EXIT marker.
+In rescheduling, we need to get the relative child number correct for all non-marker children.
+For markers we don't check the registration ID, just the type, because they are unique.
