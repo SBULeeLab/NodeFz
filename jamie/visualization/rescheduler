@@ -29,7 +29,6 @@ def main():
 	logging.info("schedFile {} raceFile {} outputPrefix {}".format(args.schedFile, args.raceFile, args.outputPrefix))
 
 	logging.info("Loading the callback cbTree from schedFile {}".format(args.schedFile))
-	origSchedule = Schedule.Schedule(args.schedFile)
 
 	try:
 		logging.info("Loading the races from raceFile {}".format(args.raceFile))
@@ -40,15 +39,15 @@ def main():
 
 	for (ix, race) in enumerate(raceyNodes):
 		outFile = "{}_{}".format(args.outputPrefix, ix)
-		logging.info("Generating schedule for race <{}>".format(race))
-		scheduleCopy = copy.deepcopy(origSchedule)
+		schedule = Schedule.Schedule(args.schedFile)
 		try:
-			idMap = scheduleCopy.reschedule(race)
+			logging.info("Generating schedule for race <{}>".format(race))
+			idMap = schedule.reschedule(race)
 			logging.info("The schedule from race <{}> is going into outFile {}".format(race, outFile))
 			logging.info("ID map:")
 			for i in idMap:
 				logging.info("  {} -> {}".format(i, idMap[i]))
-			scheduleCopy.emit(outFile)
+			schedule.emit(outFile)
 		except Schedule.ScheduleException as se:
 			logging.info("Sorry, could not achieve race <{}>: {}".format(race, se))
 		except IOError:
