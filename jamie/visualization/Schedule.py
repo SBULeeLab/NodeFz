@@ -84,6 +84,7 @@ class Schedule (object):
 		self.scheduleFile = scheduleFile
 		self.cbTree = CB.CallbackNodeTree(self.scheduleFile)
 		self.execSchedule = self._genExecSchedule(self.cbTree) # List of annotated ScheduleEvents
+		self.normalized = False
 		
 		logging.debug("Dumping initial execSchedule")
 		self._printExecSchedule()
@@ -517,6 +518,7 @@ class Schedule (object):
 	# Throws a ScheduleException if the requested exchange is not feasible.
 	def reschedule(self, racyNodeIDs):
 		assert(self.isValid())
+		logging.info("racyNodeIDs {}".format(racyNodeIDs))
 
 		racyNodeIDs_set = set(racyNodeIDs)
 		# Need exactly 2 IDs
@@ -527,6 +529,7 @@ class Schedule (object):
 		
 		# Now that we've mapped racyNodeIDs to the corresponding events,
 		# we can normalize the schedule (potentially invalidating racyNodeIDs)
+		logging.debug("Normalizing (this may change cause the eventIDs to no longer match the racyNodeIDs")
 		self.normalize()
 		
 		eventIDs = [self.execSchedule.index(e) for e in events]
@@ -568,17 +571,16 @@ class Schedule (object):
 	#   event             insert this event. must be an async event.
 	#	 Provide exactly one of the following three locations:
 	#   pivotEvent        if defined, insert event on the opposite side of pivot from its current location
-	#   afterEvent        if defined, insert event after this event
-	#   beforeEvent       if defined, insert event before this event
-	#
-	#                     if afterEvent or beforeEvent is specified, event must occur (after,before) (beforeEvent,afterEvent).
+	#   afterEvent        if defined, insert event after this event. Returns True, eventIx if event already occurs after afterEvent. 
+	#   beforeEvent       if defined, insert event before this event. Returns True, eventIx if event already occurs before beforeEvent.
 	#
 	# output: (successfullyInserted, newIx)
 	#   successfullyInserted     True if we inserted, else False
 	#   newIx                    if successfullyInserted: the new index of event
 	#
 	# Relocate event from its current location in self.execSchedule to a new one relative to the location of another event.
-	# This is done by adding an empty UV_RUN loop before or after the one containing the pivot/before/afterEvent, then placing event in it.
+	# This is done by adding an empty UV_RUN loop immediately before or after the one containing the pivot/before/afterEvent, then placing event in it.
+	# NB self._relocateBypassedRelatives() relies on this behavior.
 	# Modifies self.execSchedule and self.cbTree.
 	#
 	# May raise a ScheduleException if you really invoke it wrong.
@@ -610,18 +612,19 @@ class Schedule (object):
 		assert(not pivotEvent)
 		
 		# Obtain the index of the 'relative event' relative to which we are relocating event.
-		# Ensure the caller's request make sense -- event must be before afterEvent or after beforeEvent.
+		# Return success if the caller's request is already true (event precedes beforeEvent or follows afterEvent)
 		relativeEventIx = None
 		if beforeEvent:
 			relativeEventIx = self.execSchedule.index(beforeEvent)
 			if eventIx < relativeEventIx:
-				raise ScheduleException("_relocateEvent: Error, event already occurs prior to beforeEvent")
+				return True, eventIx
 		elif afterEvent:
 			relativeEventIx = self.execSchedule.index(afterEvent)
 			if relativeEventIx < eventIx:
-				raise ScheduleException("_relocateEvent: Error, event already occurs after afterEvent")
+				return True, eventIx
 		else:
 			assert(not "Error, how did I get here?")
+		# OK, event must be moved to fulfill the request
 
 		# Identify the event's relocation class and family
 		relocationClass, relocationFamily = self._getRelocationClass(event), self._findRelocationFamily(event)
@@ -673,61 +676,99 @@ class Schedule (object):
 			self.execSchedule.insert(insertIx, event)
 			insertIx += 1
 
-		# TODO Move this code into a separate function for readability.
-
-		# We may have moved events in the relocationFamily before their ancestors or after their children,
-		#  which would be pretty hard to convince libuv to achieve!
-		# Recurse on the affected relatives.
-		relative_pivotSE = None # The pivot to use for the relatives of event
-		getRelativesFunc = None # in: SE, out: list of CB relatives
-		shouldRelocateFunc = None # in: pivotsIx, relativesIx, out: True if we should relocate the relative 
-		if beforeEvent:
-			# We've moved earlier in the exec schedule, so ancestors may need to be relocated.
-			relative_pivotSE = relocationFamily[0] # The earliest event in the relocationFamily
-			getRelativesFunc = lambda se: [se.getCB().getParent()] + se.getCB().getDependencies()
-			shouldRelocateFunc = lambda pivotsIx, relativesIx: pivotsIx < relativesIx
-		elif afterEvent:
-			# We've moved later in the exec schedule, so descendants may need to be relocated
-			relative_pivotSE = relocationFamily[-1] # The latest event in the relocationFamily
-			getRelativesFunc = lambda se: se.getCB().getChildren() + se.getCB().getDependents()
-			shouldRelocateFunc = lambda pivotsIx, relativesIx: relativesIx < pivotsIx
-		else:
-			assert(not "Error, how did I get here?")
-
-		relative_pivotIx = self.execSchedule.index(relative_pivotSE)
-		logging.debug("relative_pivotIx {}".format(relative_pivotIx))
-		relativeSEsToRelocate = []
-		for se in relocationFamily:
-			for relativeCB in getRelativesFunc(se):
-				relativeSE = self._cbToScheduleEvent(relativeCB)[1]
-				assert(relativeSE)
-				if shouldRelocateFunc(relative_pivotIx, self.execSchedule.index(relativeSE)):
-					relativeSEsToRelocate.append(relativeSE)
-
-		# Remove duplicates
-		relativeSEsToRelocate = set(relativeSEsToRelocate)
-		# Keep only one relative per relocation family present in relativeSEsToRelocate
-		relativeSEs_familyRepresentatives = set()
-		for relativeSE in relativeSEsToRelocate:
-			family = self._findRelocationFamily(relativeSE)
-			if not (set(family) & relativeSEs_familyRepresentatives):
-				logging.debug("Keeping relativeSE {} as a family representative".format(relativeSE))
-				relativeSEs_familyRepresentatives.add(relativeSE) 
-			else:
-				logging.debug("There is already a representative from the family of relativeSE {}".format(relativeSE))
-
-		for relativeSE in relativeSEs_familyRepresentatives:
-			logging.debug("Relocating relative {} (type {})".format(relativeSE, relativeSE.getCB().getCBType()))
-			didInsertRelative, newRelativeIx = self._relocateEvent(relativeSE, pivotEvent=relative_pivotSE)
-			if didInsertRelative:
-				logging.debug("Relocated relative {} (type {}) to ix {}".format(relativeSE, relativeSE.getCB().getCBType(), newRelativeIx))
-			else:
-				raise ScheduleException("_relocateEvent: Error, could not relocate relative {} (type {})".format(relativeSE, relativeSE.getCB().getCBType()))
+		# In case any members of relocationFmaily are now executing after their children or before their ancestors. 
+		self._relocateBypassedRelatives(relocationFamily)
 
 		# TODO Is it possible that while relocating one SE I discomfit another SE that I already relocated?  
 
 		newEventIx = self.execSchedule.index(event)
 		return True, newEventIx
+
+	# input: (relocationFamily)
+	#   relocationFamily    List of SEs that have just been relocated by _relocateEvent.
+	# output: ()
+	#
+	# After relocating the self.execSchedule position of the SEs in relocationFamily, they may now be
+	# executing before their ancestors or after their children.
+	# This would be pretty hard to convince libuv to achieve!
+	#
+	# Presumably only one of these conditions is possible, depending on the pivot in _relocateEvent,
+	# but just in case we handle both.
+	#
+	# Call _relocateEvent to fix up any such issues.
+	def _relocateBypassedRelatives(self, relocationFamily):
+		assert(relocationFamily)
+		
+		getImmediateAncestorCBsFunc = lambda se: [se.getCB().getParent()] + se.getCB().getDependencies()
+		ancestorsPivot = relocationFamily[0]
+		ancestorShouldRelocateFunc = lambda pivotSE, ancestorSE: self.execSchedule.index(pivotSE) < self.execSchedule.index(ancestorSE)
+		relocateInfo_ancestors = { 'relocationType': 'ancestors',
+														   'getRelativeCBsFunc': getImmediateAncestorCBsFunc,
+														   'pivot': ancestorsPivot,
+														   'shouldRelocateFunc': ancestorShouldRelocateFunc,
+														 }
+		 
+		getImmediateDescendantCBsFunc = lambda se: se.getCB().getChildren() + se.getCB().getDependents()
+		descendantsPivot = relocationFamily[-1]
+		descendantShouldRelocateFunc = lambda pivotSE, descendantSE: self.execSchedule.index(descendantSE) < self.execSchedule.index(pivotSE)
+		relocateInfo_descendants = { 'relocationType': 'descendants',
+															   'getRelativeCBsFunc': getImmediateDescendantCBsFunc,
+														     'pivot': descendantsPivot,
+														     'shouldRelocateFunc': descendantShouldRelocateFunc,
+														   }
+
+		for relocateInfo in [relocateInfo_ancestors, relocateInfo_descendants]:
+			logging.debug("Relocating {}".format(relocateInfo['relocationType']))
+			
+			pivotSE = relocateInfo['pivot']
+			
+			# Make one _relocateEvent request per relocationFamily present in relativesToRelocate.
+			relativeCBLists = [relocateInfo['getRelativeCBsFunc'](se) for se in relocationFamily]
+			relativeCBs = set([cb for list in relativeCBLists for cb in list if cb.executed()])
+			logging.debug("relativeCBS {}: types {}".format(relativeCBs, [cb.getCBType() for cb in relativeCBs]))
+			relativeSEs = [self._cbToScheduleEvent(cb)[1] for cb in relativeCBs]
+			 # Don't include the just-relocated family (this may give us nothing to do).
+			relativeSEs = [se for se in relativeSEs if se not in relocationFamily]
+
+			possibleRelativeSEsToRelocate = [se for se in relativeSEs if relocateInfo['shouldRelocateFunc'](pivotSE, se)]
+			ixs = [self.execSchedule.index(se) for se in possibleRelativeSEsToRelocate]
+			types = [se.getCB().getCBType() for se in possibleRelativeSEsToRelocate]
+			logging.debug("possibleRelativeSEsToRelocate {}: ixs {} types {}".format(possibleRelativeSEsToRelocate, ixs, types))
+			
+			relativeSEsToRelocate = []
+			for relativeSE in possibleRelativeSEsToRelocate:
+				relocationFamily = self._findRelocationFamily(relativeSE)
+				if not (set(relocationFamily) & set(relativeSEsToRelocate)):
+					# relative is a representative of a not-yet-represented relocationFamily.
+					relativeSEsToRelocate.append(relativeSE)
+
+			# Relocate each family representative, if any.
+			ixs = [self.execSchedule.index(se) for se in relativeSEsToRelocate]
+			types = [se.getCB().getCBType() for se in relativeSEsToRelocate]
+			logging.debug("Relocating {} bypassed {}: {} (ixs {} types {})".format(len(relativeSEsToRelocate), relocateInfo['relocationType'], relativeSEsToRelocate, ixs, types))
+			for relativeSE in relativeSEsToRelocate:
+				# relativeSEsToRelocate may be interrelated, in which case the recursion into self._relocateEvent and self._relocateBypassedEvents
+				# may eliminate the need to relocate some of them.
+				#
+				# NB The relationships of relatives should not be complicated; e.g. we might be trying to relocate both a node C and a mutual ancestor A of us and C, but nothing weirder than that.
+				# As a result, in the event of interrelated relatives like the case just described:
+				#  - If we relocate A first, it won't pull C along because C already occurs after A.
+				#    Then we'll relocate C, which will be slotted between A and us, which is what we want.
+				#    We know C will be slotted between A and us because _relocateEvent uses the "add a private UV_RUN loop" immediately before ours" strategy.
+				#  - If we relocate C first, it will recursively relocate A as well, moving it earlier than both A and us.
+				#    Then we won't need to relocate A after all.
+				# An analogous situation is true for descendants.
+				if relocateInfo['shouldRelocateFunc'](pivotSE, relativeSE):
+					logging.debug("Relocating relative {} (type {})".format(relativeSE, relativeSE.getCB().getCBType()))
+					didInsertRelative, newRelativeIx = self._relocateEvent(relativeSE, pivotEvent=pivotSE)
+					if didInsertRelative:
+						logging.debug("Relocated relative {} (type {}) to ix {}".format(relativeSE, relativeSE.getCB().getCBType(), newRelativeIx))
+					else:
+						raise ScheduleException("_relocateBypassedEvents: Error, could not relocate relative {} (type {})".format(relativeSE, relativeSE.getCB().getCBType()))
+				else:
+					logging.debug("I no longer need to relocate relative {} (type {})".format(relativeSE, relativeSE.getCB().getCBType()))
+		
+		return
 
 	# input: (event)
 	#   event             must be an async ScheduleEvent
@@ -748,7 +789,6 @@ class Schedule (object):
 			relocationClass = RelocationClass.GENERAL_LOOPER
 		assert(relocationClass in RelocationClass.relocationClasses)
 
-		logging.debug("eventType {} relocationClass {}".format(eventType, relocationClass))
 		return relocationClass
 
 	# input: (event)
@@ -756,9 +796,11 @@ class Schedule (object):
 	# output: (relocationFamily)
 	#   relocationFamily  A 'family' of ScheduleEvents that must be relocated together because they are really nested CBs.
 	#                     All members of the 'family' are in the same libuv loop stage.
-	#                     All members of the 'family' are adjacent to each other in the execution of their thread.
-	#                     ('TP work' events may be interrupted by marker events from the looper thread.)
 	#                     relocationFamily is sorted by increasing self.execSchedule index order.
+  #                     All members of the 'family' are adjacent to each other in the execution of their thread.
+  #                     ('TP work' events may be interrupted by marker events from the looper thread.)
+  #                     If the schedule is normalized, they are also adjacent in self.execSchedule.
+
 	def _findRelocationFamily(self, event):
 		assert(event.getCB().isAsync())
 
@@ -825,8 +867,10 @@ class Schedule (object):
 
 		# Sorted by increasing execSchedule index
 		relocationFamily = sorted(relocationFamily, key=lambda se: self.execSchedule.index(se))
+		if self.normalized:
+			assert(self.execSchedule.index(relocationFamily[0]) + len(relocationFamily) - 1 == self.execSchedule.index(relocationFamily[-1]))
 
-		logging.debug("_findRelocationFamily: Returning a family of size {} in relocationClass {} and loop stage {}: family {}".format(len(relocationFamily), relocationClass, list(uniqueLoopStages)[0], relocationFamily))
+		logging.debug("Returning a family of size {} in relocationClass {} and loop stage {}: family {}".format(len(relocationFamily), relocationClass, list(uniqueLoopStages)[0], relocationFamily))
 		return relocationFamily
 
 	# input: (event, [includeDependents=True])
@@ -920,10 +964,10 @@ class Schedule (object):
 		for i, scheduleEvent in enumerate(self.execSchedule[startIx:lastIx:sliceStride]):
 			if searchFunc(scheduleEvent):
 				matchIx = startIx + i*sliceStride
-				logging.debug("Match! (matchIx {} startIx {} direction {})".format(matchIx, startIx, direction))
+				#logging.debug("Match! (matchIx {} startIx {} direction {})".format(matchIx, startIx, direction))
 				return matchIx, self.execSchedule[matchIx]
 
-		logging.debug("Found no matching scheduleEvent (startIx {} direction {})".format(startIx, direction))
+		#logging.debug("Found no matching scheduleEvent (startIx {} direction {})".format(startIx, direction))
 		return None, None
 
 	# input: (newLoopIx, [enterLoop=True])
@@ -962,7 +1006,7 @@ class Schedule (object):
 			# Create and insert a ScheduleEvent.
 			scheduleEvent = ScheduleEvent(markerCB)
 			scheduleEvent.setLibuvLoopStage(Schedule.MARKER_EVENT_TO_STAGE[markerType])
-			logging.debug("Inserting new scheduleEvent {} (type {}) at index {}".format(scheduleEvent, scheduleEvent.getCB().getCBType(), insertIx))
+			#logging.debug("Inserting new scheduleEvent {} (type {}) at index {}".format(scheduleEvent, scheduleEvent.getCB().getCBType(), insertIx))
 			self.execSchedule.insert(insertIx, scheduleEvent)
 
 		#TODO Much cheaper to fix up only the markers prior to markersToInsert[0] and after markersToInsert[-1]
@@ -976,7 +1020,7 @@ class Schedule (object):
 		assert(self.execSchedule[newLoopIx + len(markersToInsert)].getCB().getCBType() == Schedule.runBegin)
 
 		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
-		logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
+		#logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
 		assert(len(markersToInsert) == finalExecScheduleLen - beginExecScheduleLen == finalTreeSize - beginTreeSize)
 
 		logging.debug("Returning newLoopIx {} (the new loop runs from indices {} to {})".format(newLoopIx, newLoopIx, newLoopIx + len(markersToInsert) - 1))
@@ -1016,7 +1060,7 @@ class Schedule (object):
 		scheduleEvent = ScheduleEvent(asyncCB)
 		scheduleEvent.setLibuvLoopStage(self.tpDoneAsyncRoot.getLibuvLoopStage())
 		insertIx = ioPollIx + 1
-		logging.debug("Inserting new 'TP done' event {} (type {}) at index {}".format(scheduleEvent, scheduleEvent.getCB().getCBType(), insertIx))
+		#logging.debug("Inserting new 'TP done' event {} (type {}) at index {}".format(scheduleEvent, scheduleEvent.getCB().getCBType(), insertIx))
 		self.execSchedule.insert(insertIx, scheduleEvent)
 
 		# The ASYNC_CB that precedes 'threadpool done' events is part of a
@@ -1024,10 +1068,10 @@ class Schedule (object):
 		# Update self.cbTree appropriately.
 		self._updateCBTreeWithTPDoneStage(scheduleEvent)
 
-		logging.debug("Inserted new 'TP done' CB: {} ({})".format(self.execSchedule[insertIx], self.execSchedule[insertIx].getCB()))
+		#logging.debug("Inserted new 'TP done' CB: {} ({})".format(self.execSchedule[insertIx], self.execSchedule[insertIx].getCB()))
 
 		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
-		logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
+		#logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
 		assert(1 == finalExecScheduleLen - beginExecScheduleLen == finalTreeSize - beginTreeSize)
 
 		return insertIx
@@ -1203,6 +1247,7 @@ class Schedule (object):
 			familyIxs = [self.execSchedule.index(se) for se in family]
 			minIx, maxIx = min(familyIxs), max(familyIxs)
 			if minIx + len(familyIxs) - 1 != maxIx:
+				# family is not adjacent in self.execSchedule.
 				isValid, interveningEvents = self.__isTPWorkFamilyValid(family)
 				if not isValid:
 					raise ScheduleException("normalize: Error, family {} is not valid".format(family))
@@ -1212,9 +1257,8 @@ class Schedule (object):
  					self.execSchedule.remove(interveningEvent)
  				insertIx = maxIx - len(interveningEvents) + 1 # One after the final event in family
  				assert(insertIx == self.execSchedule.index(family[-1]) + 1) # TODO Debugging, can take this out
- 				for interveningEvent in interveningEvents:
- 					self.execSchedule.insert(insertIx, interveningEvent)
- 					insertIx += 1
+ 				for i, interveningEvent in enumerate(interveningEvents):
+ 					self.execSchedule.insert(insertIx + i, interveningEvent)
  		
  		logging.debug("Ensuring that the first event after the INITIAL_STACK is a UV_RUN_BEGIN marker")
  		while self.execSchedule[1].getCB().getCBType() != Schedule.runBegin:
@@ -1234,6 +1278,7 @@ class Schedule (object):
  				self.execSchedule.insert(insertIx + i, se)
 		
 		self._repairAfterModifications()
+		self.normalized = True
 		assert(self.isValid())
 
 	# input: (file)
