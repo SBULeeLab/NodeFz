@@ -1146,6 +1146,10 @@ class Schedule (object):
 	def _repairAfterModifications(self):
 		logging.debug("Repairing after modifications")
 		self._updateExecIDs()
+		tpDoneCB = None
+		if self.tpDoneAsyncRoot:
+			tpDoneCB = self.tpDoneAsyncRoot.getCB()
+		self.cbTree.fixInitialStackChildOrder(tpDoneCB)
 		self.cbTree.recalculateRegIDs()
 		self.cbTree.recalculateTreeLevels()
 		self.cbTree.recalculateChildNumbers()
@@ -1175,9 +1179,15 @@ class Schedule (object):
 	# input: ()
 	# output: ()
 	#
-	# "Normalize" this schedule to make it easier to work with.
-	# Operations:
-	#   - put nested 'TP work' events adjacent in the execSchedule
+	# "Normalize" this schedule to make it easier for rescheduler to work cleanly.
+	# It's easier to assume the schedule looks a certain way than to deal with special cases.
+	# None of these changes affect the actual behavior of the application under this Schedule, they just deal with warty edge cases. 
+	#
+	# After normalization:
+	#   - nested 'TP work' events are adjacent in the execSchedule
+	#     in the wild, they can be interleaved with non-user-CB events
+	#   - the first event executed after the INITIAL_STACK is a 'UV_RUN_BEGIN' marker event
+#       in the wild, it might be a 'TP work' event   
 	def normalize(self):
 		assert(self.isValid())
 		
@@ -1205,6 +1215,23 @@ class Schedule (object):
  				for interveningEvent in interveningEvents:
  					self.execSchedule.insert(insertIx, interveningEvent)
  					insertIx += 1
+ 		
+ 		logging.debug("Ensuring that the first event after the INITIAL_STACK is a UV_RUN_BEGIN marker")
+ 		while self.execSchedule[1].getCB().getCBType() != Schedule.runBegin:
+ 			firstUVRunIx, firstUVRunSE = self._findNextLooperScheduleEvent(1)
+ 			assert(firstUVRunIx and firstUVRunSE) # They might not exist, in the event of an initial catastrophe, but let's not worry about that.
+ 			# The only CBs that can precede the first UV_RUN_BEGIN marker are threadpool CBs, e.g. from fs.X calls in the INITIAL_STACK.
+ 			seToMove = self.execSchedule[1]
+ 			assert(seToMove.getCB().isThreadpoolCB())
+ 			# Move each 'TP work' family.
+ 			# NB We could do this using self._relocateEvent, but the operation is clear-cut so I don't see a need to do so.
+ 			logging.debug("Moving se {} (type {}) after the first UV_RUN_BEGIN marker".format(seToMove, seToMove.getCB().getCBType()))  
+ 			family = self._findRelocationFamily(seToMove)
+ 			for se in family:
+ 				self.execSchedule.remove(se)
+ 			insertIx = firstUVRunIx - len(family) + 1 # Insert after the UV_RUN_BEGIN marker.
+ 			for i, se in enumerate(family):
+ 				self.execSchedule.insert(insertIx + i, se)
 		
 		self._repairAfterModifications()
 		assert(self.isValid())

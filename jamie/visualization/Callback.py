@@ -107,6 +107,8 @@ class CallbackNode (object):
 
 	TIME_KEYS = ["registration_time", "start_time", "end_time"]
 	
+	EXIT_TYPE = "EXIT"
+	
 	# CallbackString (a string of fields formatted as: 'Callback X: | <key> <value> | <key> <value> | .... |'
 	#   A CallbackString must a key-value pair for all of the members of self.REQUIRED_KEYS
 	#     'start', 'end' must have value of the form '<Xs Yns>' 
@@ -546,6 +548,39 @@ class CallbackNodeTree (object):
 		for node in callbackNodes:
 			assert(node.getTreeRoot() == self.root)
 		assert(self.isValid())
+
+	# input: (tpDoneAsyncCB)
+	#   tpDoneAsyncCB        The ASYNC_CB that begins the chain associated with the 'TP done' events, or None
+	# output: ()
+	#
+	# The child order of the root (INITIAL_STACK) node is well-defined by libuv.
+	# This order matters because child order is used by the libuv REPLAYer to determine which node to execute next.
+	def fixInitialStackChildOrder(self, tpDoneAsyncCB):
+		initialStack = self.root
+		children = initialStack.getChildren()
+		newChildOrder = []
+		if children:
+			# Identify "special" children
+			asyncCBs = [cb for cb in children if cb.getCBType() == "UV_ASYNC_CB"]
+			if tpDoneAsyncCB:
+				tpDoneAsyncCBAsList = [tpDoneAsyncCB]
+				nonTPDoneAsyncCBs = [cb for cb in asyncCBs if cb != tpDoneAsyncCB]
+			else:
+				tpDoneAsyncCBAsList = []
+				nonTPDoneAsyncCBs = asyncCBs
+			exit = [cb for cb in children if cb.getCBType() == CallbackNode.EXIT_TYPE]
+			markers = [cb for cb in children if cb.isMarkerNode()]
+
+			specialChildren = tpDoneAsyncCBAsList + nonTPDoneAsyncCBs + markers + exit
+			# ...and the rest of 'em
+			otherChildren = [cb for cb in children if cb not in specialChildren]
+
+			logging.debug("tpDoneAsyncCBAsList {} nonTPDoneAsyncCBs {} otherChildren {} markers {} exit {}".format(tpDoneAsyncCBAsList, nonTPDoneAsyncCBs, otherChildren, markers, exit))
+			newChildOrder =  tpDoneAsyncCBAsList + nonTPDoneAsyncCBs + otherChildren + markers + exit
+
+		childTypes = [cb.getCBType() for cb in newChildOrder]
+		logging.debug("New child order: types {}".format(childTypes))
+		initialStack.setChildren(newChildOrder)
 
 	# input: ()
 	# output: ()
