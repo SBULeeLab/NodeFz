@@ -553,6 +553,10 @@ class Schedule (object):
 			self._printExecSchedule()
 			raise
 
+		# self.execSchedule may now end in one or more empty loops due to relocating CBs out of them.
+		# In actuality, libuv will exit once it has no more pending CBs.
+		self._removeTrailingEmptyUVRunLoops()  
+		
 		# We've tweaked self.execSchedule and self.cbTree. Repair them.
 		self._repairAfterModifications()
 
@@ -971,20 +975,21 @@ class Schedule (object):
 		return None, None
 
 	# input: (newLoopIx, [enterLoop=True])
-	#		newLoopIx		 ix of a MARKER_UV_RUN_BEGIN event before which we will insert a new loop
+	#		newLoopIx		 ix before which we will insert a new loop (such that the new MARKER_UV_RUN_BEGIN is located at newLoopIx)
+	#                This must either be the index of a MARKER_UV_RUN_BEGIN event or the EXIT event.
 	#   enterLoop    Insert the UV_RUN stage with inner stages (timers, etc.)?
 	# output: (ixOfBeginningOfNewLoop)
 	#   ixOfBeginningOfNewLoop    The index of the MARKER_UV_RUN_BEGIN ScheduleEvent beginning the new loop
 	#
-	# Modifies self.execSchedule and self.cbTree.
-	# The execIDs of all events after newLoopIx nodes are modified.
+	# self.execSchedule gets new marker events. They are inserted into the "marker line" in self.cbTree.
 	def _insertUVRunLoop(self, newLoopIx, enterLoop=True):
-		# newLoopIx must be to a MARKER_UV_RUN_BEGIN CB.
-		assert(self.execSchedule[newLoopIx].getCB().getCBType() == Schedule.runBegin)
+		assert(newLoopIx < len(self.execSchedule))
+		originalOccupantSE = self.execSchedule[newLoopIx]
+		assert(originalOccupantSE.getCB().getCBType() == Schedule.runBegin or originalOccupantSE.getCB().getCBType() == "EXIT")
 
 		beginExecScheduleLen, beginTreeSize = len(self.execSchedule), len(self._regList())
 
-		logging.debug("Adding new UV_RUN loop at index {}".format(newLoopIx))
+		logging.debug("Adding new UV_RUN loop at index {} (enterLoop {})".format(newLoopIx, enterLoop))
 
 		# What stages will we be inserting?
 		if enterLoop:			
@@ -1009,7 +1014,7 @@ class Schedule (object):
 			#logging.debug("Inserting new scheduleEvent {} (type {}) at index {}".format(scheduleEvent, scheduleEvent.getCB().getCBType(), insertIx))
 			self.execSchedule.insert(insertIx, scheduleEvent)
 
-		#TODO Much cheaper to fix up only the markers prior to markersToInsert[0] and after markersToInsert[-1]
+		#TODO Cheaper to fix up only the markers prior to markersToInsert[0] (and after markersToInsert[-1], if any).
 		self._updateMarkerInheritance()
 		
 		# We don't know if self.isValid() because we don't know the state of things when we were called.
@@ -1017,14 +1022,51 @@ class Schedule (object):
 		# Since we inserted this loop before the existing loop, newLoopIx is the beginning of the new loop.
 		assert(self.execSchedule[newLoopIx].getCB().getCBType() == Schedule.runBegin)
 		# and the original loop is still there, right?
-		assert(self.execSchedule[newLoopIx + len(markersToInsert)].getCB().getCBType() == Schedule.runBegin)
+		assert(self.execSchedule[newLoopIx + len(markersToInsert)] == originalOccupantSE)
 
 		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
-		#logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
 		assert(len(markersToInsert) == finalExecScheduleLen - beginExecScheduleLen == finalTreeSize - beginTreeSize)
 
 		logging.debug("Returning newLoopIx {} (the new loop runs from indices {} to {})".format(newLoopIx, newLoopIx, newLoopIx + len(markersToInsert) - 1))
 		return newLoopIx
+
+	# input: ()
+	# output: ()
+	#
+	# Remove any trailing empty uv run loops.
+	# In a successful program execution, libuv will terminate once it has no more pending CBs.
+	# The final loop consists of UV_RUN_BEGIN->UV_RUN_END. 
+	def _removeTrailingEmptyUVRunLoops(self):
+		stillEmptyLoops = True
+		while stillEmptyLoops:
+			beginIx, beginSE = self._findMatchingScheduleEvent(lambda se: se.getCB().getCBType() == Schedule.runBegin, "earlier", len(self.execSchedule) - 1)
+			if beginIx:
+				nextUserIx, nextUserSE = self._findMatchingScheduleEvent(lambda se: not se.getCB().isMarkerNode() and not se.getCB().isThreadpoolCB(), "later", beginIx+1)
+				if nextUserIx:
+					logging.debug("Loop beginning at {} contains user events, so is not empty".format(beginIx))
+					stillEmptyLoops = False
+				else:
+					logging.debug("Loop beginning at {} contains no user events, so it is empty".format(beginIx))
+					self.execSchedule.pop(beginIx)
+					popIx = beginIx
+					# Pop until the EXIT event or the next UV_RUN_BEGIN loop.
+					while (popIx < len(self.execSchedule)-1 and self.execSchedule[popIx].getCB().getCBType() != Schedule.runBegin):
+						# Skip TP events, pop marker events
+						if self.execSchedule[popIx].getCB().isThreadpoolCB():
+							popIx += 1
+						else:
+							assert(self.execSchedule[popIx].getCB().isMarkerNode())
+							self.execSchedule.pop(popIx)
+
+		# self.cbTree now contains a bunch of markers that aren't present anymore. Remove them.
+		self._updateMarkerInheritance()
+		
+		# Insert a trailing non-entering uv run loop
+		# TODO What if the schedule exited early?
+		logging.debug("Inserting a non-entering UV_RUN loop")
+		self._insertUVRunLoop(len(self.execSchedule)-1, enterLoop=False)
+		
+		return
 
 	# input: (loopIx)
 	#   loopIx          index of a UV_RUN loop into which the new stage should be added

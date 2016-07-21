@@ -3,6 +3,7 @@
 #include "list.h"
 #include "map.h"
 #include "mylog.h"
+#include "timespec_funcs.h"
 
 #include "unix/internal.h"
 
@@ -29,10 +30,21 @@ struct
   /* REPLAY mode. */
   lcbn_t *shadow_root; /* Root of the "shadow tree" -- the registration tree described in the input file. */
   struct map *name_to_lcbn; /* Used to map hash(name) to lcbn. Allows us to re-build the tree. */
-  struct list *desired_schedule; /* A tree_as_list list (rooted at shadow_root) of sched_lcbn_t's, expressing desired execution order, first to last. We discard internal nodes (e.g. initial stack node). */
-  struct list *execution_schedule; /* List of the executed sched_lcbn_t's, in order of execution. Nodes move from desired_schedule to execution_schedule as they are executed. This gives us a cheap way to implement scheduler__find_scheduled_sched_lcbn. */
+  struct list *desired_schedule; /* A tree_as_list list (rooted at shadow_root) of lcbn_t's, expressing desired execution order, first to last. The front of the list is the next to execute; see execution_schedule. */
+  struct list *execution_schedule; /* List of the executed sched_lcbn_t's, in order of execution. Nodes are shifted from desired_schedule, wrapped in a sched_lcbn_t, and pushed on execution_schedule as they are executed. This gives us a cheap way to implement scheduler__find_scheduled_sched_lcbn. */
   int n_executed;
+
+  /* DIVERGENCE */
+  /* Divergence prior to having executed this many CBs will result in a crash. 
+     Controlled via env variable UV_SCHEDULE_MIN_N_EXECUTED_BEFORE_DIVERGENCE_ALLOWED, which is checked in unified_callback_init and fed into scheduler_init.
+     -1 means that divergence at any point in the schedule is allowed. */
+  int min_n_executed_before_divergence_allowed;
   int diverged; /* 1 if the REPLAY'd schedule has diverged. */
+
+  /* For timeout-based divergence detection. */
+  int replay_divergence_timeout; /* In seconds. */
+  struct timespec divergence_timer; /* Use scheduler__divergence_timer_X to reset and check. */
+  int just_scheduler_advanced; /* Flag. */
 
   uv_mutex_t lock;
 } scheduler;
@@ -63,6 +75,12 @@ static void scheduler__set_mode (schedule_mode_t new_mode)
 
   scheduler.mode = new_mode;
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__set_mode: returning\n"));
+}
+
+/* Get the mode of the scheduler. */
+static schedule_mode_t scheduler__get_mode (void)
+{
+  return scheduler.mode;
 }
 
 static void scheduler_uninitialize (void)
@@ -124,34 +142,6 @@ static int sched_context_looks_valid (sched_context_t *sched_context)
     return valid;
 }
 
-/* Return the scheduled sched_lcbn corresponding to already-executed SCHED_LCBN, or NULL. 
-   The returned lcbn_t is read-only. 
-   LCBN must have been scheduler_advance()'d and executed already. */
-static sched_lcbn_t * scheduler__find_scheduled_sched_lcbn (sched_lcbn_t *sched_lcbn)
-{
-  sched_lcbn_t *mate = NULL;
-  struct list_elem *e = NULL;
-
-  assert(sched_lcbn_looks_valid(sched_lcbn));
-  assert(lcbn_executed(sched_lcbn->lcbn));
-
-  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_scheduled_sched_lcbn: begin: sched_lcbn %p (lcbn %p)\n", sched_lcbn, sched_lcbn->lcbn));
-  /* Search backwards in execution_schedule for a matching exec_id. */
-  for (e = list_back(scheduler.execution_schedule); e != list_head(scheduler.execution_schedule); e = list_prev(e))
-  {
-    sched_lcbn_t *potential_mate = list_entry(e, sched_lcbn_t, elem); 
-    assert(sched_lcbn_looks_valid(potential_mate));
-    if (potential_mate->lcbn->global_exec_id == sched_lcbn->lcbn->global_exec_id)
-    {
-      mate = potential_mate;
-      break;
-    }
-  }
-
-  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_scheduled_sched_lcbn: returning mate %p\n", mate));
-  return mate;
-}
-
 /* Internal scheduler lock. 
    These lock routines can be called recursively. Don't mess up. */
 int lock_depth = 0; /* Mimic a recursive mutex. */
@@ -207,6 +197,110 @@ static void scheduler__unlock (void)
   }
 
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__unlock: returning (lock_depth %i)\n", lock_depth));
+}
+
+/* Return the scheduled sched_lcbn corresponding to already-executed SCHED_LCBN, or NULL. 
+   The returned lcbn_t is read-only. 
+   LCBN must have been scheduler_advance()'d and executed already. */
+static sched_lcbn_t * scheduler__find_scheduled_sched_lcbn (sched_lcbn_t *sched_lcbn)
+{
+  sched_lcbn_t *mate = NULL;
+  struct list_elem *e = NULL;
+
+  assert(sched_lcbn_looks_valid(sched_lcbn));
+  assert(lcbn_executed(sched_lcbn->lcbn));
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_scheduled_sched_lcbn: begin: sched_lcbn %p (lcbn %p)\n", sched_lcbn, sched_lcbn->lcbn));
+
+  /* Search backwards in execution_schedule for a matching exec_id. */
+  scheduler__lock();
+  for (e = list_back(scheduler.execution_schedule); e != list_head(scheduler.execution_schedule); e = list_prev(e))
+  {
+    sched_lcbn_t *potential_mate = list_entry(e, sched_lcbn_t, elem); 
+    assert(sched_lcbn_looks_valid(potential_mate));
+    if (potential_mate->lcbn->global_exec_id == sched_lcbn->lcbn->global_exec_id)
+    {
+      mate = potential_mate;
+      break;
+    }
+  }
+  scheduler__unlock();
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_scheduled_sched_lcbn: returning mate %p\n", mate));
+  return mate;
+}
+
+/* Return the next looper LCBN in desired_schedule, or NULL if there are none. */
+static lcbn_t * scheduler__find_next_scheduled_looper_lcbn (void)
+{
+  lcbn_t *next_looper_lcbn = NULL;
+  struct list_elem *e = NULL;
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_next_scheduled_looper_lcbn: begin\n"));
+  assert(scheduler_initialized());
+
+  /* Search forwards in desired_schedule for the next non-looper sched_lcbn. */
+  scheduler__lock();
+  for (e = list_begin(scheduler.desired_schedule); e != list_end(scheduler.desired_schedule); e = list_next(e))
+  {
+    lcbn_t *lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem),
+                              lcbn_t, tree_node);
+
+    assert(lcbn_looks_valid(lcbn));
+    if (!lcbn_threadpool(lcbn))
+    {
+      next_looper_lcbn = lcbn;
+      break;
+    }
+  }
+  scheduler__unlock();
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler__find_next_scheduled_looper_lcbn: returning next_looper_lcbn %p\n", next_looper_lcbn));
+  return next_looper_lcbn;
+}
+
+/* Switch from REPLAY mode to RECORD mode.
+   Presumably triggered by divergence detection. 
+   If 0 <= min_n_executed_before_divergence_allowed and we haven't executed that many, crash. */
+static void scheduler__diverge (void)
+{
+  assert(scheduler__get_mode() == SCHEDULE_MODE_REPLAY);
+
+  if (0 <= scheduler.min_n_executed_before_divergence_allowed && scheduler.n_executed < scheduler.min_n_executed_before_divergence_allowed)
+  {
+    /* Diverging too early suggests either a cruddy schedule or some change in inputs/environment. */
+    mylog(LOG_SCHEDULER, 1, "scheduler__diverge: Schedule has diverged but we have only executed %i nodes < min_n_executed_before_divergence_allowed %i.\n",
+      scheduler.n_executed, scheduler.min_n_executed_before_divergence_allowed);
+    exit(1);
+  }
+
+  mylog(LOG_SCHEDULER, 1, "scheduler__diverge: Schedule has diverged having executed %i nodes. Changing mode to SCHEDULE_MODE_RECORD\n",
+    scheduler.n_executed);
+  scheduler.diverged = 1;
+  scheduler__set_mode(SCHEDULE_MODE_RECORD);
+
+  return;
+}
+
+/* Reset the divergence timer to the current time. */
+static void scheduler__divergence_timer_reset (void)
+{
+  assert(clock_gettime(CLOCK_REALTIME, &scheduler.divergence_timer) == 0);
+}
+
+/* Returns non-zero if we've timed out, else 0. */
+static int scheduler__divergence_timer_check (void)
+{
+  struct timespec now, diff;
+
+  assert(clock_gettime(CLOCK_REALTIME, &now) == 0);
+  timespec_sub(&now, &scheduler.divergence_timer, &diff);
+
+  mylog(LOG_SCHEDULER, 7, "scheduler__divergence_timer_check: It has been %i seconds since we last reset the timer\n", diff.tv_sec);
+
+  if (scheduler.replay_divergence_timeout <= diff.tv_sec)
+    return 1;
+  return 0;
 }
 
 /* Public APIs. */
@@ -291,7 +385,9 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
     goto DONE;
   }
 
-  /* "Normal" REPLAY path. Test semantic equality. */
+  /* "Normal" REPLAY path. */
+  
+  /* Test semantic equality. */
   assert(lcbn_looks_valid(next_lcbn));
   /* Optimization: marker events are just a chain, with no risk of confusion.
        Testing the cb_type is sufficient and saves time. */
@@ -302,6 +398,29 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
   verbosity = equal ? 5 : 7;
   mylog(LOG_SCHEDULER, verbosity, "sched_lcbn_is_next: Next exec_id %i next_lcbn %p (type %s) ready_sched_lcbn %p (type %s) equal? %i\n", next_lcbn->global_exec_id, next_lcbn, callback_type_to_string(next_lcbn->cb_type), ready_sched_lcbn->lcbn, callback_type_to_string(ready_sched_lcbn->lcbn->cb_type), equal);
   is_next = equal;
+
+  if (!is_next)
+  {
+    /* Test for timeout-base divergence. */
+
+    if (scheduler.just_scheduler_advanced)
+    {
+      /* This is the first sched_lcbn_is_next since we last called scheduler_advance(). Reset the timer.
+         We reset to protect users that call scheduler_advance() prior to invoking long-running LCBNs (that run longer than the timeout).
+         We only check the timer if we haven't found a match in the replay_divergence_timeout seconds since we last found a match. */
+      scheduler__divergence_timer_reset();
+      scheduler.just_scheduler_advanced = 0;
+    }
+    else
+    {
+      if (scheduler__divergence_timer_check())
+      {
+        mylog(LOG_SCHEDULER, 1, "sched_lcbn_is_next: It has been more than %i seconds since I last scheduler_advance'd and started looking for the next CB. I've timed out! This implies that the schedule has diverged\n", scheduler.replay_divergence_timeout);
+        scheduler__diverge();
+        /* Switching to RECORD mode will give the go-ahead to the next caller of sched_lcbn_is_next. */
+      }
+    }
+  }
 
   DONE:
     scheduler__unlock();
@@ -421,7 +540,7 @@ static void dump_lcbn_tree_list_func (struct list_elem *e, void *aux)
 }
 
 /* Not thread safe. */
-void scheduler_init (schedule_mode_t mode, char *schedule_file)
+void scheduler_init (schedule_mode_t mode, char *schedule_file, int min_n_executed_before_divergence_allowed)
 {
   FILE *f = NULL;
   sched_lcbn_t *sched_lcbn = NULL;
@@ -530,6 +649,13 @@ void scheduler_init (schedule_mode_t mode, char *schedule_file)
 
     mylog(LOG_SCHEDULER, 1, "scheduler_init: Printing all %u executed nodes in exec order.\n", list_size(scheduler.desired_schedule));
     list_apply(scheduler.desired_schedule, dump_lcbn_tree_list_func, NULL);
+
+    /* Initialize the divergence fields. */
+    scheduler.min_n_executed_before_divergence_allowed = min_n_executed_before_divergence_allowed;
+    scheduler.replay_divergence_timeout = 10;
+    scheduler__divergence_timer_reset();
+    scheduler.just_scheduler_advanced = 0;
+
   } /* REPLAY mode. */
 
   ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_init: returning\n"));
@@ -873,6 +999,9 @@ void scheduler_advance (void)
       mylog(LOG_SCHEDULER, 1, "scheduler_advance: Next up: lcbn %p (exec_id %i type %s)\n",
         lcbn, lcbn->global_exec_id, callback_type_to_string(lcbn->cb_type));
     }
+
+    scheduler__divergence_timer_reset();
+    scheduler.just_scheduler_advanced = 1;
   }
   scheduler.n_executed++;
 
@@ -922,7 +1051,7 @@ static struct list * uv__ready_req_lcbns_wrap (void *wrapper, enum execution_con
   return ret;
 }
 
-schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
+schedule_mode_t scheduler_check_lcbn_for_divergence (lcbn_t *lcbn)
 {
   int is_diverged = 0;
   schedule_mode_t schedule_mode = scheduler_get_mode();
@@ -934,13 +1063,12 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
   assert(scheduler_initialized());
   assert(lcbn);
 
-  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: begin: lcbn %p (mode %s)\n", lcbn, schedule_mode));
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_lcbn_divergence: begin: lcbn %p (mode %s)\n", lcbn, schedule_mode));
 
   if (schedule_mode == SCHEDULE_MODE_RECORD)
   {
     /* Can't diverge if we're recording. */
-    ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: returning mode %s\n", schedule_mode));
-    return schedule_mode;
+    goto RETURN;
   }
   
   /* Find the REPLAY record corresponding to this observed LCBN. */
@@ -961,7 +1089,7 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
 
   if (!(executed_min_n_children <= executed_n_children && executed_n_children <= executed_max_n_children))
   {
-    mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: schedule has diverged: is_initial_stack %i executed_n_children %u (min_n_children %u max_n_children %u)\n", lcbn->cb_type == INITIAL_STACK, executed_n_children, executed_min_n_children, executed_max_n_children);
+    mylog(LOG_SCHEDULER, 1, "scheduler_check_for_lcbn_divergence: schedule has diverged: is_initial_stack %i executed_n_children %u (min_n_children %u max_n_children %u)\n", lcbn->cb_type == INITIAL_STACK, executed_n_children, executed_min_n_children, executed_max_n_children);
     is_diverged = 1;
     goto MAYBE_DIVERGED;
   }
@@ -982,7 +1110,7 @@ schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn)
 
     if (executed_child_lcbn->cb_type != scheduled_child_lcbn->cb_type)
     {
-      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: schedule has diverged: child %u: executed child type %s != scheduled child %u type %s\n", i, callback_type_to_string(executed_child_lcbn->cb_type), callback_type_to_string(scheduled_child_lcbn->cb_type));
+      mylog(LOG_SCHEDULER, 1, "scheduler_check_for_lcbn_divergence: schedule has diverged: child %u: executed child type %s != scheduled child %u type %s\n", i, callback_type_to_string(executed_child_lcbn->cb_type), callback_type_to_string(scheduled_child_lcbn->cb_type));
       is_diverged = 1;
       goto MAYBE_DIVERGED;
     }
@@ -993,19 +1121,64 @@ MAYBE_DIVERGED:
   {
     /* Schedule has diverged. 
        We're breaking new ground; switch back to record mode. */
-    scheduler.diverged = 1;
-    mylog(LOG_SCHEDULER, 1, "scheduler_check_for_divergence: Schedule has diverged. Changing mode to SCHEDULE_MODE_RECORD\n");
-    schedule_mode = SCHEDULE_MODE_RECORD;
-    scheduler__set_mode(schedule_mode);
+    scheduler__diverge();
   }
   else
   {
-    mylog(LOG_SCHEDULER, 9, "scheduler_check_for_divergence: Schedule has not diverged.\n");
+    mylog(LOG_SCHEDULER, 9, "scheduler_check_for_lcbn_divergence: Schedule has not diverged.\n");
   }
 
   sched_lcbn_destroy(executed_sched_lcbn);
 
-  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_divergence: returning mode %s\n", schedule_mode));
+RETURN:
+  schedule_mode = scheduler__get_mode();
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_for_lcbn_divergence: returning mode %s\n", schedule_mode));
+  return schedule_mode;
+}
+
+schedule_mode_t scheduler_check_marker_for_divergence (enum callback_type cbt)
+{
+  int is_diverged = 0;
+  schedule_mode_t schedule_mode = scheduler_get_mode();
+  lcbn_t *next_looper_lcbn = NULL;
+
+  assert(scheduler_initialized());
+  assert(is_marker_event(cbt));
+
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_marker_for_divergence: begin: cbt %s\n", callback_type_to_string(cbt)));
+
+  if (schedule_mode == SCHEDULE_MODE_RECORD)
+  {
+    /* Can't diverge if we're recording. */
+    goto RETURN;
+  }
+
+  /* "Check against the schedule to see if we've diverged."
+     Locate the next looper event in schedule and compare its type to cbt. */
+  next_looper_lcbn = scheduler__find_next_scheduled_looper_lcbn();
+  if (!next_looper_lcbn || next_looper_lcbn->cb_type != cbt) 
+  {
+    mylog(LOG_SCHEDULER, 1, "scheduler_check_marker_for_divergence: schedule has diverged: marker type %s scheduled marker type %s\n",
+      callback_type_to_string(cbt), next_looper_lcbn ? callback_type_to_string(next_looper_lcbn->cb_type) : "ALL LOOPER EVENTS ARE FINISHED");
+    is_diverged = 1;
+    goto MAYBE_DIVERGED;
+  }
+
+MAYBE_DIVERGED:
+  if (is_diverged)
+  {
+    /* Schedule has diverged. 
+       We're breaking new ground; switch back to record mode. */
+    scheduler__diverge();
+  }
+  else
+  {
+    mylog(LOG_SCHEDULER, 9, "scheduler_check_marker_for_divergence: Schedule has not diverged.\n");
+  }
+
+RETURN:
+  schedule_mode = scheduler__get_mode();
+  ENTRY_EXIT_LOG((LOG_SCHEDULER, 9, "scheduler_check_marker_for_divergence: returning mode %s\n", schedule_mode));
   return schedule_mode;
 }
 
@@ -1066,7 +1239,7 @@ void scheduler_UT (void)
 
   /* Record mode: record a tree. */
   mylog(LOG_SCHEDULER, 5, "scheduler_UT: beginning RECORD mode\n"); 
-  scheduler_init(SCHEDULE_MODE_RECORD, "/tmp/scheduler_UT");
+  scheduler_init(SCHEDULE_MODE_RECORD, "/tmp/scheduler_UT", -1);
 
   /* Create an LCBN tree. */
   for (i = 0; i < n_items; i++)
@@ -1116,7 +1289,7 @@ void scheduler_UT (void)
 
   /* Replay mode: Try to replay. */
   mylog(LOG_SCHEDULER, 5, "scheduler_UT: beginning REPLAY mode\n"); 
-  scheduler_init(SCHEDULE_MODE_REPLAY, "/tmp/scheduler_UT");
+  scheduler_init(SCHEDULE_MODE_REPLAY, "/tmp/scheduler_UT", -1);
 
   /* The initial stack LCBN is considered already run. */
   assert(scheduler_remaining() == n_real_items);

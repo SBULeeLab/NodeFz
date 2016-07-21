@@ -991,8 +991,10 @@ static lcbn_t * get_exit_lcbn (void)
 /* Initialize the data structures for the unified callback code. */
 void unified_callback_init (void)
 {
-  char *schedule_modeP = NULL, *schedule_fileP = NULL;
+  char *schedule_modeP = NULL, *schedule_fileP = NULL, *min_n_executed_before_divergence_allowedP = NULL;
+  int min_n_executed_before_divergence_allowed = -1;
   enum schedule_mode schedule_mode;
+
   static int initialized = 0;
 
   assert(!initialized);
@@ -1026,9 +1028,16 @@ void unified_callback_init (void)
   schedule_modeP = getenv("UV_SCHEDULE_MODE");
   schedule_fileP = getenv("UV_SCHEDULE_FILE");
   assert(schedule_modeP && schedule_fileP);
-  mylog(LOG_MAIN, 1, "schedule_mode %s schedule_file %s\n", schedule_modeP, schedule_fileP);
+
+  min_n_executed_before_divergence_allowedP = getenv("UV_SCHEDULE_MIN_N_EXECUTED_BEFORE_DIVERGENCE_ALLOWED");
+  if (min_n_executed_before_divergence_allowedP)
+    min_n_executed_before_divergence_allowed = atoi(min_n_executed_before_divergence_allowedP); 
+  else
+    min_n_executed_before_divergence_allowed = -1;
+
+  mylog(LOG_MAIN, 1, "schedule_mode %s schedule_file %s min_n_executed_before_divergence_allowed %i\n", schedule_modeP, schedule_fileP, min_n_executed_before_divergence_allowed);
   schedule_mode = (strcmp(schedule_modeP, "RECORD") == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
-  scheduler_init(schedule_mode, schedule_fileP);
+  scheduler_init(schedule_mode, schedule_fileP, min_n_executed_before_divergence_allowed);
 
   uv_mutex_init(&invoke_callback_lcbn_lock);
   uv_cond_init(&not_my_turn);
@@ -1241,7 +1250,7 @@ void invoke_callback (callback_info_t *cbi)
     if (is_user_cb && scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
     {
       /* Replay: Now that the callback is done, check that it made exactly the children we expect. */
-      scheduler_check_for_divergence(lcbn_cur);
+      scheduler_check_lcbn_for_divergence(lcbn_cur);
       if (scheduler_has_diverged())
         mylog(LOG_MAIN, 1, "invoke_callback: schedule has diverged!\n");
     }
@@ -1380,7 +1389,7 @@ void uv__mark_init_stack_end (void)
 
   if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
   {
-    scheduler_check_for_divergence(init_stack_lcbn);
+    scheduler_check_lcbn_for_divergence(init_stack_lcbn);
     if (scheduler_has_diverged())
     {
       mylog(LOG_MAIN, 1, "uv__mark_init_stack_end: Error, schedule has diverged at the completion of the INITIAL_STACK. This implies that the something in the starting environment (source code, FS, daemons, databases, etc.) has changed.\n");
@@ -1472,8 +1481,8 @@ void uv__mark_exit_end (void)
 
   if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
   {
-    scheduler_check_for_divergence(get_init_stack_lcbn());
-    scheduler_check_for_divergence(exit_lcbn);
+    scheduler_check_lcbn_for_divergence(get_init_stack_lcbn());
+    scheduler_check_lcbn_for_divergence(exit_lcbn);
   }
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: EXIT has ended\n"));
@@ -1687,6 +1696,13 @@ void emit_marker_event (enum callback_type cbt)
   lcbn_add_child(parent, lcbn);
   lcbn->global_reg_id = lcbn_next_reg_id();
   scheduler_register_lcbn(sched_lcbn);
+
+  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+  {
+    scheduler_check_marker_for_divergence(cbt);
+    if (scheduler_has_diverged())
+      mylog(LOG_MAIN, 1, "emit_marker_event: schedule has diverged!\n");
+  }
 
   if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
   {

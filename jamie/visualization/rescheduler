@@ -44,9 +44,8 @@ def main():
 			logging.info("Generating schedule for race <{}>".format(race))
 			idMap = schedule.reschedule(race)
 			logging.info("The schedule from race <{}> is going into outFile {}".format(race, outFile))
-			logging.info("ID map:")
-			for i in idMap:
-				logging.info("  {} -> {}".format(i, idMap[i]))
+			mapStrings = ["{} -> {}".format(id, idMap[id]) for id in idMap]
+			logging.info("racy schedule {}: schedFile {} id mappings {}".format(ix, outFile, mapStrings))
 			schedule.emit(outFile)
 		except Schedule.ScheduleException as se:
 			logging.info("Sorry, could not achieve race <{}>: {}".format(race, se))

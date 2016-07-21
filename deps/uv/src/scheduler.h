@@ -100,8 +100,10 @@ typedef enum schedule_mode schedule_mode_t;
     SCHEDULE_FILE must be in registration order. 
     The exec_id of each LCBN should indicate the order in which execution occurred. 
 
+    min_n_executed_before_divergence_allowed: exactly what it says.
+
     The schedule recorded in replay mode is saved to 'SCHEDULE_FILE-replay'. */
-void scheduler_init (schedule_mode_t mode, char *schedule_file);
+void scheduler_init (schedule_mode_t mode, char *schedule_file, int min_n_executed_before_divergence_allowed);
 
 /* Return the mode of the scheduler. */
 schedule_mode_t scheduler_get_mode (void);
@@ -165,7 +167,12 @@ enum callback_type scheduler_next_lcbn_type (void);
 void scheduler_block_until_next (sched_lcbn_t *sched_lcbn);
 
 /* (scheduler_next_context) check if SCHED_LCBN is next on the schedule, or 
-   (invoke_callback) verify that SCHED_LCBN is supposed to be next on the schedule. */
+   (invoke_callback) verify that SCHED_LCBN is supposed to be next on the schedule. 
+   
+   REPLAY mode: If we go long enough without scheduler_advance'ing, calls to this function 
+                may trigger a switch to RECORD mode (presuming a more subtle schedule 
+                divergence than scheduler_advance detects).
+   */
 int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
 /* Tell the scheduler that the most-recent LCBN has been executed. 
@@ -173,27 +180,39 @@ int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
    LCBN is allowed to complete before a new (non-nested) LCBN is invoked. */
 void scheduler_advance (void);
 
-/* In REPLAY mode, LCBN is a just-finished node.
-   Check if it has diverged from the schedule.
+/* For REPLAY mode.
+   LCBN is a just-finished node. Check if it has diverged from the schedule.
 
-   Divergence: if its children are not exactly (number, order, and type)
-    as indicated in the input schedule.
+   Divergence: The schedule has diverged if the children of LCBN are not exactly 
+      (number, order, and type) as indicated in the input schedule.
 
    If divergence is detected, we can no longer REPLAY the input schedule because
-   we are no longer seeing the input schedule. We can respond in one of two ways:
-    - switch back to RECORD mode
-    - blow up
-   At the moment we blow up just to prove we can do it.
+     we are no longer seeing the input schedule.
+   We respond by "diverging" (switching back into RECORD mode if acceptable based on min_n_executed_before_divergence_allowed.
 
-   Divergence can happen in one of two ways:
+   A divergent schedule can occur in one of two ways:
     - REPLAYing a RECORDed application, encountering non-determinism in some fashion
-      e.g. branches that rely on wall clock time, random numbers, change in inputs
+      e.g. branches that rely on wall clock time, random numbers, change in inputs.
     - REPLAYing a rescheduled application -- we hoped the schedule would remain the
-      same after changing the order of observed events, but it didn't
+      same after changing the order of observed events, but it didn't.
 
-   Returns the schedule mode in place afterwards. 
+   Returns the schedule mode in place at the end of the function. 
+   Test that or scheduler_has_diverged() for divergence.
 */
-schedule_mode_t scheduler_check_for_divergence (lcbn_t *lcbn);
+schedule_mode_t scheduler_check_lcbn_for_divergence (lcbn_t *lcbn);
+
+/* For REPLAY mode.
+   cbt is the callback type of the next marker node, which we are trying to emit.
+   Check against the schedule to see if we've diverged.
+
+   Divergence example: We might have entered the loop and be presenting MARKER_RUN_TIMERS_1_BEGIN 
+     instead of the expected MARKER_UV_RUN_END. I can't think of another case that wouldn't
+     have been caught by the divergence timeout code instead.
+
+   Same idea as scheduler_check_lcbn_for_divergence.
+   Test the returned schedule_mode_t or scheduler_has_diverged() for divergence.
+*/
+schedule_mode_t scheduler_check_marker_for_divergence (enum callback_type cbt);
 
 /* How many LCBNs have already been/remain to be scheduled? 
    Notes:

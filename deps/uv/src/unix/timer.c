@@ -163,6 +163,8 @@ int uv_timer_stop(uv_timer_t* handle) {
   if (!uv__is_active(handle))
     return 0;
 
+  mylog(LOG_TIMER, 7, "uv_timer_stop: Stopping timer (handle %p)\n", handle);
+
   heap_remove((struct heap*) &handle->loop->timer_heap,
               (struct heap_node*) &handle->heap_node,
               timer_less_than);
@@ -250,21 +252,32 @@ void uv__run_timers(uv_loop_t* loop) {
   next_timer_context = scheduler_next_context(ready_timers);
   while (next_timer_context)
   {
+    int enabled = 0;
+
     /* Run the next timer. */
     next_timer_lcbn = scheduler_next_lcbn(next_timer_context);
     next_timer_handle = (uv_timer_t *) next_timer_context->wrapper;
 
-    assert(next_timer_lcbn->lcbn == lcbn_get(next_timer_handle->cb_type_to_lcbn, UV_TIMER_CB));
-    assert(uv__timer_ready(next_timer_handle));
+    /* Another event might have uv_timer_stop'd this, in which case we must discard it. 
+       This is a hazard of generating the list of ready events... */ 
+    enabled = uv__is_active(next_timer_handle);
 
-    uv_timer_stop(next_timer_handle);
-    uv_timer_again(next_timer_handle);
+    if (enabled)
+    {
+      assert(next_timer_lcbn->lcbn == lcbn_get(next_timer_handle->cb_type_to_lcbn, UV_TIMER_CB));
+      assert(uv__timer_ready(next_timer_handle));
+
+      uv_timer_stop(next_timer_handle);
+      uv_timer_again(next_timer_handle);
 
 #if UNIFIED_CALLBACK
-    invoke_callback_wrap((any_func) next_timer_handle->timer_cb, UV_TIMER_CB, (long) next_timer_handle);
+      invoke_callback_wrap((any_func) next_timer_handle->timer_cb, UV_TIMER_CB, (long) next_timer_handle);
 #else
-    handle->timer_cb(next_timer_handle);
+      handle->timer_cb(next_timer_handle);
 #endif
+    }
+    else
+      mylog(LOG_TIMER, 7, "uv__run_timers: skipping next_timer_handle %p because it is no longer enabled\n", next_timer_handle);
 
     /* Clean up, extract the next timer to run. */
     list_remove(ready_timers, &next_timer_context->elem); 

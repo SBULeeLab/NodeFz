@@ -1,3 +1,4 @@
+#include "timespec_funcs.h"
 #include <assert.h>
 
 /* RES = STOP - START. 
