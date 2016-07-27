@@ -54,6 +54,7 @@
         'src/mylog.c',
         'src/list.c',
         'src/mytree.c',
+        'src/timespec_funcs.c',
         'src/map.c',
         'src/scheduler.c',
         'src/logical-callback-node.c',
