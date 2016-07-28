@@ -172,7 +172,7 @@ void scheduler_block_until_next (sched_lcbn_t *sched_lcbn);
    REPLAY mode: If we go long enough without scheduler_advance'ing, calls to this function 
                 may trigger a switch to RECORD mode (presuming a more subtle schedule 
                 divergence than scheduler_advance detects).
-   */
+                You can call with NULL to check for timeout. */
 int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
 /* Tell the scheduler that the most-recent LCBN has been executed. 

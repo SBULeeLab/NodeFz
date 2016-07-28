@@ -363,13 +363,14 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
   int is_next = 0, equal = 0, verbosity = 0;
 
   assert(scheduler_initialized());
-  assert(sched_lcbn_looks_valid(ready_sched_lcbn));
+  assert(!ready_sched_lcbn || sched_lcbn_looks_valid(ready_sched_lcbn));
 
   scheduler__lock();
 
   /* RECORD mode: Every queried sched_lcbn is "next". */
   if (scheduler_get_mode() == SCHEDULE_MODE_RECORD)
   {
+    assert(ready_sched_lcbn);
     is_next = 1;
     goto DONE;
   }
@@ -387,17 +388,20 @@ int sched_lcbn_is_next (sched_lcbn_t *ready_sched_lcbn)
 
   /* "Normal" REPLAY path. */
   
-  /* Test semantic equality. */
-  assert(lcbn_looks_valid(next_lcbn));
-  /* Optimization: marker events are just a chain, with no risk of confusion.
-       Testing the cb_type is sufficient and saves time. */
-  if (is_marker_event(next_lcbn->cb_type) || is_marker_event(ready_sched_lcbn->lcbn->cb_type))
-    equal = (next_lcbn->cb_type == ready_sched_lcbn->lcbn->cb_type);
-  else
-    equal = lcbn_semantic_equals(next_lcbn, ready_sched_lcbn->lcbn);
-  verbosity = equal ? 5 : 7;
-  mylog(LOG_SCHEDULER, verbosity, "sched_lcbn_is_next: Next exec_id %i next_lcbn %p (type %s) ready_sched_lcbn %p (type %s) equal? %i\n", next_lcbn->global_exec_id, next_lcbn, callback_type_to_string(next_lcbn->cb_type), ready_sched_lcbn->lcbn, callback_type_to_string(ready_sched_lcbn->lcbn->cb_type), equal);
-  is_next = equal;
+  if (ready_sched_lcbn)
+  {
+    /* There's actually a ready sched_lcbn. Check for semantic equality with next_lcbn. */
+    assert(lcbn_looks_valid(next_lcbn));
+    /* Optimization: marker events are just a chain, with no risk of confusion.
+         Testing the cb_type is sufficient and saves time. */
+    if (is_marker_event(next_lcbn->cb_type) || is_marker_event(ready_sched_lcbn->lcbn->cb_type))
+      equal = (next_lcbn->cb_type == ready_sched_lcbn->lcbn->cb_type);
+    else
+      equal = lcbn_semantic_equals(next_lcbn, ready_sched_lcbn->lcbn);
+    verbosity = equal ? 5 : 7;
+    mylog(LOG_SCHEDULER, verbosity, "sched_lcbn_is_next: Next exec_id %i next_lcbn %p (type %s) ready_sched_lcbn %p (type %s) equal? %i\n", next_lcbn->global_exec_id, next_lcbn, callback_type_to_string(next_lcbn->cb_type), ready_sched_lcbn->lcbn, callback_type_to_string(ready_sched_lcbn->lcbn->cb_type), equal);
+    is_next = equal;
+  }
 
   if (!is_next)
   {

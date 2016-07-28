@@ -368,7 +368,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int ran_pending;
   enum callback_type next_cb_type = CALLBACK_TYPE_ANY;
 
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run: begin: loop %p mode %i\n", loop, mode));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv_run: begin: loop %p mode %i\n", loop, mode));
 
   r = uv__loop_alive(loop);
   if (!r)
@@ -396,12 +396,17 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (1). next_cb_type %s\n", callback_type_to_string(next_cb_type));
         if (is_run_timers_cb(next_cb_type))
         {
-          /* Sleep until the next timer is ready. */
-          timeout = uv__next_timeout(loop);
-          if (0 < timeout)
+          /* Perhaps we've diverged. This might change the scheduler mode. */
+          sched_lcbn_is_next(NULL);
+          if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
           {
-            mylog(LOG_MAIN, 1, "uv_run: usleep'ing %i ms\n", timeout);
-            usleep(1000*timeout);
+            /* Sleep until the next timer is ready. */
+            timeout = uv__next_timeout(loop);
+            if (0 < timeout)
+            {
+              mylog(LOG_MAIN, 1, "uv_run: usleep'ing %i ms\n", timeout);
+              usleep(1000*timeout);
+            }
           }
         }
         goto RUN_TIMERS_1;
@@ -421,6 +426,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
       next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type) || is_run_pending_cb(next_cb_type))
       {
+        /* Perhaps we've diverged. This might change the scheduler mode. */
+        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_pending. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_PENDING;
       }
@@ -439,6 +446,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
       next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type) || is_run_idle_cb(next_cb_type))
       {
+        /* Perhaps we've diverged. This might change the scheduler mode. */
+        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_idle. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_IDLE;
       }
@@ -470,6 +479,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
                                             /* TODO is_io_poll_cb is a hack. */
       if (is_threadpool_cb(next_cb_type) || is_io_poll_cb(next_cb_type))
       {
+        /* Perhaps we've diverged. This might change the scheduler mode. */
+        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__io_poll. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_IO_POLL;
       }
@@ -489,6 +500,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
       next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type) || is_run_check_cb(next_cb_type))
       {
+        /* Perhaps we've diverged. This might change the scheduler mode. */
+        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_check. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_CHECK;
       }
@@ -527,12 +540,17 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
           mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (2). next_cb_type %s\n", callback_type_to_string(next_cb_type));
           if (is_run_timers_cb(next_cb_type))
           {
-            /* Sleep until the next timer is ready. */
-            timeout = uv__next_timeout(loop);
-            if (0 < timeout)
+            /* Perhaps we've diverged. This might change the scheduler mode. */
+            sched_lcbn_is_next(NULL);
+            if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
             {
-              mylog(LOG_MAIN, 1, "uv_run: usleep'ing %i ms\n", timeout);
-              usleep(1000*timeout);
+              /* Sleep until the next timer is ready. */
+              timeout = uv__next_timeout(loop);
+              if (0 < timeout)
+              {
+                mylog(LOG_MAIN, 1, "uv_run: usleep'ing %i ms\n", timeout);
+                usleep(1000*timeout);
+              }
             }
           }
           goto RUN_TIMERS_2;
@@ -554,7 +572,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   if (loop->stop_flag != 0)
     loop->stop_flag = 0;
 
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run: returning r %i\n", r));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv_run: returning r %i\n", r));
   return r;
 
   REPLAY_NO_ITEMS_LEFT:
