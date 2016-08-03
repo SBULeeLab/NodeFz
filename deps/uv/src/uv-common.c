@@ -996,6 +996,7 @@ void unified_callback_init (void)
   enum schedule_mode schedule_mode;
 
   static int initialized = 0;
+  struct stat stat_buf;
 
   assert(!initialized);
   initialized = 1;
@@ -1026,8 +1027,14 @@ void unified_callback_init (void)
 #endif
 
   schedule_modeP = getenv("UV_SCHEDULE_MODE");
+  if (!schedule_modeP)
+    schedule_modeP = "RECORD";
+  if (strcmp(schedule_modeP, "RECORD") != 0 && strcmp(schedule_modeP, "REPLAY") != 0)
+    assert(!"Error, UV_SCHEDULE_MODE was neither RECORD nor REPLAY");
+
   schedule_fileP = getenv("UV_SCHEDULE_FILE");
-  assert(schedule_modeP && schedule_fileP);
+  if (!schedule_fileP)
+    schedule_fileP = "/tmp/f.sched";
 
   min_n_executed_before_divergence_allowedP = getenv("UV_SCHEDULE_MIN_N_EXECUTED_BEFORE_DIVERGENCE_ALLOWED");
   if (min_n_executed_before_divergence_allowedP)
@@ -1037,6 +1044,9 @@ void unified_callback_init (void)
 
   mylog(LOG_MAIN, 1, "schedule_mode %s schedule_file %s min_n_executed_before_divergence_allowed %i\n", schedule_modeP, schedule_fileP, min_n_executed_before_divergence_allowed);
   schedule_mode = (strcmp(schedule_modeP, "RECORD") == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
+  if (schedule_mode == SCHEDULE_MODE_REPLAY && stat(schedule_fileP, &statBuf))
+    assert(!"Error, schedule_mode REPLAY but schedule_file does not exist");
+
   scheduler_init(schedule_mode, schedule_fileP, min_n_executed_before_divergence_allowed);
 
   uv_mutex_init(&invoke_callback_lcbn_lock);
