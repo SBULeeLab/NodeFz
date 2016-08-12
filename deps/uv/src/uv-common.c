@@ -1044,7 +1044,7 @@ void unified_callback_init (void)
 
   mylog(LOG_MAIN, 1, "schedule_mode %s schedule_file %s min_n_executed_before_divergence_allowed %i\n", schedule_modeP, schedule_fileP, min_n_executed_before_divergence_allowed);
   schedule_mode = (strcmp(schedule_modeP, "RECORD") == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
-  if (schedule_mode == SCHEDULE_MODE_REPLAY && stat(schedule_fileP, &statBuf))
+  if (schedule_mode == SCHEDULE_MODE_REPLAY && stat(schedule_fileP, &stat_buf))
     assert(!"Error, schedule_mode REPLAY but schedule_file does not exist");
 
   scheduler_init(schedule_mode, schedule_fileP, min_n_executed_before_divergence_allowed);
