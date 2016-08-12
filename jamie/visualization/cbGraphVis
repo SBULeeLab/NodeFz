@@ -14,7 +14,9 @@ import gv # http://www.graphviz.org/pdf/gv.3python.pdf, http://www.graphviz.org/
 import sys
 import re
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('root')
+LOG_FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
+logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT)
 sys.setrecursionlimit(20000)
 
 #input: (node, graph)

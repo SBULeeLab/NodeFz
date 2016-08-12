@@ -42,7 +42,7 @@ class CallbackNodeGroups(object):
 			group = None
 			for line in f:
 				line = line.rstrip()
-				logging.info("CallbackNodeGroups::_parseGroupFile: line <{}>".format(line))
+				logging.info("line <{}>".format(line))
 				# Ignore whitespace and lines beginning with a #
 				if re.match('^\s*$', line) or re.match('^\s*#', line):
 					continue
@@ -52,7 +52,7 @@ class CallbackNodeGroups(object):
 					foundGroup = True
 					if group is not None:
 						# Save the current group
-						logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
+						logging.debug("found new group, so previous group <{}> must be ended".format(group))
 						nodeGroups.append(group)
 					group = []
 				else:
@@ -65,7 +65,7 @@ class CallbackNodeGroups(object):
 
 			# Clean up final group
 			if (group is not None):
-				logging.debug("CallbackNodeGroups::_parseGroupFile: adding group <{}>".format(group))
+				logging.debug("adding final group <{}>".format(group))
 				nodeGroups.append(group)
 
 		assert(foundGroup)
@@ -121,10 +121,10 @@ class CallbackNode (object):
 			if (match):
 				setattr(self, match.group('key'), match.group('value'))
 		for key in self.REQUIRED_KEYS:
-			#logging.debug("CallbackNode::__init__: Verifying that required field '{}' is defined".format(key))
+			#logging.debug("Verifying that required field '{}' is defined".format(key))
 			value = getattr(self, key, None)
 			assert(value is not None)
-			#logging.debug("CallbackNode::__init__: '%s' -> '%s'" %(key, value)) 					
+			#logging.debug("'%s' -> '%s'" %(key, value)) 					
 						
 		# Convert times in s,ns to ns
 		for timeKey in CallbackNode.TIME_KEYS:
@@ -145,7 +145,7 @@ class CallbackNode (object):
 			self.dependencies = self.dependencies.split(" ")
 		else:
 			self.dependencies = []
-		#logging.debug("CallbackNode::__init__: dependencies {}".format(self.dependencies))
+		#logging.debug("dependencies {}".format(self.dependencies))
 				
 		self.children = []
 		self.dependents = []
@@ -157,7 +157,7 @@ class CallbackNode (object):
 		self._knowAllDescendantsWithoutDependents = False
 		self._allDescendantsWithoutDependents = []
 
-		#logging.debug("CallbackNode::__init__: {}".format(self))
+		#logging.debug("{}".format(self))
 
 	def __str__(self):
 		kvStrings = []
@@ -320,15 +320,15 @@ class CallbackNode (object):
 			directDescendants += self.dependents
 		directDescendants = set(directDescendants) # No sense in visiting a child more than once
 		assert (self not in directDescendants)  # Sanity check: avoid infinite recursion
-		logging.info("CallbackNode::getDescendants: node {} calculating dependents of my {} children ({})".format(self.getID(), len(directDescendants), [n.getID() for n in directDescendants]))
+		logging.info("node {} calculating dependents of my {} children ({})".format(self.getID(), len(directDescendants), [n.getID() for n in directDescendants]))
 
 		indirectDescendants = []
 		for d in directDescendants:
-			logging.info("CallbackNode::getDescendants: node {} calculating dependents of {}".format(self.getID(), d.getID()))
+			logging.info("node {} calculating dependents of {}".format(self.getID(), d.getID()))
 			indirectDescendants += d.getDescendants(includeDependents)
-			logging.info("CallbackNode::getDescendants: node {} descendant {}: includeDependents {}, directDescendants {}, {} indirectDescendants: {}".format(self.getID(), d.getID(), includeDependents, [n.getID() for n in directDescendants], len(indirectDescendants), [n.getID() for n in indirectDescendants]))
+			logging.info("node {} descendant {}: includeDependents {}, directDescendants {}, {} indirectDescendants: {}".format(self.getID(), d.getID(), includeDependents, [n.getID() for n in directDescendants], len(indirectDescendants), [n.getID() for n in indirectDescendants]))
 		allDescendants = directDescendants | set(indirectDescendants) # There may be duplicates
-		logging.info("CallbackNode::getDescendants: node {}, allDescendants {}".format(self.getID(), [n.getID() for n in allDescendants]))
+		logging.info("node {}, allDescendants {}".format(self.getID(), [n.getID() for n in allDescendants]))
 
 		# Save state so we don't have to recurse
 		if includeDependents:
@@ -501,7 +501,7 @@ class CallbackNode (object):
 			return self.getCBType() not in CallbackNode.TP_WORK_NESTED_TYPES and self.getCBType() not in CallbackNode.TP_DONE_NESTED_TYPES
 		elif self.getParent() is not None:
 			return self.getParent().findNearestReschedulable()
-		logging.debug("CallbackNode::findNearestReschedulable: Sorry, ran out of parents. This node is not reschedulable at all.")
+		logging.debug("Sorry, ran out of parents. This node is not reschedulable at all.")
 		return None
 
 #############################
@@ -521,7 +521,7 @@ class CallbackNodeTree (object):
 					node = CallbackNode(l)
 					callbackNodes.append(node)
 		except IOError:
-			logging.error("CallbackNodeTree::__init__: Error, processing inputFile {} gave me an IOError".format(inputFile))
+			logging.error("Error, processing inputFile {} gave me an IOError".format(inputFile))
 			raise
 
 		callbackNodeDict = { n.name: n for n in callbackNodes }
@@ -673,12 +673,12 @@ class CallbackNodeTree (object):
 			# dependencies must be strings at this point
 			for d in node.dependencies:
 				assert(type(d) is str)
-				logging.debug("CallbackNodeTree::_updateDependencies: dependency {}".format(d))
+				logging.debug("dependency {}".format(d))
 			# Turn node.dependencies from a list of strings to a list of CBNs.
 			node.dependencies = [callbackNodeDict[n] for n in node.dependencies]
 			for antecedent in node.dependencies:
 				antecedent.addDependent(node)
-			logging.debug("CallbackNodeTree::_updateDependencies: Node {}'s dependencies: {}".format(node.getName(), node.dependencies))
+			logging.debug("Node {}'s dependencies: {}".format(node.getName(), node.dependencies))
 		
 	#input: (regID)
 	#output: (node) node with specified regID, or None
@@ -713,7 +713,7 @@ class CallbackNodeTree (object):
 		#Wrapper for self.walk 
 		def remove_walk (node, arg):
 			if (func(node)):
-				logging.debug("CallbackNodeTree::removeNodes: removing node: {}".format(node))
+				logging.debug("removing node: {}".format(node))
 				if (node.parent):
 					node.parent.removeChild(node)
 					node.parent = None
@@ -794,7 +794,7 @@ class CallbackNodeTree (object):
 				assert(pred != curr)
 				return pred
 			pred = curr
-		assert("CallbackNodeTree::getNodeExecPredecessor: Error, did not find node with execID {} in tree".format(node.getExecID()))
+		assert(not "CallbackNodeTree::getNodeExecPredecessor: Error, did not find node with execID {} in tree".format(node.getExecID()))
 
 	# #Transform the tree into an intermediate format for more convenient schedule re-arrangement.
 	# #This may add new nodes and change the exec_id of many nodes.
