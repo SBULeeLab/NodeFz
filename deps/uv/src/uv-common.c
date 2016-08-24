@@ -1040,6 +1040,7 @@ void unified_callback_init (void)
   if (min_n_executed_before_divergence_allowedP)
     min_n_executed_before_divergence_allowed = atoi(min_n_executed_before_divergence_allowedP); 
   else
+    /* Divergence at any point is legal. */
     min_n_executed_before_divergence_allowed = -1;
 
   mylog(LOG_MAIN, 1, "schedule_mode %s schedule_file %s min_n_executed_before_divergence_allowed %i\n", schedule_modeP, schedule_fileP, min_n_executed_before_divergence_allowed);
