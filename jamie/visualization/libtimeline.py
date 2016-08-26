@@ -105,8 +105,8 @@ class Event:
 			self.description = description
 			
 		assert(self.start <= self.end)
-		logging.debug("Event::__init__: start %d end %d" % (self.start, self.end))	
-		logging.debug("Event::__init__: Initialized event: %s" % self)
+		logging.debug("start %d end %d" % (self.start, self.end))	
+		logging.debug("Initialized event: %s" % self)
 			
 	def __str__ (self):
 		return "Event '%s': start '%d' end '%d' category '%s' container '%s'" % (self.text, self.start, self.end, self.categoryName, self.containerName)
@@ -452,7 +452,7 @@ class Timeline:
 		#This function will render any existing eras meaningless
 		assert(not self.eras)
 		
-		logging.debug("Timeline::collapseGaps: Events before: " + ','.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))		
+		logging.debug("Events before: " + ','.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))		
 		origEventDurations = [(e.end - e.start) for e in self.events]
 		distances = []
 		newEras = []
@@ -478,11 +478,11 @@ class Timeline:
 			if ([prev for prev in eventsBeforeEras if prev.end == event.end]):
 				continue
 			
-			logging.debug("Timeline::collapseGaps: Found an event preceding an era (distance %d): %s" % (distance, event))
+			logging.debug("Found an event preceding an era (distance %d): %s" % (distance, event))
 			eventsBeforeEras.append(event)
-			logging.debug("Timeline::collapseGaps: Current eventsBeforeEras:\n  %s" %(',\n  '.join(map(str, eventsBeforeEras))))
+			logging.debug("Current eventsBeforeEras:\n  %s" %(',\n  '.join(map(str, eventsBeforeEras))))
 		
-		logging.debug("Timeline::collapseGaps: Final eventsBeforeEras:\n  %s" %(',\n  '.join(map(str, eventsBeforeEras))))
+		logging.debug("Final eventsBeforeEras:\n  %s" %(',\n  '.join(map(str, eventsBeforeEras))))
 		
 		#Handle eras starting with the earliest so that subsequent left-shifts don't harm earlier eras 
 		eventsBeforeEras.sort(key=lambda event: event.start)
@@ -496,12 +496,12 @@ class Timeline:
 			  assert(event.end == max_end)			
 														
 			era = Era(name='Gap %d' % (len(self.eras) + len(newEras)), start=event.end, end=(event.end + gapThreshold), maskedDuration=distance)
-			logging.debug("Timeline::collapseGaps: Found an era (distance %d). era (%d,%d), based on event (%d,%d) with successor (%d,%d)" % (distance, era.start, era.end, event.start, event.end, nextEvent.start, nextEvent.end))
+			logging.debug("Found an era (distance %d). era (%d,%d), based on event (%d,%d) with successor (%d,%d)" % (distance, era.start, era.end, event.start, event.end, nextEvent.start, nextEvent.end))
 			
 			#Left-shift all subsequent events
-			logging.debug("Timeline::collapseGaps: Events before shift:\n  " + '\n  '.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))					
+			logging.debug("Events before shift:\n  " + '\n  '.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))					
 			shiftAmount = (distance - gapThreshold)
-			logging.debug("Timeline::collapseGaps: distance %d gapThreshold %d (event %s) (nextEvent %s)" %(distance, gapThreshold, event, nextEvent))
+			logging.debug("distance %d gapThreshold %d (event %s) (nextEvent %s)" %(distance, gapThreshold, event, nextEvent))
 			assert(0 < shiftAmount)					
 			for affectedEvent in self._subsequentEvents(event):				
 				assert(era.end + shiftAmount <= affectedEvent.start)
@@ -509,16 +509,16 @@ class Timeline:
 				affectedEvent.end -= shiftAmount
 			
 			newEras.append(era)
-			logging.debug("Timeline::collapseGaps: Events after shift:\n  " + '\n  '.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))
+			logging.debug("Events after shift:\n  " + '\n  '.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))
 														
 		for era in newEras:
 			#Sanity check: no events should be active during the new eras
 			for event in self.events:
-				logging.debug("Timeline::computeEvents: era (%f, %f) event (%f, %f)" % (era.start, era.end, event.start, event.end))
+				logging.debug("era (%f, %f) event (%f, %f)" % (era.start, era.end, event.start, event.end))
 				assert(event.end <= era.start or era.end <= event.start)
 			self.addEra(era)
-		logging.info("Timeline::collapseGaps: Max observed distance was %d, gapThreshold was %d. Added %d new eras." % (max(distances), gapThreshold, len(newEras)))		
-		logging.debug("Timeline::collapseGaps: Events after:\n  " + '\n  '.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))
+		logging.info("Max observed distance was %d, gapThreshold was %d. Added %d new eras." % (max(distances), gapThreshold, len(newEras)))		
+		logging.debug("Events after:\n  " + '\n  '.join(map(lambda event: "(%d,%d)" % (event.start, event.end), self.events)))
 		
 		#Verify that the duration of each event remained fixed
 		finalEventDurations = [(e.end - e.start) for e in self.events]
@@ -574,7 +574,7 @@ class Timeline:
 		assert(normalized_min_duration == 1)
 		normalized_max_duration = max([(e.end - e.start) for e in self.events])
 		normalized_max_end = max([e.end for e in self.events])
-		logging.info("Timeline::normalizeEventTimes: orig min duration %d orig_max_duration %d orig_max_end %d, normalized_min_duration %d normalized_max_duration %d normalized_max_end %d" % 
+		logging.info("orig min duration %d orig_max_duration %d orig_max_end %d, normalized_min_duration %d normalized_max_duration %d normalized_max_end %d" % 
 								(orig_min_duration, orig_max_duration, orig_max_end, normalized_min_duration, normalized_max_duration, normalized_max_end))
 
 	#input: (fileName)
@@ -587,7 +587,7 @@ class Timeline:
 	
 		with open(fileName, 'w') as f:
 			f.write(pretty_xml_as_string)
-			logging.info("Timeline::write: Wrote timeline (%d events, %d eras, %d categories) to %s" % (len(self.events), len(self.eras), len(self.categories), fileName))
+			logging.info("Wrote timeline (%d events, %d eras, %d categories) to %s" % (len(self.events), len(self.eras), len(self.categories), fileName))
 		return
 	
 	#input: (era)
@@ -616,19 +616,19 @@ class Timeline:
 		eventCategory = Category(name=event.categoryName)
 		if (eventCategory not in self.categories):			
 			self.categories.append(Category(name=event.categoryName, color=self._nextColor()))
-			logging.debug("Timeline::addEvent: Added category '%s'" % (event.categoryName))
+			logging.debug("Added category '%s'" % (event.categoryName))
 		else:
-			logging.debug("Timeline::addEvent: Category '%s' is already present" % (event.categoryName))
+			logging.debug("Category '%s' is already present" % (event.categoryName))
 				
 		#new container?
 		if (event.containerName):
 			eventContainer = Container(name=event.containerName)
 			if (eventContainer not in self.containers):
 				self.containers.append(Container(name=event.containerName, id=len(self.containers) + 1))
-				logging.debug("Timeline::addEvent: Added container '%s'" % (event.containerName))
+				logging.debug("Added container '%s'" % (event.containerName))
 			else:
-				logging.debug("Timeline::addEvent: Container '%s' is already present" % (event.containerName))
-		logging.debug("Timeline::addEvent: Added event '%s' to timeline" % (event))
+				logging.debug("Container '%s' is already present" % (event.containerName))
+		logging.debug("Added event '%s' to timeline" % (event))
 		
 	#input: ()
 	#output: (rgbColorStr)

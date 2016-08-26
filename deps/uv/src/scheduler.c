@@ -268,10 +268,11 @@ static void scheduler__diverge (void)
 
   if (0 <= scheduler.min_n_executed_before_divergence_allowed && scheduler.n_executed < scheduler.min_n_executed_before_divergence_allowed)
   {
-    /* Diverging too early suggests either a cruddy schedule or some change in inputs/environment. */
+    /* Diverging too early suggests either a cruddy schedule or some change in inputs/environment. 
+       NEXT checks for rc 5 and greps for this output. */
     mylog(LOG_SCHEDULER, 1, "scheduler__diverge: Schedule has diverged but we have only executed %i nodes < min_n_executed_before_divergence_allowed %i.\n",
       scheduler.n_executed, scheduler.min_n_executed_before_divergence_allowed);
-    exit(1);
+    exit(5);
   }
 
   mylog(LOG_SCHEDULER, 1, "scheduler__diverge: Schedule has diverged having executed %i nodes. Changing mode to SCHEDULE_MODE_RECORD\n",

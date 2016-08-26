@@ -16,7 +16,7 @@ class Palette:
 	# If 0 <= nColors <= ESTIMATED_MAX_COLORS, the color scheme will always be the same
 	ESTIMATED_MAX_COLORS = 30
 	def __init__ (self, nColors):
-		logging.debug("Palette::__init__: nColors %d" % (nColors))
+		logging.debug("nColors %d" % (nColors))
 		assert(0 < nColors)
 
 		self.colors = self._genColors(nColors)
@@ -38,7 +38,7 @@ class Palette:
 	def getColor (self, colorNum):
 		assert(colorNum < self.nColors)
 		color = self.colors[colorNum]
-		logging.debug("Palette::__init__: colorNum %d (%s)" % (colorNum, color))
+		logging.debug("colorNum %d (%s)" % (colorNum, color))
 		return color
 
 	# input: (numColors)
