@@ -1795,6 +1795,21 @@ Tue 31 May 2016
   
 --------------------------------
 
+TODO Fill in the summer gap with notes on my laptop.
+
+--------------------------------
+
+Fri 26 Aug 2016
+
+1. Finished up NEXT (for now) by printing a summary of what happened. Teach run_tests to check for test success by regex'ing the output of NEXT.
+2. Wandered through online/analyses/Race.js. Did refactoring to improve how FS module race detection is handled. The new approach should make it easy to add support for other modules.
+
+At the moment, if an application has racy async FS operations, raceDetector will hit an assert I added in July due to not yet pushing the "async-ness" into the appropriate child.
+What about sync FS operations that occur in the same CB? e.g.
+  var fs = require("fs");
+  fs.mkdirSync("/tmp")
+  fs.mkdirSync("/tmp")
+
 -----------
 
 STEPS:
