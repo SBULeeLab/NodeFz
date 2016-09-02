@@ -1830,13 +1830,29 @@ Wed 31 Aug 2016
   - Change "Race.js" to "Trace.js" (since we aren't doing race detection anymore, just read-write tracing).
   - Remove a bunch of code we aren't using.
 
-TODO
-  2. Examine Jalangi trace to see how getFieldPre, getField, and invokeFunPre work together
-  3. Continue to work on pushing async down
+--------------------------------
+
+Thur 01 Sep 2016
+
+1. Remove a ton of unnecessary code from Trace.js (now "TraceRW.js").
+   Also, refactor out the "logger" and "trace fs" into sub_modules.
+   And determine how to create non-enumerable (i.e. "hidden") object attributes.
+   Our analysis is now slim and sexy.
+2. Work on compiler errors in raceDetector.
 
 --------------------------------
 
+Fri 02 Sep 2016
+
+1. Finish async push down in raceDetector
+
+TODO
+  2. Try rescheduler using the async push down.
+  3. Examine Jalangi trace to see how getFieldPre, getField, and invokeFunPre work together
+     Can we simplify or improve?
+
 -----------
+
 
 STEPS:
 - An interesting comparison: "random testing" inspired by the empirical study. At the JS level, insert rand_sleep into any asynchronous method. See how much variation in the schedule arises.
