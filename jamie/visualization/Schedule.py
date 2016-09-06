@@ -215,7 +215,9 @@ class Schedule (object):
 		return execSchedule
 
 	# input: ()
-	# output: (regList) returns list of CallbackNodes in increasing registration order.
+	# output: (regList) returns list of CallbackNodes in increasing registration order
+	#
+	# Dynamically computed from self.cbTree.
 	def _regList(self):
 		return self.cbTree.getRegOrder()
 
@@ -529,7 +531,7 @@ class Schedule (object):
 		
 		# Now that we've mapped racyNodeIDs to the corresponding events,
 		# we can normalize the schedule (potentially invalidating racyNodeIDs)
-		logging.debug("Normalizing (this may change cause the eventIDs to no longer match the racyNodeIDs")
+		logging.debug("Normalizing (this change may cause the eventIDs to no longer match the racyNodeIDs")
 		self.normalize()
 		
 		eventIDs = [self.execSchedule.index(e) for e in events]
@@ -729,7 +731,7 @@ class Schedule (object):
 			# Make one _relocateEvent request per relocationFamily present in relativesToRelocate.
 			relativeCBLists = [relocateInfo['getRelativeCBsFunc'](se) for se in relocationFamily]
 			relativeCBs = set([cb for list in relativeCBLists for cb in list if cb.executed()])
-			logging.debug("relativeCBS {}: types {}".format(relativeCBs, [cb.getCBType() for cb in relativeCBs]))
+			logging.debug("relativeCBs {}: types {}".format(relativeCBs, [cb.getCBType() for cb in relativeCBs]))
 			relativeSEs = [self._cbToScheduleEvent(cb)[1] for cb in relativeCBs]
 			 # Don't include the just-relocated family (this may give us nothing to do).
 			relativeSEs = [se for se in relativeSEs if se not in relocationFamily]
@@ -1119,61 +1121,78 @@ class Schedule (object):
 		return insertIx
 
 	# input: (asyncCBEvent)
-	#   asyncCBEvent    The ScheduleEvent of a new 'TP done' UV_ASYNC_CB event in self.execSchedule.
+	#   asyncCBEvent    The ScheduleEvent of a new 'TP done' UV_ASYNC_CB event.
+	#                   Already in self.execSchedule, not yet in self.cbTree.
 	# output: ()
 	#
-	# In libuv, the 'TP done' events are preceded by a UV_ASYNC_CB event
-	# that's part of a chain of such events dedicated to the TP.
+	# In libuv, the 'TP done' events are preceded by a UV_ASYNC_CB event that's
+	# part of a chain of such events dedicated to the TP.
 	# Add asyncCBEvent to that chain.
+	# On completion, asyncCBEvent is in self.cbTree.
 	def _updateCBTreeWithTPDoneStage(self, asyncCBEvent):
 		assert(self.tpDoneAsyncRoot)
+		assert(asyncCBEvent.getCB().getCBType() == Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE)
+		assert(not self.cbTree.contains(asyncCBEvent.getCB()))
+		tpDoneNewIx = self.execSchedule.index(asyncCBEvent)
 
 		beginExecScheduleLen, beginTreeSize = len(self.execSchedule), len(self._regList())
 
-		tpDoneNewIx = self.execSchedule.index(asyncCBEvent)
-
 		# Generate a list of all 'TP done' CBNs in the tree -- the complete 'TP done' chain.
+		# The final entry is the unexecuted "hanging child".
 		tpDoneCBs = [self.tpDoneAsyncRoot.getCB()]
 		nextChainCB = tpDoneCBs[-1]
 		while nextChainCB:
-			asyncChildren = [child for child in nextChainCB.getChildren() if child.getCBType() == Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE and child.executed()]
+			asyncChildren = [child for child in nextChainCB.getChildren() if child.getCBType() == Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE]
 			assert(len(asyncChildren) <= 1)
 			if asyncChildren:
 				nextChainCB = asyncChildren[0]
 				tpDoneCBs.append(nextChainCB)
 			else:
 				break
+		# Ensure tpDoneCBs looks reasonable.
+		assert(1 <= len(tpDoneCBs))
+		# Should only be one unexecuted child (the last one in the list).
+		unexecutedTPDoneCBs = [cb for cb in tpDoneCBs if not cb.executed()]
+		assert(len(unexecutedTPDoneCBs) == 1)
+		hangingCB = tpDoneCBs[-1]
+		assert(not hangingCB.executed())
+		assert(not asyncCBEvent.getCB() in tpDoneCBs)
+
 		tpDoneEvent_ixAndSEs = [self._cbToScheduleEvent(cb) for cb in tpDoneCBs]
 		assert(tpDoneEvent_ixAndSEs)
 
 		# Insert asyncCBEvent into its appropriate place in tpDoneCBs
 		tpDoneNew_ixAndSE = (tpDoneNewIx, asyncCBEvent)
 		inserted = False
-		for ix, tpDoneEvent_ixAndSE in enumerate(tpDoneEvent_ixAndSEs):
-			tpDoneEventIx = tpDoneEvent_ixAndSE[0]
-			if tpDoneNewIx < tpDoneEventIx:
-				logging.debug("Inserting asyncCBEvent at index {} in tpDoneEvent_ixAndSEs".format(ix))
-				tpDoneEvent_ixAndSEs.insert(ix, tpDoneNew_ixAndSE)
+		for enumIx, tpDoneEvent_ixAndSE in enumerate(tpDoneEvent_ixAndSEs):
+			tpDoneEventIx, tpDoneEventSE = tpDoneEvent_ixAndSE
+			if not tpDoneEventSE or tpDoneNewIx < tpDoneEventIx:
+				logging.debug("Inserting asyncCBEvent at index {} in tpDoneEvent_ixAndSEs".format(enumIx))
+				tpDoneEvent_ixAndSEs.insert(enumIx, tpDoneNew_ixAndSE)
 				inserted = True
 				break
-		if not inserted:
-			logging.debug("Inserting asyncCBEvent at the end of tpDoneEvent_ixAndSEs")
-			tpDoneEvent_ixAndSEs.append(tpDoneNew_ixAndSE)
+		# Since there's always an unexecuted "hanging child", we should always be able to insert
+		assert(inserted)
 
 		# Now tpDoneCBs is the record of what the 'TP done' chain should look like.
 		# Update the parent-child relationships in self.cbTree to match.
-		assert(2 <= len(tpDoneEvent_ixAndSEs)) # Must have begun with one, and caller has added one.
-		# If asyncCBEvent is the beginning of the list, set its parentage and tree level appropriately.
+		assert(2 <= len(tpDoneEvent_ixAndSEs)) # Must have begun with at least one, and we just added one.
+		# If asyncCBEvent is the beginning of the list, set its parentage appropriately.
 		if tpDoneEvent_ixAndSEs[0][1] == asyncCBEvent:
 			asyncCBEvent.getCB().setParent(self.initialStackEvent.getCB())
 
 		logging.debug("Updating the relationships between the {} tpDoneEvents".format(len(tpDoneEvent_ixAndSEs)))
 		for ix in range(len(tpDoneEvent_ixAndSEs) - 1):
-			parentCB = tpDoneEvent_ixAndSEs[ix][1].getCB()
-			childCB = tpDoneEvent_ixAndSEs[ix+1][1].getCB()
+			parentIx, parentSE = tpDoneEvent_ixAndSEs[ix]
+			parentCB = parentSE.getCB()
+			childIx, childSE = tpDoneEvent_ixAndSEs[ix+1]
+			if childIx:
+				childCB = childSE.getCB()
+			else:
+				childCB = hangingCB
 			assert(parentCB.getCBType() == childCB.getCBType() == Schedule.LIBUV_THREADPOOL_DONE_BEGINNING_TYPE)
 
-			assert(len(parentCB.getChildren()) <= 1)
+			assert(parentCB == asyncCBEvent.getCB() or len(parentCB.getChildren()) == 1)
 			parentCB.setChildren([childCB])
 			childCB.setParent(parentCB)
 
@@ -1186,10 +1205,11 @@ class Schedule (object):
 			self.tpDoneAsyncRoot = tpDoneEvent_ixAndSEs[0][1]
 			self.cbTree.root.addChild(self.tpDoneAsyncRoot.getCB())
 
+		assert(self.cbTree.contains(asyncCBEvent.getCB()))
 		finalExecScheduleLen, finalTreeSize = len(self.execSchedule), len(self._regList())
 		logging.debug("Started with execScheduleLen {} treeSize {}, ended with execScheduleLen {} treeSize {}".format(beginExecScheduleLen, beginTreeSize, finalExecScheduleLen, finalTreeSize))
-		assert(finalExecScheduleLen - beginExecScheduleLen == 0) # The new 'TP done' event was already in self.execSchedule
-		assert(finalTreeSize - beginTreeSize == 1) # Added the new 'TP done' event to self.cbTree
+		assert(finalExecScheduleLen == beginExecScheduleLen) # The new 'TP done' event was already in self.execSchedule
+		assert(finalTreeSize == beginTreeSize + 1) # Added the new 'TP done' event to self.cbTree
 
 	# input: ()
 	# output: ()	

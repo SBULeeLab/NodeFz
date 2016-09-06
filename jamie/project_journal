@@ -1846,6 +1846,24 @@ Fri 02 Sep 2016
 
 1. Finish async push down in raceDetector
 
+--------------------------------
+
+Mon 05 Sep 2016
+
+Happy Labor Day!
+
+--------------------------------
+
+Tue 06 Sep 2016
+
+1. Work on rescheduler. Fix insertion bug in Schedule::_updateCBTreeWithTPDoneStage().
+
+rescheduler now runs fine, but the racy schedule doesn't "work" for tests/modules/fs/fs-mkdir.js.
+In particular, the cbGraphVis of the racy schedule looks the same as the original schedule, just with the "right-hand" tree occurring even later.
+  - Does cbGraphVis flip the left and right sides? Why?
+  - If not, why aren't the LHS and RHS in the right exec order?
+      > add assert in Schedule::reschedule() about pivot and exec IDs if there isn't such an assert already
+
 TODO
   2. Try rescheduler using the async push down.
   3. Examine Jalangi trace to see how getFieldPre, getField, and invokeFunPre work together
