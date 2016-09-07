@@ -1869,6 +1869,19 @@ TODO
   3. Examine Jalangi trace to see how getFieldPre, getField, and invokeFunPre work together
      Can we simplify or improve?
 
+--------------------------------
+
+Wed 07 Sep 2016
+
+Some reflection on project status (see progress report from 7 Sept.).
+I don't think we can make EuroSys under our current approach.
+I proposed a simpler "schedule fuzzing" approach to DY, who thought it seemed do-able.
+
+1. Pondered general schedule design
+2. Worked on refactoring to let us choose schedule at run-time.
+
+See scratch sheet for next steps.
+
 -----------
 
 

@@ -1,56 +1,136 @@
 #ifndef UV_SRC_SCHEDULER_H_
 #define UV_SRC_SCHEDULER_H_
 
+/* This file accomplishes two things:
+ *   1. It defines the public interface for a scheduler. 
+ *   2. It defines the scheduler function typedefs, indicating the functions each scheduler implementation must offer.
+ */
+
 #include "unified-callback-enums.h"
 #include "logical-callback-node.h"
 
 #include <uv.h>
 
-/* Scheduler: A scheduler has two modes: record and replay.
+/* Include the various schedule implementations. */
+#include "scheduler_CBTree.h"
+#include "scheduler_Fuzzing_Timer.h"
+#include "scheduler_Fuzzing_ThreadOrder.h"
 
-    Record:
-    Tell the scheduler before you invoke each callback.
-    When finished, save the schedule for future replay.
-
-    Replay:
-    Steer the execution of user callbacks based on a schedule recorded during a previous run.
-    Note that this schedule need NOT be exactly the same as was recorded.
-
-    Given identical external inputs (e.g. gettimeofday, read(), etc.), 
-    the requested schedule may be achievable.
-
-    If the input schedule is identical to the recorded schedule, it must be achievable.
-
-    If the input schedule is a variation of the recorded schedule (e.g. switching the
-    order of two callbacks), one or more of the changes in the re-ordering may
-    produce a different logical structure. 
-    
-    Example 1: The first callback to invoke console.log() will always register a UV_SIGNAL_CB for SIGWINCH. 
-      If a modified schedule changes the first callback to invoke console.log(), the resulting tree 
-      will differ. However, if the UV_SIGNAL_CB was never invoked in the original tree, this variation 
-      will not meaningfully affect our ability to replay the schedule.
-      If it was invoked (as a child of "the wrong" LCBN), we will notice and declare the requested schedule
-      un-produceable.
-
-    Example 2: The application wishes to request three FS operations, but with no more than 2 active at a time.
-      It initializes a JS "flag" variable to 0. The first completed FS operation sets the flag to 1 and requests 
-      another FS operation. 
-      If the modified schedule swaps the completion order of the first two FS operations, the "other" CB will
-      request the third FS operation.
-*/
-
+/* The Logical CallBack Nodes the scheduler works with. */
 struct sched_lcbn_s
 {
   int magic;
   lcbn_t *lcbn;
 
-  struct list_elem elem;
+  struct list_elem elem; /* TODO Can the user put a sched_lcbn_t in his own lists? Also, ideally this type would be opaque. */
 };
 typedef struct sched_lcbn_s sched_lcbn_t;
 
 sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn);
 void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn);
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux);
+
+/* The different scheduler types we support. */
+enum scheduler_type_e
+{
+  SCHEDULER_TYPE_CBTREE,
+  SCHEDULER_TYPE_FUZZER_TIMER,
+  SCHEDULER_TYPE_FUZZER_THREAD_ORDER,
+};
+typedef enum scheduler_type_e scheduler_type_t;
+
+/* The mode in which the scheduler is to run. */
+enum schedule_mode_e
+{
+  SCHEDULE_MODE_RECORD,
+  SCHEDULE_MODE_REPLAY
+};
+typedef enum schedule_mode_e schedule_mode_t;
+
+/* Scheduler: A scheduler has two modes: record and replay.
+ *
+ *  Record:
+ *  Tell the scheduler before you invoke each callback.
+ *  When finished, save the schedule for future replay.
+ *
+ *  Replay:
+ *  Steer the execution of user callbacks based on a schedule recorded during a previous run.
+ *  Note that this schedule need NOT be exactly the same as was recorded.
+ *
+ *  Given identical external inputs (e.g. gettimeofday, read(), etc.), 
+ *  the requested schedule may be achievable.
+ *
+ *  If the input schedule is identical to the recorded schedule, it must be achievable.
+ *
+ *  If the input schedule is a variation of the recorded schedule (e.g. switching the
+ *  order of two callbacks), one or more of the changes in the re-ordering may
+ *  produce a different logical structure. 
+ *  
+ *  Example 1: The first callback to invoke console.log() will always register a UV_SIGNAL_CB for SIGWINCH. 
+ *    If a modified schedule changes the first callback to invoke console.log(), the resulting tree 
+ *    will differ. However, if the UV_SIGNAL_CB was never invoked in the original tree, this variation 
+ *    will not meaningfully affect our ability to replay the schedule.
+ *    If it was invoked (as a child of "the wrong" LCBN), we will notice and declare the requested schedule
+ *    un-produceable.
+ *
+ *  Example 2: The application wishes to request three FS operations, but with no more than 2 active at a time.
+ *    It initializes a JS "flag" variable to 0. The first completed FS operation sets the flag to 1 and requests 
+ *    another FS operation. 
+ *    If the modified schedule swaps the completion order of the first two FS operations, the "other" CB will
+ *    request the third FS operation.
+*/
+
+/* Some scheduler APIs are intended for RECORD mode, others for REPLAY mode, and others for both modes. */
+
+/* APIs for both modes. */
+
+/* Call this prior to any other scheduler_* routines. 
+ *   type: What type of scheduler to use?
+ *   mode: What mode in which to use it? Not all schedulers support all modes.
+ *   schedule_file: In RECORD mode, where to put the schedule we record.
+ *                  In REPLAY mode, where to find the schedule we wish to replay. 
+ *   args: Depends on type. Consult the header file for the scheduler implementation.
+ *         Must be persistent throughout program lifetime (TODO The scheduler implementations should just make a copy).
+ */
+void scheduler_init (scheduler_type_t type, schedule_mode_t mode, char *schedule_file, void *args);
+
+/* Register LCBN for potential scheduler_execute()'d later. 
+ * Caller must ensure mutex for deterministic replay.
+ */
+void scheduler_register_lcbn (lcbn_t *lcbn);
+
+/* Execute this lcbn, which must previously have been scheduler_register_lcbn()'d.
+ *   RECORD mode: duh
+ *   REPLAY mode: we must wait until it's our turn
+ */
+void scheduler_execute_lcbn (lcbn_t *lcbn);
+
+/* Dump the schedule in registration order to the schedule_file specified in schedule_init. 
+ *   RECORD mode: duh
+ *   REPLAY mode: we don't want to overwrite the input schedule, so we emit to sprintf("%s-replay", schedule_file). */
+void scheduler_emit (void);
+
+schedule_mode_t scheduler_get_schedule_mode (void);
+
+/* APIs for RECORD mode only. */
+
+/* How many LCBNs have already been scheduler_execute()'d? */
+int scheduler_lcbns_already_executed (void);
+
+/* APIs for REPLAY mode only. */
+
+/* How many LCBNs remain to be scheduler_execute()'d before we are done? */
+int scheduler_lcbns_remaining (void);
+
+/* Non-zero if schedule has diverged, else 0. */
+int scheduler_schedule_has_diverged (void);
+
+/* TODO I AM HERE REFACTORING */
+
+/* Returns the next scheduled LCBN.
+ * If nothing left to schedule, returns NULL.
+ */
+const lcbn_t * scheduler_next_scheduled_lcbn (void);
 
 /* Replay: Construct lists of "ready contexts" for the scheduler (those which have a user callback ready to invoke). */
 
@@ -85,16 +165,6 @@ sched_context_t *sched_context_create (enum execution_context exec_context, enum
 void sched_context_destroy (sched_context_t *sched_context);
 void sched_context_list_destroy_func (struct list_elem *e, void *aux);
 
-/* Scheduler APIs. */
-enum schedule_mode
-{
-  SCHEDULE_MODE_RECORD,
-  SCHEDULE_MODE_MIN = SCHEDULE_MODE_RECORD,
-  SCHEDULE_MODE_REPLAY,
-  SCHEDULE_MODE_MAX
-};
-typedef enum schedule_mode schedule_mode_t;
-
 /* Record mode: SCHEDULE_FILE is where to send output.
    Replay mode: SCHEDULE_FILE is where to find schedule. 
     SCHEDULE_FILE must be in registration order. 
@@ -103,7 +173,7 @@ typedef enum schedule_mode schedule_mode_t;
     min_n_executed_before_divergence_allowed: exactly what it says.
 
     The schedule recorded in replay mode is saved to 'SCHEDULE_FILE-replay'. */
-void scheduler_init (schedule_mode_t mode, char *schedule_file, int min_n_executed_before_divergence_allowed);
+void scheduler_init (schedule_mode_t mode, char *schedule_file, 
 
 /* Return the mode of the scheduler. */
 schedule_mode_t scheduler_get_mode (void);
@@ -111,17 +181,11 @@ const char * schedule_mode_to_string (schedule_mode_t);
 
 /* Record. */
 
-/* Record the registration time of an LCBN.
-   Caller should ensure mutex for deterministic replay. */
-void scheduler_register_lcbn (sched_lcbn_t *sched_lcbn);
-
 /* TODO The caller sets the global_exec_id for the LCBNs in invoke_callback.
      This puts the burden of tracking exec IDs on the caller instead of on the scheduler,
      which seems a bit odd. 
    Anyway, make sure you set lcbn->global_exec_id under a mutex! */
 
-/* Dump the schedule in registration order to the file specified in schedule_init. */
-void scheduler_emit (void);
 
 /* Replay. */
 
@@ -152,11 +216,6 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list);
    Call sched_lcbn_is_next in invoke_callback to confirm or reject this hypothesis. */
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
 
-/* REPLAY mode: Returns the next scheduled LCBN according to the scheduler. 
-                If nothing left to schedule, returns NULL.
-   Read-only please. */
-lcbn_t * scheduler_next_scheduled_lcbn (void);
-
 /* Returns the callback_type of the next scheduled LCBN. */
 enum callback_type scheduler_next_lcbn_type (void);
 
@@ -177,7 +236,10 @@ int sched_lcbn_is_next (sched_lcbn_t *sched_lcbn);
 
 /* Tell the scheduler that the most-recent LCBN has been executed. 
    This can be done prior to executing an LCBN provided that the executing
-   LCBN is allowed to complete before a new (non-nested) LCBN is invoked. */
+   LCBN is allowed to complete before a new (non-nested) LCBN is invoked. 
+   
+   RECORD mode: Does some bookkeeping.
+   REPLAY mode: Does bookeeping, checks for divergence, etc. */
 void scheduler_advance (void);
 
 /* For REPLAY mode.
@@ -214,15 +276,6 @@ schedule_mode_t scheduler_check_lcbn_for_divergence (lcbn_t *lcbn);
 */
 schedule_mode_t scheduler_check_marker_for_divergence (enum callback_type cbt);
 
-/* How many LCBNs have already been/remain to be scheduled? 
-   Notes:
-    scheduler_already_run    As exec_ids begin at 0, this also returns the next exec_id.
-    scheduler_remaining      If in RECORD mode, returns -1. */
-int scheduler_already_run (void);
-int scheduler_remaining (void);
-
-/* Non-zero if scheduler has diverged, else 0. */
-int scheduler_has_diverged (void);
 
 /* Each type of handle and req should declare a function of this type in internal.h
    for use in scheduler_next_context and scheduler_next_lcbn. 
@@ -231,5 +284,21 @@ int scheduler_has_diverged (void);
 typedef struct list * (*ready_lcbns_func)(void *wrapper, enum execution_context context);
 
 void scheduler_UT (void);
+
+/********************************
+ * Each scheduler implementation must define these APIs.
+ ********************************/
+
+/* Initialize the scheduler implementation.
+ *   args: Define this in your header file
+ *   details: Hide this in your C file. We'll supply it to each of your other APIs
+ */
+typedef void (*schedulerImpl_init) (schedule_mode_t mode, void *args, void *details);
+typedef void (*schedulerImpl_register_lcbn) (lcbn_t *lcbn, void *details);
+typedef void (*schedulerImpl_execute_lcbn) (lcbn_t *lcbn, void *details);
+typedef void (*schedulerImpl_emit) (void *details);
+typedef int  (*schedulerImpl_schedule_has_diverged) (void *details);
+typedef int  (*schedulerImpl_lcbns_remaining) (void *details);
+/* TODO Add more as needed. */
 
 #endif  /* UV_SRC_SCHEDULER_H_ */

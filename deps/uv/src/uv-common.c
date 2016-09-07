@@ -1229,7 +1229,7 @@ void invoke_callback (callback_info_t *cbi)
 
     /* Advance the scheduler prior to invoking the CB. 
        This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
-       the nested ones will perceive themselves as 'next'. */
+       the nested ones will perceive themselves as 'next' in REPLAY mode. */
     scheduler_advance();
 
     /* TODO Why not do this? */
