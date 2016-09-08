@@ -57,6 +57,7 @@
         'src/map.c',
         'src/timespec_funcs.c',
         'src/scheduler.c',
+        'src/scheduler_Fuzzing_Timer.c',
         'src/logical-callback-node.c',
         'src/unified-callback-enums.c',
         'src/synchronization.c',
