@@ -136,7 +136,7 @@ typedef struct spd_after_put_done_s spd_after_put_done_t;
  *   - in the case of SCHEDULE_POINT_BEFORE_EXEC_CB, the CB that will be executed
  *   - ...
  *
- * To offer flexibility, scheduler_thread_yield takes a void *pointDetails whose contents depend on the schedule point.
+ * To offer flexibility, scheduler_thread_yield takes a void *schedule_point_details whose contents depend on the schedule point.
  * That way, if we introduce a new scheduler that wants other details, we just have to change the underlying struct for the schedule point.
  *
  * Schedulers have two modes: record and replay.
@@ -192,7 +192,7 @@ enum callback_type scheduler_next_lcbn_type (void);
  *   RECORD mode: might make a random choice about who goes next
  *   REPLAY mode: lets us have reproducible results
  */
-void scheduler_thread_yield (schedule_point_t point, void *pointDetails);
+void scheduler_thread_yield (schedule_point_t point, void *schedule_point_details);
 
 /* Dump the schedule (whatever that means; depends on the scheduler implementation) to the schedule_file specified in schedule_init. 
  *   RECORD mode: duh
@@ -237,22 +237,21 @@ thread_type_t scheduler__get_thread_type (uv_thread_t tid);
  * INPUTS:    mode: The mode in which the scheduler will run.
  *            args: Define this in your header file so users can parameterize you.
  * OUTPUTS:   schedulerImpl: Set the function pointers for the elements of your implementation.
- *            implDetails: Hide this in your C file. We'll supply it to each of your other APIs.
  */
-typedef void (*schedulerImpl_init) (scheduler_mode_t mode, void *args, schedulerImpl_t *schedulerImpl, void **implDetails);
+typedef void (*schedulerImpl_init) (scheduler_mode_t mode, void *args, schedulerImpl_t *schedulerImpl);
 
 /* See scheduler_register_lcbn. */
-typedef void (*schedulerImpl_register_lcbn) (lcbn_t *lcbn, void *implDetails);
+typedef void (*schedulerImpl_register_lcbn) (lcbn_t *lcbn);
 /* See scheduler_next_lcbn_type. */
-typedef enum callback_type (*schedulerImpl_next_lcbn_type) (void *implDetails);
+typedef enum callback_type (*schedulerImpl_next_lcbn_type) (void);
 /* See scheduler_thread_yield. */
-typedef void (*schedulerImpl_thread_yield) (schedule_point_t point, void *pointDetails, void *implDetails);
+typedef void (*schedulerImpl_thread_yield) (schedule_point_t point, void *schedule_point_details);
 /* See scheduler_emit. */
-typedef void (*schedulerImpl_emit) (char *output_file, void *implDetails);
+typedef void (*schedulerImpl_emit) (char *output_file);
 /* See scheduler_lcbns_remaining. */
-typedef int  (*schedulerImpl_lcbns_remaining) (void *implDetails);
+typedef int  (*schedulerImpl_lcbns_remaining) (void);
 /* See scheduler_schedule_has_diverged. */
-typedef int  (*schedulerImpl_schedule_has_diverged) (void *implDetails);
+typedef int  (*schedulerImpl_schedule_has_diverged) (void);
 
 struct schedulerImpl_s
 {
@@ -264,7 +263,6 @@ struct schedulerImpl_s
   schedulerImpl_schedule_has_diverged schedule_has_diverged;
 };
 typedef struct schedulerImpl_s schedulerImpl_t;
-
 
 #if 0
 
@@ -414,7 +412,6 @@ scheduler_mode_t scheduler_check_lcbn_for_divergence (lcbn_t *lcbn);
    Test the returned scheduler_mode_t or scheduler_has_diverged() for divergence.
 */
 scheduler_mode_t scheduler_check_marker_for_divergence (enum callback_type cbt);
-
 
 /* Each type of handle and req should declare a function of this type in internal.h
    for use in scheduler_next_context and scheduler_next_lcbn. 

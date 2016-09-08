@@ -108,7 +108,6 @@ struct
 
   /* Implementation-dependent. */
   schedulerImpl_t impl;
-  void *implDetails;
 } scheduler;
 
 /***********************
@@ -143,17 +142,17 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
   {
     case SCHEDULER_TYPE_CBTREE:
 #if defined(ENABLE_SCHEDULER_CBTREE)
-      scheduler_cbTree_init(mode, args, &scheduler.impl, &scheduler.implDetails);
+      scheduler_cbTree_init(mode, args, &scheduler.impl);
       break;
 #endif
     SCHEDULER_TYPE_FUZZER_TIMER:
 #if defined(ENABLE_SCHEDULER_FUZZER_TIMER)
-      scheduler_fuzzer_timer_init(mode, args, &scheduler.impl, &scheduler.implDetails);
+      scheduler_fuzzer_timer_init(mode, args, &scheduler.impl);
       break;
 #endif
     SCHEDULER_TYPE_FUZZER_THREAD_ORDER:
 #if defined(ENABLE_SCHEDULER_FUZZER_THREAD_ORDER)
-      scheduler_fuzzer_threadOrder_init(mode, args, &scheduler.impl, &scheduler.implDetails);
+      scheduler_fuzzer_threadOrder_init(mode, args, &scheduler.impl);
       break;
 #endif
     default:
@@ -173,7 +172,7 @@ void scheduler_register_thread (thread_type_t type)
 void scheduler_register_lcbn (lcbn_t *lcbn)
 {
   assert(scheduler__looks_valid());
-  scheduler.impl.register_lcbn(lcbn, scheduler.implDetails);
+  scheduler.impl.register_lcbn(lcbn);
   return;
 }
 
@@ -182,14 +181,14 @@ enum callback_type scheduler_next_lcbn_type (void)
   enum callback_type ret;
   assert(scheduler__looks_valid());
   
-  ret = scheduler.impl.next_lcbn_type(scheduler.implDetails);
+  ret = scheduler.impl.next_lcbn_type();
   return ret;
 }
 
-void scheduler_thread_yield (schedule_point_t point, void *pointDetails)
+void scheduler_thread_yield (schedule_point_t point, void *schedule_point_details)
 {
   assert(scheduler__looks_valid());
-  scheduler.impl.thread_yield(point, pointDetails, scheduler.implDetails);
+  scheduler.impl.thread_yield(point, schedule_point_details);
   return;
 }
 
@@ -201,7 +200,7 @@ char * scheduler_emit (void)
   strcpy(output_file, scheduler.schedule_file);
   if (scheduler.mode == SCHEDULER_MODE_REPLAY)
     strcat(output_file, "-replay");
-  scheduler.impl.emit(output_file, scheduler.implDetails);
+  scheduler.impl.emit(output_file);
   return output_file;
 }
 
@@ -210,7 +209,7 @@ int scheduler_lcbns_remaining (void)
   int n_remaining = 0;
 
   assert(scheduler__looks_valid());
-  n_remaining = scheduler.impl.lcbns_remaining(scheduler.implDetails);
+  n_remaining = scheduler.impl.lcbns_remaining();
   return n_remaining;
 }
 
@@ -218,7 +217,7 @@ int scheduler_schedule_has_diverged (void)
 {
   int has_diverged = 0;
   assert(scheduler__looks_valid());
-  has_diverged = scheduler.impl.has_diverged(scheduler.implDetails);
+  has_diverged = scheduler.impl.has_diverged();
   return has_diverged;
 }
 
