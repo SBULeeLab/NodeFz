@@ -2,8 +2,9 @@
 #define UV_SRC_SCHEDULER_H_
 
 /* This file accomplishes two things:
- *   1. It defines the public interface for a scheduler. 
- *   2. It defines the scheduler function typedefs, indicating the functions each scheduler implementation must offer.
+ *   1. It defines the public interface for the libuv scheduler. 
+ *   2. It defines the function typedefs for a scheduler implementation, 
+ *      indicating the functions each scheduler implementation must offer.
  */
 
 #include "unified-callback-enums.h"
@@ -15,6 +16,257 @@
 #include "scheduler_CBTree.h"
 #include "scheduler_Fuzzing_Timer.h"
 #include "scheduler_Fuzzing_ThreadOrder.h"
+
+/* The different scheduler types we support. */
+enum scheduler_type_e
+{
+  SCHEDULER_TYPE_MIN,
+
+  SCHEDULER_TYPE_CBTREE = SCHEDULER_TYPE_MIN,
+  SCHEDULER_TYPE_FUZZER_TIMER,
+  SCHEDULER_TYPE_FUZZER_THREAD_ORDER,
+
+  SCHEDULER_TYPE_MAX = SCHEDULER_TYPE_FUZZER_THREAD_ORDER;
+};
+typedef enum scheduler_type_e scheduler_type_t;
+const char * schedule_type_to_string (schedule_type_t type);
+
+/* The mode in which the scheduler is to run. */
+enum scheduler_mode_e
+{
+  SCHEDULER_MODE_MIN,
+
+  SCHEDULER_MODE_RECORD = SCHEDULER_MODE_MIN,
+  SCHEDULER_MODE_REPLAY,
+
+  SCHEDULER_MODE_MAX = SCHEDULER_MODE_REPLAY
+};
+typedef enum scheduler_mode_e scheduler_mode_t;
+const char * scheduler_mode_to_string (scheduler_mode_t mode);
+
+/* The types of threads of which the scheduler is aware. */
+enum thread_type_e
+{
+  THREAD_TYPE_MIN,
+
+  THREAD_TYPE_LOOPER = THREAD_TYPE_MIN,
+  THREAD_TYPE_THREADPOOL,
+
+  THREAD_TYPE_MAX = THREAD_TYPE_THREADPOOL
+};
+typedef enum thread_type_e thread_type_t;
+const char * thread_type_to_string (thread_type_t mode);
+
+/* The different schedule points. */
+enum schedule_point_e
+{
+  SCHEDULE_POINT_TP_MIN,
+
+  SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_TP_MIN,
+  SCHEDULE_POINT_AFTER_EXEC_CB,
+
+  SCHEDULE_POINT_TP_BEFORE_GET_WORK,
+  SCHEDULE_POINT_TP_AFTER_GET_WORK,
+
+  SCHEDULE_POINT_TP_BEFORE_PUT_DONE,
+  SCHEDULE_POINT_TP_AFTER_PUT_DONE,
+
+  SCHEDULE_POINT_TP_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
+};
+typedef enum schedule_point_e schedule_point_t;
+const char * schedule_point_to_string (schedule_point_t point);
+
+/* The Schedule Point Details (SPD) provided for each schedule point. 
+ * There's a SPD_X_t for each schedule_point_t. Use them together.
+ */
+struct spd_before_exec_cb_s
+{
+  lcbn_t *lcbn;
+};
+typedef struct spd_before_exec_cb_s spd_before_exec_cb_t;
+
+struct spd_after_exec_cb_s
+{
+  lcbn_t *lcbn;
+};
+typedef struct spd_after_exec_cb_s spd_after_exec_cb_t;
+
+struct spd_before_get_work_s
+{
+  /* TODO Anything? */
+};
+typedef struct spd_before_get_work_s spd_before_get_work_t;
+
+struct spd_after_get_work_s
+{
+  /* TODO Anything? */
+};
+typedef struct spd_after_get_work_s spd_after_get_work_t;
+
+struct spd_before_put_done_s
+{
+  /* TODO Anything? */
+};
+typedef struct spd_before_put_done_s spd_before_put_done_t;
+
+struct spd_after_put_done_s
+{
+  /* TODO Anything? */
+};
+typedef struct spd_after_put_done_s spd_after_put_done_t;
+
+/* Scheduler
+ *
+ * libuv makes use of multiple threads (looper thread and TP threads).
+ * On unix, the pthreads library decides when each thread gets scheduled in terms of a generic scheduling quantum.
+ * We add our own scheduler that can make decisions at the libuv semantic level.
+ *
+ * Our scheduler requires threads to call into it before and after completing a "sensitive activity".
+ * These call points are called "schedule points" and are indicated to the scheduler via scheduler_thread_yield().
+ *
+ *  Thread type         Sensitive activities (schedule points)
+ * -------------------------------------------------------------------------------------------
+ *    L, TP                Before/after executing a CB
+ *    TP                   Before/after taking the next "Work" item from the work queue
+ *    TP                   Before/after placing a completed "Work" item into the done queue
+ *
+ * Schedulers can make scheduling decisions based on a few things:
+ *   - thread ID 
+ *   - thread type
+ *   - in the case of SCHEDULE_POINT_BEFORE_EXEC_CB, the CB that will be executed
+ *   - ...
+ *
+ * To offer flexibility, scheduler_thread_yield takes a void *pointDetails whose contents depend on the schedule point.
+ * That way, if we introduce a new scheduler that wants other details, we just have to change the underlying struct for the schedule point.
+ *
+ * Schedulers have two modes: record and replay.
+ *  Record:
+ *    The scheduler doesn't influence the actions of a thread much, but it does record the sequence of
+ *    activities for subsequent replay.
+ *  Replay:
+ *    Attempt to reproduce a previously-recorded execution.
+ *    Can also be used to "follow a script" that may not have been previously recorded, e.g. via a rescheduler.
+ *    Must be invoked with the same inputs.
+ *    If the input schedule is identical to a previously-recorded schedule, it must be achievable.
+ *    If it's not identical to a previously-recorded schedule, it may (given identical external inputs (e.g. gettimeofday, read(), etc.)) be achievable.
+ *      If the input schedule is a variation of the recorded schedule (e.g. switching the order of two callbacks), 
+ *      one or more of the changes in the re-ordering may produce a different logical structure. 
+ *
+ * For research purposes, the system is designed to support multiple scheduler implementations.
+ * The libuv code should initialize the scheduler with scheduler_init(), designating the desired scheduler type and mode.
+ * It should then call the appropriate scheduler_* APIs at "schedule points".
+ * The scheduler will direct the API to the designated scheduler.
+ * This paradigm is a "dispatch table", like the Linux VFS system.
+ * Scheduler implementations must define each of the schedulerImpl_* APIs declared below.
+ */
+
+/* Call this prior to any other scheduler_* routines. 
+ *   type: What type of scheduler to use?
+ *   mode: What mode in which to use it? Not all schedulers support all modes.
+ *   schedule_file: In RECORD mode, where to put the schedule we record.
+ *                  In REPLAY mode, where to find the schedule we wish to replay. 
+ *   args: Depends on type. Consult the header file for the scheduler implementation.
+ *         Must be persistent throughout program lifetime (TODO The scheduler implementations should just make a copy).
+ */
+void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedule_file, void *args);
+
+/* Register the calling thread under the specified type. 
+ * Each thread should call this while it is initializing. 
+ */
+void scheduler_register_thread (thread_type_t type);
+
+/* Register LCBN for potential scheduler_execute_lcbn()'d later. 
+ * Caller must ensure mutex for deterministic replay.
+ */
+void scheduler_register_lcbn (lcbn_t *lcbn);
+
+/* REPLAY mode. 
+ * Returns the callback_type of the next scheduled LCBN.
+ * If scheduler has diverged, returnes CALLBACK_TYPE_ANY.
+ */
+enum callback_type scheduler_next_lcbn_type (void);
+
+/* Thread yields at a schedule point, allowing the scheduler to make a decision.
+ * Call before doing or after doing something "sensitive", as described in the scheduler documentation.
+ * This gives the scheduler the opportunity to make a decision.
+ *   RECORD mode: might make a random choice about who goes next
+ *   REPLAY mode: lets us have reproducible results
+ */
+void scheduler_thread_yield (schedule_point_t point, void *pointDetails);
+
+/* Dump the schedule (whatever that means; depends on the scheduler implementation) to the schedule_file specified in schedule_init. 
+ *   RECORD mode: duh
+ *   REPLAY mode: we don't want to overwrite the input schedule, so we emit to sprintf("%s-replay", schedule_file). 
+ * Returns the name of the output file.
+ */
+char * scheduler_emit (void);
+
+/* REPLAY mode.
+ * How many LCBNs from the input schedule have not been executed yet?
+ */
+int scheduler_lcbns_remaining (void);
+
+/* REPLAY mode.
+ * Returns non-zero if schedule has diverged, else 0. 
+ */
+int scheduler_schedule_has_diverged (void);
+
+/* How many LCBNs have already been executed? 
+ * This is measured by the number of times scheduler_thread_yield is called
+ * at schedule point SCHEDULE_POINT_AFTER_EXEC_CB. */
+int scheduler_n_executed (void);
+
+/* RECORD vs. REPLAY mode may affect control-flow decisions. */
+scheduler_mode_t scheduler_get_scheduler_mode (void);
+
+/*********************************
+ * "Protected" scheduler functions shared by the scheduler implementations.
+ * Only scheduler implementation code should call these.
+ *********************************/
+
+/* Re-entrant lock/unlock. */
+void scheduler__lock (void);
+void scheduler__unlock (void);
+thread_type_t scheduler__get_thread_type (uv_thread_t tid);
+
+/********************************
+ * Each scheduler implementation must define these APIs.
+ ********************************/
+
+/* Initialize the scheduler implementation.
+ * INPUTS:    mode: The mode in which the scheduler will run.
+ *            args: Define this in your header file so users can parameterize you.
+ * OUTPUTS:   schedulerImpl: Set the function pointers for the elements of your implementation.
+ *            implDetails: Hide this in your C file. We'll supply it to each of your other APIs.
+ */
+typedef void (*schedulerImpl_init) (scheduler_mode_t mode, void *args, schedulerImpl_t *schedulerImpl, void **implDetails);
+
+/* See scheduler_register_lcbn. */
+typedef void (*schedulerImpl_register_lcbn) (lcbn_t *lcbn, void *implDetails);
+/* See scheduler_next_lcbn_type. */
+typedef enum callback_type (*schedulerImpl_next_lcbn_type) (void *implDetails);
+/* See scheduler_thread_yield. */
+typedef void (*schedulerImpl_thread_yield) (schedule_point_t point, void *pointDetails, void *implDetails);
+/* See scheduler_emit. */
+typedef void (*schedulerImpl_emit) (char *output_file, void *implDetails);
+/* See scheduler_lcbns_remaining. */
+typedef int  (*schedulerImpl_lcbns_remaining) (void *implDetails);
+/* See scheduler_schedule_has_diverged. */
+typedef int  (*schedulerImpl_schedule_has_diverged) (void *implDetails);
+
+struct schedulerImpl_s
+{
+  schedulerImpl_register_lcbn register_lcbn;
+  schedulerImpl_next_lcbn_type next_lcbn_type;
+  schedulerImpl_thread_yield thread_yield;
+  schedulerImpl_emit emit;
+  schedulerImpl_lcbns_remaining lcbns_remaining;
+  schedulerImpl_schedule_has_diverged schedule_has_diverged;
+};
+typedef struct schedulerImpl_s schedulerImpl_t;
+
+
+#if 0
 
 /* The Logical CallBack Nodes the scheduler works with. */
 struct sched_lcbn_s
@@ -29,103 +281,6 @@ typedef struct sched_lcbn_s sched_lcbn_t;
 sched_lcbn_t *sched_lcbn_create (lcbn_t *lcbn);
 void sched_lcbn_destroy (sched_lcbn_t *sched_lcbn);
 void sched_lcbn_list_destroy_func (struct list_elem *e, void *aux);
-
-/* The different scheduler types we support. */
-enum scheduler_type_e
-{
-  SCHEDULER_TYPE_CBTREE,
-  SCHEDULER_TYPE_FUZZER_TIMER,
-  SCHEDULER_TYPE_FUZZER_THREAD_ORDER,
-};
-typedef enum scheduler_type_e scheduler_type_t;
-
-/* The mode in which the scheduler is to run. */
-enum schedule_mode_e
-{
-  SCHEDULE_MODE_RECORD,
-  SCHEDULE_MODE_REPLAY
-};
-typedef enum schedule_mode_e schedule_mode_t;
-
-/* Scheduler: A scheduler has two modes: record and replay.
- *
- *  Record:
- *  Tell the scheduler before you invoke each callback.
- *  When finished, save the schedule for future replay.
- *
- *  Replay:
- *  Steer the execution of user callbacks based on a schedule recorded during a previous run.
- *  Note that this schedule need NOT be exactly the same as was recorded.
- *
- *  Given identical external inputs (e.g. gettimeofday, read(), etc.), 
- *  the requested schedule may be achievable.
- *
- *  If the input schedule is identical to the recorded schedule, it must be achievable.
- *
- *  If the input schedule is a variation of the recorded schedule (e.g. switching the
- *  order of two callbacks), one or more of the changes in the re-ordering may
- *  produce a different logical structure. 
- *  
- *  Example 1: The first callback to invoke console.log() will always register a UV_SIGNAL_CB for SIGWINCH. 
- *    If a modified schedule changes the first callback to invoke console.log(), the resulting tree 
- *    will differ. However, if the UV_SIGNAL_CB was never invoked in the original tree, this variation 
- *    will not meaningfully affect our ability to replay the schedule.
- *    If it was invoked (as a child of "the wrong" LCBN), we will notice and declare the requested schedule
- *    un-produceable.
- *
- *  Example 2: The application wishes to request three FS operations, but with no more than 2 active at a time.
- *    It initializes a JS "flag" variable to 0. The first completed FS operation sets the flag to 1 and requests 
- *    another FS operation. 
- *    If the modified schedule swaps the completion order of the first two FS operations, the "other" CB will
- *    request the third FS operation.
-*/
-
-/* Some scheduler APIs are intended for RECORD mode, others for REPLAY mode, and others for both modes. */
-
-/* APIs for both modes. */
-
-/* Call this prior to any other scheduler_* routines. 
- *   type: What type of scheduler to use?
- *   mode: What mode in which to use it? Not all schedulers support all modes.
- *   schedule_file: In RECORD mode, where to put the schedule we record.
- *                  In REPLAY mode, where to find the schedule we wish to replay. 
- *   args: Depends on type. Consult the header file for the scheduler implementation.
- *         Must be persistent throughout program lifetime (TODO The scheduler implementations should just make a copy).
- */
-void scheduler_init (scheduler_type_t type, schedule_mode_t mode, char *schedule_file, void *args);
-
-/* Register LCBN for potential scheduler_execute()'d later. 
- * Caller must ensure mutex for deterministic replay.
- */
-void scheduler_register_lcbn (lcbn_t *lcbn);
-
-/* Execute this lcbn, which must previously have been scheduler_register_lcbn()'d.
- *   RECORD mode: duh
- *   REPLAY mode: we must wait until it's our turn
- */
-void scheduler_execute_lcbn (lcbn_t *lcbn);
-
-/* Dump the schedule in registration order to the schedule_file specified in schedule_init. 
- *   RECORD mode: duh
- *   REPLAY mode: we don't want to overwrite the input schedule, so we emit to sprintf("%s-replay", schedule_file). */
-void scheduler_emit (void);
-
-schedule_mode_t scheduler_get_schedule_mode (void);
-
-/* APIs for RECORD mode only. */
-
-/* How many LCBNs have already been scheduler_execute()'d? */
-int scheduler_lcbns_already_executed (void);
-
-/* APIs for REPLAY mode only. */
-
-/* How many LCBNs remain to be scheduler_execute()'d before we are done? */
-int scheduler_lcbns_remaining (void);
-
-/* Non-zero if schedule has diverged, else 0. */
-int scheduler_schedule_has_diverged (void);
-
-/* TODO I AM HERE REFACTORING */
 
 /* Returns the next scheduled LCBN.
  * If nothing left to schedule, returns NULL.
@@ -165,20 +320,6 @@ sched_context_t *sched_context_create (enum execution_context exec_context, enum
 void sched_context_destroy (sched_context_t *sched_context);
 void sched_context_list_destroy_func (struct list_elem *e, void *aux);
 
-/* Record mode: SCHEDULE_FILE is where to send output.
-   Replay mode: SCHEDULE_FILE is where to find schedule. 
-    SCHEDULE_FILE must be in registration order. 
-    The exec_id of each LCBN should indicate the order in which execution occurred. 
-
-    min_n_executed_before_divergence_allowed: exactly what it says.
-
-    The schedule recorded in replay mode is saved to 'SCHEDULE_FILE-replay'. */
-void scheduler_init (schedule_mode_t mode, char *schedule_file, 
-
-/* Return the mode of the scheduler. */
-schedule_mode_t scheduler_get_mode (void);
-const char * schedule_mode_to_string (schedule_mode_t);
-
 /* Record. */
 
 /* TODO The caller sets the global_exec_id for the LCBNs in invoke_callback.
@@ -216,8 +357,6 @@ sched_context_t * scheduler_next_context (struct list *sched_context_list);
    Call sched_lcbn_is_next in invoke_callback to confirm or reject this hypothesis. */
 sched_lcbn_t * scheduler_next_lcbn (sched_context_t *sched_context);
 
-/* Returns the callback_type of the next scheduled LCBN. */
-enum callback_type scheduler_next_lcbn_type (void);
 
 /* Block until SCHED_LCBN is next up.
    This allows competing threads to finish whatever they are doing.
@@ -261,7 +400,7 @@ void scheduler_advance (void);
    Returns the schedule mode in place at the end of the function. 
    Test that or scheduler_has_diverged() for divergence.
 */
-schedule_mode_t scheduler_check_lcbn_for_divergence (lcbn_t *lcbn);
+scheduler_mode_t scheduler_check_lcbn_for_divergence (lcbn_t *lcbn);
 
 /* For REPLAY mode.
    cbt is the callback type of the next marker node, which we are trying to emit.
@@ -272,9 +411,9 @@ schedule_mode_t scheduler_check_lcbn_for_divergence (lcbn_t *lcbn);
      have been caught by the divergence timeout code instead.
 
    Same idea as scheduler_check_lcbn_for_divergence.
-   Test the returned schedule_mode_t or scheduler_has_diverged() for divergence.
+   Test the returned scheduler_mode_t or scheduler_has_diverged() for divergence.
 */
-schedule_mode_t scheduler_check_marker_for_divergence (enum callback_type cbt);
+scheduler_mode_t scheduler_check_marker_for_divergence (enum callback_type cbt);
 
 
 /* Each type of handle and req should declare a function of this type in internal.h
@@ -285,20 +424,6 @@ typedef struct list * (*ready_lcbns_func)(void *wrapper, enum execution_context 
 
 void scheduler_UT (void);
 
-/********************************
- * Each scheduler implementation must define these APIs.
- ********************************/
-
-/* Initialize the scheduler implementation.
- *   args: Define this in your header file
- *   details: Hide this in your C file. We'll supply it to each of your other APIs
- */
-typedef void (*schedulerImpl_init) (schedule_mode_t mode, void *args, void *details);
-typedef void (*schedulerImpl_register_lcbn) (lcbn_t *lcbn, void *details);
-typedef void (*schedulerImpl_execute_lcbn) (lcbn_t *lcbn, void *details);
-typedef void (*schedulerImpl_emit) (void *details);
-typedef int  (*schedulerImpl_schedule_has_diverged) (void *details);
-typedef int  (*schedulerImpl_lcbns_remaining) (void *details);
-/* TODO Add more as needed. */
+#endif
 
 #endif  /* UV_SRC_SCHEDULER_H_ */
