@@ -1,5 +1,9 @@
 #include <uv.h>
 
+/***********************
+ * Private variable and type declarations.
+ ***********************/
+
 static uv_thread_t NO_HOLDER = -1;
 static int REENTRANT_MUTEX_MAGIC = 98486132;
 
@@ -12,13 +16,17 @@ struct reentrant_mutex_s
   uv_mutex_t mutex;
 };
 
+/***********************
+ * Private API declarations.
+ ***********************/
+
+static int reentrant_mutex__looks_valid (reentrant_mutex_t *mutex);
+
+/***********************
+ * Public API definitions.
+ ***********************/
+
 /* Return non-zero if mutex looks valid. */
-static int reentrant_mutex_valid (reentrant_mutex_t *mutex)
-{
-  return (mutex != NULL && 
-          mutex->magic == REENTRANT_MUTEX_MAGIC && 
-          0 <= mutex->lock_depth);
-}
 
 int reentrant_mutex_init (reentrant_mutex_t *mutex)
 {
@@ -33,7 +41,7 @@ int reentrant_mutex_init (reentrant_mutex_t *mutex)
 
 void reentrant_mutex_lock (reentrant_mutex_t *mutex)
 {
-  assert(reentrant_mutex_valid(mutex));
+  assert(reentrant_mutex__looks_valid(mutex));
 
   if (mutex->holder != uv_thread_self())
   {
@@ -51,7 +59,7 @@ void reentrant_mutex_lock (reentrant_mutex_t *mutex)
 
 void reentrant_mutex_unlock (reentrant_mutex_t *mutex)
 {
-  assert(reentrant_mutex_valid(mutex));
+  assert(reentrant_mutex__looks_valid(mutex));
 
   assert(mutex->holder == uv_thread_self());
   assert(1 <= mutex->lock_depth);
@@ -65,4 +73,15 @@ void reentrant_mutex_unlock (reentrant_mutex_t *mutex)
 
   assert(0 <= mutex->lock_depth);
   return;
+}
+
+/***********************
+ * Private API definitions.
+ ***********************/
+
+static int reentrant_mutex__looks_valid (reentrant_mutex_t *mutex)
+{
+  return (mutex != NULL && 
+          mutex->magic == REENTRANT_MUTEX_MAGIC && 
+          0 <= mutex->lock_depth);
 }

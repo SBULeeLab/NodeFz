@@ -1,21 +1,85 @@
 #ifndef UV_SRC_SCHEDULER_H_
 #define UV_SRC_SCHEDULER_H_
 
-/* This file accomplishes two things:
- *   1. It defines the public interface for the libuv scheduler. 
- *   2. It defines the function typedefs for a scheduler implementation, 
+/* 
+ * -----------------------------------------
+ *    Introduction
+ * -----------------------------------------
+ *
+ * We want to be able to try out different schedulers so that we can compare their performance.
+ * Our scheduler design is therefore modular.
+ * The scheduler implementation is chosen at runtime during initialization.
+ *
+ * This file accomplishes two things:
+ *   1. It defines the public interface for the libuv scheduler.
+ *   2. It defines the function typedefs for a scheduler implementation,
  *      indicating the functions each scheduler implementation must offer.
+ *
+ * Implementation details:
+ *   Some pieces of the "public scheduler" are shared by all scheduler implementations.
+ *   For the rest, the "public scheduler" defers the work to the "private scheduler".
+ *   During initialization, the "public scheduler" gets function pointers for the portions that it does not
+ *   implement itself from the "private scheduler".
+ *
+ * -----------------------------------------
+ *    Scheduler overview
+ * -----------------------------------------
+ *
+ * libuv makes use of multiple threads (looper thread and TP threads).
+ * On unix, the pthreads library decides when each thread gets scheduled in terms of a generic scheduling quantum.
+ * We add our own scheduler that can make decisions at the libuv semantic level.
+ *
+ * Our scheduler requires threads to call into it before and after completing a "sensitive activity".
+ * These call points are called "schedule points" and are indicated to the scheduler via scheduler_thread_yield().
+ *
+ *  Thread type         Sensitive activities (schedule points)
+ * -------------------------------------------------------------------------------------------
+ *    L, TP                Before/after executing a CB
+ *    TP                   Before/after taking the next "Work" item from the work queue
+ *    TP                   Before/after placing a completed "Work" item into the done queue
+ *
+ * Schedulers can make scheduling decisions based on a few things:
+ *   - thread ID 
+ *   - thread type
+ *   - in the case of SCHEDULE_POINT_BEFORE_EXEC_CB, the CB that will be executed
+ *   - ...
+ *
+ * To offer flexibility, scheduler_thread_yield takes a void *schedule_point_details whose contents depend on the schedule point.
+ * That way, if we introduce a new scheduler that wants other details, we just have to change the underlying struct for the schedule point.
+ *
+ * Schedulers have two modes: record and replay.
+ *  Record:
+ *    The scheduler doesn't influence the actions of a thread much, but it does record the sequence of
+ *    activities for subsequent replay.
+ *  Replay:
+ *    Attempt to reproduce a previously-recorded execution.
+ *    Can also be used to "follow a script" that may not have been previously recorded, e.g. via a rescheduler.
+ *    Must be invoked with the same inputs.
+ *    If the input schedule is identical to a previously-recorded schedule, it must be achievable.
+ *    If it's not identical to a previously-recorded schedule, it may (given identical external inputs (e.g. gettimeofday, read(), etc.)) be achievable.
+ *      If the input schedule is a variation of the recorded schedule (e.g. switching the order of two callbacks), 
+ *      one or more of the changes in the re-ordering may produce a different logical structure. 
+ *
+ * For research purposes, the system is designed to support multiple scheduler implementations.
+ * The libuv code should initialize the scheduler with scheduler_init(), designating the desired scheduler type and mode.
+ * It should then call the appropriate scheduler_* APIs at "schedule points".
+ * The scheduler will direct the API to the designated scheduler.
+ * This paradigm is a "dispatch table", like the Linux VFS system.
+ *
+ * -----------------------------------------
+ *    To implement a new scheduler
+ * -----------------------------------------
+ *
+ * scheduler.h: Update scheduler_type_t with the new type.
+ * scheduler.c: Update scheduler_init for the new type.
+ * Create new scheduler_X.[ch] files to define each of the schedulerImpl_* APIs declared below
+ *   (simply copy an existing scheduler implementation's skeleton).
  */
 
 #include "unified-callback-enums.h"
 #include "logical-callback-node.h"
 
 #include <uv.h>
-
-/* Include the various schedule implementations. */
-#include "scheduler_CBTree.h"
-#include "scheduler_Fuzzing_Timer.h"
-#include "scheduler_Fuzzing_ThreadOrder.h"
 
 /* The different scheduler types we support. */
 enum scheduler_type_e
@@ -77,7 +141,7 @@ typedef enum schedule_point_e schedule_point_t;
 const char * schedule_point_to_string (schedule_point_t point);
 
 /* The Schedule Point Details (SPD) provided for each schedule point. 
- * There's a SPD_X_t for each schedule_point_t. Use them together.
+ * There's an SPD_X_t for each schedule_point_t. Use them together.
  */
 struct spd_before_exec_cb_s
 {
@@ -115,51 +179,6 @@ struct spd_after_put_done_s
 };
 typedef struct spd_after_put_done_s spd_after_put_done_t;
 
-/* Scheduler
- *
- * libuv makes use of multiple threads (looper thread and TP threads).
- * On unix, the pthreads library decides when each thread gets scheduled in terms of a generic scheduling quantum.
- * We add our own scheduler that can make decisions at the libuv semantic level.
- *
- * Our scheduler requires threads to call into it before and after completing a "sensitive activity".
- * These call points are called "schedule points" and are indicated to the scheduler via scheduler_thread_yield().
- *
- *  Thread type         Sensitive activities (schedule points)
- * -------------------------------------------------------------------------------------------
- *    L, TP                Before/after executing a CB
- *    TP                   Before/after taking the next "Work" item from the work queue
- *    TP                   Before/after placing a completed "Work" item into the done queue
- *
- * Schedulers can make scheduling decisions based on a few things:
- *   - thread ID 
- *   - thread type
- *   - in the case of SCHEDULE_POINT_BEFORE_EXEC_CB, the CB that will be executed
- *   - ...
- *
- * To offer flexibility, scheduler_thread_yield takes a void *schedule_point_details whose contents depend on the schedule point.
- * That way, if we introduce a new scheduler that wants other details, we just have to change the underlying struct for the schedule point.
- *
- * Schedulers have two modes: record and replay.
- *  Record:
- *    The scheduler doesn't influence the actions of a thread much, but it does record the sequence of
- *    activities for subsequent replay.
- *  Replay:
- *    Attempt to reproduce a previously-recorded execution.
- *    Can also be used to "follow a script" that may not have been previously recorded, e.g. via a rescheduler.
- *    Must be invoked with the same inputs.
- *    If the input schedule is identical to a previously-recorded schedule, it must be achievable.
- *    If it's not identical to a previously-recorded schedule, it may (given identical external inputs (e.g. gettimeofday, read(), etc.)) be achievable.
- *      If the input schedule is a variation of the recorded schedule (e.g. switching the order of two callbacks), 
- *      one or more of the changes in the re-ordering may produce a different logical structure. 
- *
- * For research purposes, the system is designed to support multiple scheduler implementations.
- * The libuv code should initialize the scheduler with scheduler_init(), designating the desired scheduler type and mode.
- * It should then call the appropriate scheduler_* APIs at "schedule points".
- * The scheduler will direct the API to the designated scheduler.
- * This paradigm is a "dispatch table", like the Linux VFS system.
- * Scheduler implementations must define each of the schedulerImpl_* APIs declared below.
- */
-
 /* Call this prior to any other scheduler_* routines. 
  *   type: What type of scheduler to use?
  *   mode: What mode in which to use it? Not all schedulers support all modes.
@@ -172,6 +191,7 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
 
 /* Register the calling thread under the specified type. 
  * Each thread should call this while it is initializing. 
+ * Once set, a thread's type should not change.
  */
 void scheduler_register_thread (thread_type_t type);
 
@@ -227,6 +247,7 @@ scheduler_mode_t scheduler_get_scheduler_mode (void);
 /* Re-entrant lock/unlock. */
 void scheduler__lock (void);
 void scheduler__unlock (void);
+
 thread_type_t scheduler__get_thread_type (uv_thread_t tid);
 
 /********************************

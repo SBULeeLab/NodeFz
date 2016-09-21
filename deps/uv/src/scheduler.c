@@ -111,13 +111,14 @@ struct
 } scheduler;
 
 /***********************
- * Private scheduler API declarations
+ * Private scheduler API declarations.
  ***********************/
 
+/* Returns non-zero if scheduler is initialized and magic is OK. */
 int scheduler__looks_valid (void);
 
 /***********************
- * Public scheduler API definitions
+ * Public scheduler API definitions.
  ***********************/
 
 void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedule_file, void *args)
@@ -164,7 +165,15 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
 
 void scheduler_register_thread (thread_type_t type)
 {
+#if defined(JD_DEBUG)
+  int found = 0;
+  /* Not already present. */
+  assert(map_lookup(scheduler.tidToType, (int) uv_thread_self(), &found) == NULL);
+  assert(!found);
+#endif
+
   assert(scheduler__looks_valid());
+
   map_insert(scheduler.tidToType, (int) uv_thread_self(), (void *) type);
   return;
 }
@@ -192,14 +201,15 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
   return;
 }
 
+char output_file[1024];
 char * scheduler_emit (void)
 {
-  char output_file[1024];
   assert(scheduler__looks_valid());
 
   strcpy(output_file, scheduler.schedule_file);
   if (scheduler.mode == SCHEDULER_MODE_REPLAY)
     strcat(output_file, "-replay");
+
   scheduler.impl.emit(output_file);
   return output_file;
 }
@@ -240,11 +250,13 @@ scheduler_mode_t scheduler_get_scheduler_mode (void)
 
 void scheduler__lock (void)
 {
+  assert(scheduler__looks_valid());
   reentrant_mutex_lock(&scheduler.mutex);
 }
 
 void scheduler__unlock (void)
 {
+  assert(scheduler__looks_valid());
   reentrant_mutex_unlock(&scheduler.mutex);
 }
 
@@ -252,6 +264,8 @@ thread_type_t scheduler__get_thread_type (uv_thread_t tid)
 {
   int found = 0;
   thread_type_t type;
+
+  assert(scheduler__looks_valid());
   
   type = (thread_type_t) map_lookup(scheduler.tidToType, (int) tid, &found);
   assert(found);

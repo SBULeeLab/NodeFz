@@ -1882,6 +1882,32 @@ I proposed a simpler "schedule fuzzing" approach to DY, who thought it seemed do
 
 See scratch sheet for next steps.
 
+--------------------------------
+
+Thu-Fri 08-09 Sep 2016
+
+Work on schedule refactoring
+
+--------------------------------
+
+Sat 10 Sep - Sat 17 Sep 2016
+
+Sick with strep throat, no progress
+
+--------------------------------
+
+Wed 21 Sep 2016
+
+Hooray, I can (at last!) continue making progress
+
+1. Finish work on schedule.[ch]
+
+TODO
+
+- Refactor code to use the new scheduling APIs
+- Stub scheduler_Fuzzing_Timer.[ch] so things will compile
+- Complete scheduler_Fuzzing_Timer.[ch]
+
 -----------
 
 
