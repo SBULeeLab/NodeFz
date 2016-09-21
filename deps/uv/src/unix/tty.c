@@ -269,34 +269,3 @@ int uv_tty_reset_mode(void) {
 
   return err;
 }
-
-struct list * uv__ready_tty_lcbns(void *h, enum execution_context exec_context)
-{
-  uv_tty_t *handle = (uv_tty_t *) h;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_tty_lcbns = list_create();
-
-  assert(handle);
-  assert(handle->magic == UV_HANDLE_MAGIC && handle->type == UV_TTY);
-
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_UV__IO_POLL:
-      list_concat(ready_tty_lcbns, uv__ready_stream_lcbns(handle, exec_context));
-      break;
-    case EXEC_CONTEXT_UV__RUN_PENDING:
-      list_concat(ready_tty_lcbns, uv__ready_stream_lcbns(handle, exec_context));
-      break;
-    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      list_concat(ready_tty_lcbns, uv__ready_stream_lcbns(handle, exec_context));
-
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      if (lcbn->cb)
-        list_push_back(ready_tty_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_tty_lcbns: Error, unexpected context");
-  }
-  return ready_tty_lcbns;
-}

@@ -400,34 +400,3 @@ int uv_tcp_simultaneous_accepts(uv_tcp_t* handle, int enable) {
 void uv__tcp_close(uv_tcp_t* handle) {
   uv__stream_close((uv_stream_t*)handle);
 }
-
-struct list * uv__ready_tcp_lcbns(void *h, enum execution_context exec_context)
-{
-  uv_tcp_t *handle = (uv_tcp_t *) h;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_tcp_lcbns = list_create();
-
-  assert(handle);
-  assert(handle->type == UV_TCP);
-
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_UV__IO_POLL:
-      list_concat(ready_tcp_lcbns, uv__ready_stream_lcbns(handle, exec_context));
-      break;
-    case EXEC_CONTEXT_UV__RUN_PENDING:
-      list_concat(ready_tcp_lcbns, uv__ready_stream_lcbns(handle, exec_context));
-      break;
-    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      list_concat(ready_tcp_lcbns, uv__ready_stream_lcbns(handle, exec_context));
-
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      if (lcbn->cb)
-        list_push_back(ready_tcp_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_tcp_lcbns: Error, unexpected context");
-  }
-  return ready_tcp_lcbns;
-}

@@ -128,34 +128,3 @@ int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
 void uv__poll_close(uv_poll_t* handle) {
   uv__poll_stop(handle);
 }
-
-struct list * uv__ready_poll_lcbns(void *h, enum execution_context exec_context)
-{
-  uv_poll_t *handle = (uv_poll_t *) h;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_poll_lcbns = list_create();
-
-  assert(handle);
-  assert(handle->magic == UV_HANDLE_MAGIC && handle->type == UV_POLL);
-
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_UV__IO_POLL:
-      /* uv__poll_io 
-         Either error or not error: invoke UV_POLL_CB appropriately, then return. */
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_POLL_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      assert(lcbn->cb);
-      list_push_back(ready_poll_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      if (lcbn->cb)
-        list_push_back(ready_poll_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_poll_lcbns: Error, unexpected context");
-  }
-  return ready_poll_lcbns;
-}

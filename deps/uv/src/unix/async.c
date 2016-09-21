@@ -96,76 +96,26 @@ static void uv__async_event(uv_loop_t* loop,
                             struct uv__async* w,
                             unsigned int nevents) {
   QUEUE* q;
-  uv_async_t* handle;
+  uv_async_t* h;
 
-  QUEUE aq;
-  struct list *async_handles;
-  sched_context_t *sched_context;
+  QUEUE_FOREACH(q, &loop->async_handles) {
+    h = QUEUE_DATA(q, uv_async_t, queue);
 
-  assert(loop->magic == UV_LOOP_MAGIC);
-  if (QUEUE_EMPTY(&loop->async_handles))
-    return;
+    /* Skip non-pending handles and handles with no CB. */
+    if (cmpxchgi(&h->pending, 1, 0) == 0)
+      continue;
+    if (h->async_cb == NULL)
+      continue;
 
-  /* Interpret loop->async_handles as a list of uv_handle_t's. */
-  QUEUE_INIT(&aq);
-  q = QUEUE_HEAD(&loop->async_handles);
-  QUEUE_SPLIT(&loop->async_handles, q, &aq);
-
-  async_handles = list_create();
-  QUEUE_FOREACH(q, &aq) {
-    handle = QUEUE_DATA(q, uv_async_t, queue);
-    if (ACCESS_ONCE(int, handle->pending) != 0)
-    {
-      sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, handle);
-      list_push_back(async_handles, &sched_context->elem);
-    }
+#if defined(UNIFIED_CALLBACK)
+    /* TODO One of these handles is for the threadpool.
+     * In REPLAY mode, we should only invoke it if we are to run a UV__WORK_DONE next.
+     */
+    invoke_callback_wrap ((any_func) h->async_cb, UV_ASYNC_CB, (long) h);
+#else
+    h->async_cb(h);
+#endif
   }
-
-  /* Find, remove, and execute the handle next in the schedule.   
-     One of these handles is the async handle for the threadpool. 
-     In REPLAY mode, if it is not scheduled next then we will not invoke
-      it even if there are pending threadpool events. */
-  while (!list_empty(async_handles))
-  {
-    assert(!QUEUE_EMPTY(&aq));
-    sched_context = scheduler_next_context(async_handles);
-    if (sched_context)
-    {
-      list_remove(async_handles, &sched_context->elem);
-      handle = (uv_async_t *) sched_context->wrapper;
-      sched_context_destroy(sched_context);
-
-      /* Remove from aq and return to loop->async_handles */
-      q = &handle->queue;
-      QUEUE_REMOVE(q);
-      QUEUE_INIT(q);
-      QUEUE_INSERT_TAIL(&loop->async_handles, &handle->queue);
-
-      /* Run the handle.
-         Must set pending to 0 first, in case handle re-sets pending a la threadpool. */
-      assert(cmpxchgi(&handle->pending, 1, 0) == 1);
-      if (handle->async_cb)
-      {
-        invoke_callback_wrap ((any_func) handle->async_cb, UV_ASYNC_CB, (long) handle);
-      }
-    }
-    else
-      break;
-  }
-
-  /* Repair: add any handles we didn't run back onto the front of async_handles. */
-  while (!QUEUE_EMPTY(&aq)) {
-    q = QUEUE_HEAD(&aq);
-    QUEUE_REMOVE(q);
-    QUEUE_INIT(q);
-    QUEUE_INSERT_HEAD(&loop->async_handles, q);
-    handle = container_of(q, uv_async_t, queue);
-    /* If we didn't execute all pending async handles, make sure we come back and check them
-       again in the next loop iteration. */
-    if (ACCESS_ONCE(int, handle->pending) != 0)
-      uv__async_send(&loop->async_watcher);
-  }
-  list_destroy_full(async_handles, sched_context_list_destroy_func, NULL); 
 }
 
 static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
@@ -367,54 +317,4 @@ skip_eventfd:
 #endif
 
   return -ENOSYS;
-}
-
-struct list * uv__ready_async_event_lcbns (void *l, enum execution_context exec_context)
-{
-  uv_loop_t *loop = (uv_loop_t *) l;
-  struct list *ready_lcbns = NULL;
-  QUEUE *q = NULL;
-  uv_async_t *h = NULL;
-
-  assert(exec_context == EXEC_CONTEXT_UV__IO_POLL);
-    
-  ready_lcbns = list_create();
-  /* uv__async_event: Each of the loop's async_handles with non-zero pending will be invoked. */
-  QUEUE_FOREACH(q, &loop->async_handles) {
-    h = QUEUE_DATA(q, uv_async_t, queue);
-    assert(h && h->magic == UV_HANDLE_MAGIC && h->type == UV_ASYNC);
-    if (h->pending)
-      list_concat(ready_lcbns, uv__ready_async_lcbns(h, exec_context));
-  }
-  return ready_lcbns;
-}
-
-struct list * uv__ready_async_lcbns(void *h, enum execution_context exec_context)
-{
-  uv_async_t *handle = (uv_async_t *) h;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_async_lcbns = NULL;
-
-  assert(handle);
-  assert(handle->type == UV_ASYNC);
-
-  ready_async_lcbns = list_create();
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_UV__IO_POLL:
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_ASYNC_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->async_cb);
-      if (lcbn->cb)
-        list_push_back(ready_async_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      if (lcbn->cb)
-        list_push_back(ready_async_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_async_lcbns: Error, unexpected context");
-  }
-  return ready_async_lcbns;
 }

@@ -475,27 +475,3 @@ static void uv__signal_stop(uv_signal_t* handle) {
   handle->signum = 0;
   uv__handle_stop(handle);
 }
-
-struct list * uv__ready_signal_lcbns(void *h, enum execution_context exec_context)
-{
-  uv_signal_t *handle = (uv_signal_t *) h;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_signal_lcbns = list_create();
-
-  assert(handle);
-  assert(handle->type == UV_SIGNAL);
-
-  /* TODO */
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      if (lcbn->cb)
-        list_push_back(ready_signal_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_signal_lcbns: Error, unexpected context");
-  }
-  return ready_signal_lcbns;
-}

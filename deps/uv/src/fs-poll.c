@@ -129,31 +129,6 @@ int uv_fs_poll_stop(uv_fs_poll_t* handle) {
   return 0;
 }
 
-struct list * uv__ready_fs_poll_lcbns(void *h, enum execution_context exec_context)
-{
-  uv_fs_poll_t *handle = (uv_fs_poll_t *) h;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_fs_poll_lcbns = NULL;
-
-  assert(handle);
-  assert(handle->type == UV_FS_POLL);
-
-  ready_fs_poll_lcbns = list_create();
-  /* TODO */
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      list_push_back(ready_fs_poll_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_fs_poll_lcbns: Error, unexpected context");
-  }
-  return ready_fs_poll_lcbns;
-}
-
-
 int uv_fs_poll_getpath(uv_fs_poll_t* handle, char* buffer, size_t* size) {
   struct poll_ctx* ctx;
   size_t required_len;

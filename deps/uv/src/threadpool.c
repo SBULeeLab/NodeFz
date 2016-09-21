@@ -79,125 +79,51 @@ static void post(QUEUE* q) {
  */
 static void worker(void* arg) {
   struct uv__work* w;
-  uv_work_t *req;
   QUEUE* q;
-
-  QUEUE wq_buf;
-  struct list *pending_work;
-  sched_context_t *sched_context;
 
   (void) arg;
 
   for (;;) {
-    int foundExit = 0;
     mylog(LOG_THREADPOOL, 1, "worker: begins\n");
     uv_mutex_lock(&mutex);
 
     while (QUEUE_EMPTY(&wq)) {
+      mylog(LOG_THREADPOOL, 1, "worker: No work, waiting. %i LCBNs already executed.\n", scheduler_n_executed());
       idle_threads += 1;
-      mylog(LOG_THREADPOOL, 1, "worker: No work, waiting. %i LCBNs already run.\n", scheduler_already_run());
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
     }
     mylog(LOG_THREADPOOL, 9, "worker: There is something in the queue\n");
 
     q = QUEUE_HEAD(&wq);
+
     if (q == &exit_message)
       uv_cond_signal(&cond);
-    else
-      /* Copy the work queue so we can release the mutex. */
-      QUEUE_SPLIT(&wq, q, &wq_buf);
+    else {
+      QUEUE_REMOVE(q);
+      QUEUE_INIT(q);  /* Signal uv_cancel() that the work req is
+                             executing. */
+    }
+
     uv_mutex_unlock(&mutex);
 
     if (q == &exit_message)
       break;
 
-    /* Schedule all possible work in wq_buf. */
-    mylog(LOG_THREADPOOL, 1, "worker: There is some work to do\n");
+    w = QUEUE_DATA(q, struct uv__work, wq);
 
-    /* Interpret wq_buf as list of uv__work contexts. */
-    pending_work = list_create();
-    QUEUE_FOREACH(q, &wq_buf) {
-      if (q == &exit_message)
-      {
-        mylog(LOG_THREADPOOL, 1, "worker: Found exit_message in wq_buf\n");
-        foundExit = 1;
-      }
-      if (foundExit)
-      {
-        post(&exit_message);
-        break;
-      }
-      else
-      {
-        w = QUEUE_DATA(q, struct uv__work, wq);
-        req = container_of(w, uv_work_t, work_req);
-        assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
-        /* All threadpool users must go through uv_queue_work. */
-        assert(req->work_req.work == uv__queue_work);
-        sched_context = sched_context_create(EXEC_CONTEXT_THREADPOOL_WORKER, CALLBACK_CONTEXT_REQ, req);
-        list_push_back(pending_work, &sched_context->elem);
-      }
-    }
-
-    /* Find, remove, and execute the work next in the schedule. */
-    mylog(LOG_THREADPOOL, 5, "worker: %i ready 'work' items\n", list_size(pending_work));
-    while (!list_empty(pending_work))
-    {
-      mylog(LOG_THREADPOOL, 7, "worker: %i ready 'work' items\n", list_size(pending_work));
-      sched_context = scheduler_next_context(pending_work);
-      if (sched_context)
-      {
-        list_remove(pending_work, &sched_context->elem);
-        req = (uv_work_t *) sched_context->wrapper;
-        assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
-        w = &req->work_req;
-        assert(w);
-        sched_context_destroy(sched_context);
-
-        /* Remove from wq_buf. */
-        q = &w->wq;
-        QUEUE_REMOVE(q);
-        QUEUE_INIT(q); /* Signal uv_cancel() that the work req is
-                           executing. */
-
-        /* Run the work item. */
-        invoke_callback_wrap((any_func) w->work, UV__WORK_WORK, (long int) w);
-
-        /* Throw it onto the looper thread's queue. */
-        uv_mutex_lock(&w->loop->wq_mutex);
-        w->work = NULL;  /* Signal uv_cancel() that the work req is done
-                            executing. */
-        QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
-        uv_async_send(&w->loop->wq_async); /* Signal a pending done CB to be executed through uv__work_done. */
-        mylog(LOG_THREADPOOL, 1, "worker: signal'd a ready 'done' item (w %p)\n", w);
-        uv_mutex_unlock(&w->loop->wq_mutex);
-      }
-      else
-        break;
-    }
-
-    /* Repair: add any work we didn't run back onto the front of wq. */
-    mylog(LOG_THREADPOOL, 5, "worker: deferred %i 'work' items\n", list_size(pending_work));
-    uv_mutex_lock(&mutex);
-    while (!QUEUE_EMPTY(&wq_buf)) {
-      q = QUEUE_HEAD(&wq_buf);
-      QUEUE_REMOVE(q);
-      QUEUE_INIT(q);
-      QUEUE_INSERT_HEAD(&wq, q);
-    }
-    uv_mutex_unlock(&mutex);
-
-    if (foundExit)
-    {
-      mylog(LOG_THREADPOOL, 5, "worker: found exit in wq_buf, so breaking\n");
-      break;
-    }
-
-#if 0
-    /* TODO */
-    list_destroy_full(pending_work, sched_context_list_destroy_func, NULL); 
+#if UNIFIED_CALLBACK
+    invoke_callback_wrap((any_func) w->work, UV__WORK_WORK, (long int) w);
+#else
+    w->work(w);
 #endif
+
+    uv_mutex_lock(&w->loop->wq_mutex);
+    w->work = NULL;  /* Signal uv_cancel() that the work req is done
+                        executing. */
+    QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
+    uv_async_send(&w->loop->wq_async);
+    uv_mutex_unlock(&w->loop->wq_mutex);
   }
 }
 
@@ -308,123 +234,83 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
 
 
 void uv__work_done(uv_async_t* handle) {
-  struct uv__work* w = NULL;
-  uv_loop_t* loop = NULL;
-  uv_work_t *req = NULL;
-  QUEUE* q = NULL;
-  QUEUE wq_buf;
+  struct uv__work* w;
+  uv_loop_t* loop;
+  QUEUE* q;
+  QUEUE wq;
   int err;
   enum callback_type next_lcbn_type = CALLBACK_TYPE_ANY;
-
-  struct list *pending_done = NULL;
-  sched_context_t *sched_context = NULL;
+  int replay_mode = (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY);
+  int done = 0;
 
   loop = container_of(handle, uv_loop_t, wq_async);
-  QUEUE_INIT(&wq_buf);
 
-  /* If we get to the end of the loop and the next LCBN is a TP CB, spin.
-     The next non-threadpool CB might be us, and if we don't spin, returning introduces an unexpected UV_ASYNC_CB into the schedule
-      which is disastrous for REPLAY mode. */
+  /* In REPLAY mode, spin until the next CB is a non-AFTER_WORK looper CB. 
+   * The next non-threadpool CB might be us, and if we don't spin, returning introduces an unexpected UV_ASYNC_CB into the schedule.
+   */
   do
   {
     mylog(LOG_THREADPOOL, 5, "uv__work_done: Checking for done LCBNs\n");
+    QUEUE_INIT(&wq);
 
     uv_mutex_lock(&loop->wq_mutex);
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
-    {
-      /* Spin until it is no longer worker's turn to go. 
-         TODO Adding a cond_wait for a worker signal is tricky because the worker may be waiting in invoke_callback for its turn as part of a nested LCBN. 
-         Anyway, spinning is an easy solution for now. */
-      next_lcbn_type = scheduler_next_lcbn_type();
-      if (is_threadpool_cb(next_lcbn_type))
-      {
-        mylog(LOG_THREADPOOL, 1, "uv__work_done: next lcbn is a threadpool CB (type %s). %i LCBNs invoked so far. Spinning.\n", callback_type_to_string(next_lcbn_type), scheduler_already_run());
-        while (is_threadpool_cb(next_lcbn_type))
-        {
-          uv_thread_yield_mutex(&loop->wq_mutex);
-          next_lcbn_type = scheduler_next_lcbn_type();
-        }
-      }
-    }
-
     if (!QUEUE_EMPTY(&loop->wq)) {
       q = QUEUE_HEAD(&loop->wq);
-      QUEUE_SPLIT(&loop->wq, q, &wq_buf);
+      QUEUE_SPLIT(&loop->wq, q, &wq);
     }
     uv_mutex_unlock(&loop->wq_mutex);
 
-    /* Interpret wq_buf as list of uv__work contexts. */
-    pending_done = list_create();
-    QUEUE_FOREACH(q, &wq_buf) {
-      w = QUEUE_DATA(q, struct uv__work, wq);
-      req = container_of(w, uv_work_t, work_req);
-      assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
-      /* All threadpool users must go through uv_queue_work. */
-      assert(req->work_req.done == uv__queue_done);
-      sched_context = sched_context_create(EXEC_CONTEXT_THREADPOOL_DONE, CALLBACK_CONTEXT_REQ, req);
-      list_push_back(pending_done, &sched_context->elem);
-    }
+    while (!QUEUE_EMPTY(&wq)) {
+      q = QUEUE_HEAD(&wq);
+      QUEUE_REMOVE(q);
 
-    /* Find, remove, and execute the work next in the schedule. */
-    mylog(LOG_THREADPOOL, 3, "uv__work_done: %i pending 'done' items\n", list_size(pending_done));
-    while (!list_empty(pending_done))
-    {
-      mylog(LOG_THREADPOOL, 5, "uv__work_done: %i pending 'done' items\n", list_size(pending_done));
-      sched_context = scheduler_next_context(pending_done);
-      if (sched_context)
+      w = container_of(q, struct uv__work, wq);
+      err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
+#ifdef UNIFIED_CALLBACK
+      invoke_callback_wrap((any_func) w->done, UV__WORK_DONE, (long int) w, (long int) err);
+#else
+      w->done(w, err);
+#endif
+
+      if (replay_mode)
       {
-        list_remove(pending_done, &sched_context->elem);
-        req = (uv_work_t *) sched_context->wrapper;
-        assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
-        w = &req->work_req;
-        assert(w);
-        sched_context_destroy(sched_context);
-
-        /* Remove from wq_buf. */
-        q = &w->wq;
-        QUEUE_REMOVE(q);
-        QUEUE_INIT(q);
-
-        /* Run the done item. UV__WORK_DONE always turns into a UV_AFTER_WORK_CB. */
-        err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
-        mylog(LOG_THREADPOOL, 5, "uv__work_done: Next work item: w %p\n", w);
-        invoke_callback_wrap((any_func) w->done, UV__WORK_DONE, (long int) w, (long int) err);
+        /* We might wish to defer the remaining done items.
+         * This is legal because it simulates a delayed placement of done items into the wq.
+         */
+        next_lcbn_type = scheduler_next_lcbn_type();
+        done = !(next_lcbn_type == UV_AFTER_WORK_CB || is_threadpool_cb(next_lcbn_type));
+        if (done)
+          break;
       }
-      else
-        break;
     }
 
-    /* Repair: add any work we didn't run back onto the front of loop's wq. */
-    mylog(LOG_THREADPOOL, 3, "uv__work_done: deferred %i 'done' items\n", list_size(pending_done));
+    if (replay_mode)
+    {
+      next_lcbn_type = scheduler_next_lcbn_type();
+      done = !(next_lcbn_type == UV_AFTER_WORK_CB || is_threadpool_cb(next_lcbn_type));
+    }
+  } while (!done);
+
+  mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is %s, so I can return\n", callback_type_to_string(scheduler_next_lcbn_type()));
+
+  if (replay_mode)
+  {
+    /* Unshift any deferred done items onto wq. */
+    int len = 0;
     uv_mutex_lock(&loop->wq_mutex);
-    while (!QUEUE_EMPTY(&wq_buf)) {
-      q = QUEUE_HEAD(&wq_buf);
+    QUEUE_LEN(len, q, &wq);
+    mylog(LOG_THREADPOOL, 3, "uv__work_done: Replacing the %i deferred 'done' items\n", len);
+    while (!QUEUE_EMPTY(&wq)) {
+      q = QUEUE_HEAD(&wq);
       QUEUE_REMOVE(q);
       QUEUE_INIT(q);
       QUEUE_INSERT_HEAD(&loop->wq, q);
-
-      /* These may be the last items ever put in loop->wq, so
-         async_send to ensure we come back through this loop. */
-      w = QUEUE_DATA(q, struct uv__work, wq);
-      uv_async_send(&w->loop->wq_async);
-      mylog(LOG_THREADPOOL, 1, "uv__work_done: signal'd a ready 'done' item (w %p)\n", w);
     }
     uv_mutex_unlock(&loop->wq_mutex);
 
-#if 0
-    /* TODO */
-    list_destroy_full(pending_done, sched_context_list_destroy_func, NULL); 
-#endif
-    /* Loop until it's not an AFTER_WORK and it's not a TP. */
-    next_lcbn_type = scheduler_next_lcbn_type();
-  } while (next_lcbn_type == UV_AFTER_WORK_CB || is_threadpool_cb(next_lcbn_type));
-    mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is %s (not a threadpool CB), so I need to fulfill it\n", callback_type_to_string(scheduler_next_lcbn_type()));
+    uv_async_send(&loop->wq_async); /* Pending done items! */
+  }
 
-  /* Ensure it's always possible to come back here. 
-     In RECORD mode, a race between worker and looper can cause us to come here
-     with no pending done items, which is unlikely in REPLAY mode without artificially inducing it like this. */
-  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
-    uv_async_send(&loop->wq_async);
 }
 
 static void uv__queue_work(struct uv__work* w) {
@@ -560,38 +446,4 @@ int uv_cancel(uv_req_t* req) {
   }
 
   return uv__work_cancel(loop, req, wreq);
-}
-
-struct list * uv__ready_work_lcbns (void *wrapper, enum execution_context exec_context)
-{
-  uv_work_t *req = (uv_work_t *) wrapper;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_work_lcbns = NULL;
-
-  assert(req);
-  assert(req->magic == UV_REQ_MAGIC && req->type == UV_WORK);
-
-  ready_work_lcbns = list_create();
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_THREADPOOL_WORKER:
-      /* uv__queue_work
-         (All work goes through uv_queue_work) */
-      lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WORK_CB);
-      assert(lcbn && lcbn->cb == (any_func) req->work_cb);
-      assert(lcbn->cb);
-      list_push_back(ready_work_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    case EXEC_CONTEXT_THREADPOOL_DONE:
-      /* uv__queue_done 
-         (All work goes through uv_queue_work) */
-      lcbn = lcbn_get(req->cb_type_to_lcbn, UV_AFTER_WORK_CB);
-      assert(lcbn && lcbn->cb == (any_func) req->after_work_cb);
-      if (lcbn->cb)
-        list_push_back(ready_work_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_work_lcbns: Error, unexpected execution_context");
-  }
-  return ready_work_lcbns;
 }

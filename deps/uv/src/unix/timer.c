@@ -93,20 +93,6 @@ static int timer_less_than(const struct heap_node* ha,
   return 0;
 }
 
-/* Returns a list of sched_context_t's describing the ready timers.
-   Callers are responsible for cleaning up the list, perhaps like this: 
-     list_destroy_full(ready_timers, sched_context_destroy_func, NULL) */
-static struct list * uv__ready_timers(uv_loop_t* loop, enum execution_context exec_context) {
-  struct list *ready_timers = list_create();
-  struct heap_apply_info hai;
-
-  hai.list = ready_timers;
-  hai.exec_context = exec_context;
-
-  heap_walk((struct heap*) &loop->timer_heap, uv__heap_timer_ready, &hai);
-  return ready_timers;
-}
-
 int uv_timer_init(uv_loop_t* loop, uv_timer_t* handle) {
   uv__handle_init(loop, (uv_handle_t*)handle, UV_TIMER);
   handle->timer_cb = NULL;
@@ -225,103 +211,30 @@ int uv__next_timeout(const uv_loop_t* loop) {
   return diff;
 }
 
-
 void uv__run_timers(uv_loop_t* loop) {
-  struct list *ready_timers = NULL;
-  sched_context_t *next_timer_context = NULL;
-  sched_lcbn_t *next_timer_lcbn = NULL;
-  uv_timer_t* next_timer_handle = NULL;
+  struct heap_node* heap_node;
+  uv_timer_t* handle;
 
-  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__run_timers: begin: loop %p\n", loop));
+  for (;;) {
+    heap_node = heap_min((struct heap*) &loop->timer_heap);
+    if (heap_node == NULL)
+      break;
 
-  if (heap_empty((struct heap *) &loop->timer_heap))
-  {
-    mylog(LOG_TIMER, 7, "uv__run_timers: No timers\n");
-    goto DONE;
-  }
+    handle = container_of(heap_node, uv_timer_t, heap_node);
+    if (handle->timeout > loop->time)
+      break;
 
-  /* Fix the ready timers. 
-     Any new timers registered by timers will not be considered until the next loop iteration. 
-
-     This is a legal transformation, as the loop time is not being updated anyway.
-     Node says 0-len timers will run in 1 ms; libuv says that 0-len timers will run in the next loop iteration. */
-  ready_timers = uv__ready_timers(loop, EXEC_CONTEXT_UV__RUN_TIMERS);
-  mylog(LOG_TIMER, 7, "uv__run_timers: %u timers ready\n", list_size(ready_timers));
-
-  /* Extract the next timer to run. */
-  next_timer_context = scheduler_next_context(ready_timers);
-  while (next_timer_context)
-  {
-    int enabled = 0;
-
-    /* Run the next timer. */
-    next_timer_lcbn = scheduler_next_lcbn(next_timer_context);
-    next_timer_handle = (uv_timer_t *) next_timer_context->wrapper;
-
-    /* Another event might have uv_timer_stop'd this, in which case we must discard it. 
-       This is a hazard of generating the list of ready events... */ 
-    enabled = uv__is_active(next_timer_handle);
-
-    if (enabled)
-    {
-      assert(next_timer_lcbn->lcbn == lcbn_get(next_timer_handle->cb_type_to_lcbn, UV_TIMER_CB));
-      assert(uv__timer_ready(next_timer_handle));
-
-      uv_timer_stop(next_timer_handle);
-      uv_timer_again(next_timer_handle);
+    uv_timer_stop(handle);
+    uv_timer_again(handle);
 
 #if UNIFIED_CALLBACK
-      invoke_callback_wrap((any_func) next_timer_handle->timer_cb, UV_TIMER_CB, (long) next_timer_handle);
+    invoke_callback_wrap((any_func) handle->timer_cb, UV_TIMER_CB, (long) handle);
 #else
-      handle->timer_cb(next_timer_handle);
+    handle->timer_cb(handle);
 #endif
-    }
-    else
-      mylog(LOG_TIMER, 7, "uv__run_timers: skipping next_timer_handle %p because it is no longer enabled\n", next_timer_handle);
-
-    /* Clean up, extract the next timer to run. */
-    list_remove(ready_timers, &next_timer_context->elem); 
-    sched_context_destroy(next_timer_context);
-    next_timer_context = scheduler_next_context(ready_timers);
   }
-
-  DONE:
-    if (ready_timers)
-      list_destroy_full(ready_timers, sched_context_list_destroy_func, NULL);
-    ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__run_timers: returning\n"));
 }
 
-/* Returns a list of sched_lcbn_t's describing the ready LCBNs associated with HANDLE.
-   Callers are responsible for cleaning up the list, perhaps like this: 
-     list_destroy_full(ready_lcbns, sched_lcbn_destroy_func, NULL) */
-struct list * uv__ready_timer_lcbns(void *h, enum execution_context exec_context) {
-  uv_timer_t *handle = (uv_timer_t *) h;
-  lcbn_t *lcbn = NULL;
-  struct list *ready_timer_lcbns = list_create();
-  
-  assert(handle);
-  assert(handle->type == UV_TIMER);
-
-  switch (exec_context)
-  {
-    case EXEC_CONTEXT_UV__RUN_TIMERS:
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_TIMER_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->timer_cb);
-      assert(lcbn->cb);
-      list_push_back(ready_timer_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    case EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES:
-      lcbn = lcbn_get(handle->cb_type_to_lcbn, UV_CLOSE_CB);
-      assert(lcbn && lcbn->cb == (any_func) handle->close_cb);
-      if (lcbn->cb)
-        list_push_back(ready_timer_lcbns, &sched_lcbn_create(lcbn)->elem);
-      break;
-    default:
-      assert(!"uv__ready_timer_lcbns: Error, unexpected context");
-  }
-
-  return ready_timer_lcbns;
-}
 
 void uv__timer_close(uv_timer_t* handle) {
   uv_timer_stop(handle);

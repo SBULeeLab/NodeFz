@@ -275,48 +275,18 @@ static void uv__finish_close(uv_handle_t* handle) {
   }
 }
 
-
 static void uv__run_closing_handles(uv_loop_t* loop) {
-  uv_handle_t *p = NULL;
-  struct list *closing_handles = list_create();
-  struct list_elem *e = NULL;
-  sched_context_t *sched_context = NULL;
+  uv_handle_t* p;
+  uv_handle_t* q;
 
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_closing_handles: begin: loop %p\n", loop));
-
-  for (p = loop->closing_handles; p != NULL; p = p->next_closing)
-  {
-    sched_context = sched_context_create(EXEC_CONTEXT_UV__RUN_CLOSING_HANDLES, CALLBACK_CONTEXT_HANDLE, p);
-    list_push_back(closing_handles, &sched_context->elem);
-  }
-
-  while (!list_empty(closing_handles))
-  {
-    /* Find, remove, and execute the handle next in the schedule. */
-    sched_context = scheduler_next_context(closing_handles);
-    if (sched_context)
-    {
-      list_remove(closing_handles, &sched_context->elem);
-      p = (uv_handle_t *) sched_context->wrapper;
-      uv__finish_close(p);
-      sched_context_destroy(sched_context);
-    }
-    else
-      break;
-  }
-  
-  /* Repair: add any handles we didn't close back onto the list. */
+  p = loop->closing_handles;
   loop->closing_handles = NULL;
-  while (!list_empty(closing_handles))
-  {
-    e = list_pop_front(closing_handles);
-    sched_context = list_entry(e, sched_context_t, elem);
-    p = (uv_handle_t *) sched_context->wrapper;
-    uv__make_close_pending(p);
-  }
 
-  list_destroy(closing_handles);
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_closing_handles: returning\n"));
+  while (p) {
+    q = p->next_closing;
+    uv__finish_close(p);
+    p = q;
+  }
 }
 
 
@@ -967,95 +937,33 @@ int uv_fileno(const uv_handle_t* handle, uv_os_fd_t* fd) {
 
 
 static int uv__run_pending(uv_loop_t* loop) {
-  QUEUE* q = NULL;
+  QUEUE* q;
   QUEUE pq;
-  uv__io_t* w = NULL;
-  int did_anything = 0, queue_len = 0;
+  uv__io_t* w;
 
-  uv_handle_t *handle = NULL;
-  struct list *pending_handles = list_create();
-  sched_context_t *sched_context = NULL;
-
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_pending: begin: loop %p\n", loop));
-  uv__mark_uv__run_pending_begin();
-
-  did_anything = 0;
   if (QUEUE_EMPTY(&loop->pending_queue))
-    goto DONE;
+    return 0;
 
-  did_anything = 1;
   QUEUE_INIT(&pq);
   q = QUEUE_HEAD(&loop->pending_queue);
-  /* JD: QUEUE_SPLIT'ing fixes the size of the work we'll do this time. */
   QUEUE_SPLIT(&loop->pending_queue, q, &pq);
-  QUEUE_LEN(queue_len, q, &pq);
-  mylog(LOG_MAIN, 7, "uv__run_pending: pq len %i\n", queue_len);
 
-  /* Interpret pq as a list of handle contexts. */
-  QUEUE_FOREACH(q, &pq) {
-    w = QUEUE_DATA(q, uv__io_t, pending_queue);
-    w->iocb_events = UV__POLLOUT;
-    if ((any_func) w->cb == uv_uv__udp_io_ptr())
-      handle = (uv_handle_t *) container_of(w, uv_udp_t, io_watcher);
-    else if ((any_func) w->cb == uv_uv__stream_io_ptr())
-      handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
-    else
-      assert(!"uv__run_pending: unexpected cb");
-    sched_context = sched_context_create(EXEC_CONTEXT_UV__RUN_PENDING, CALLBACK_CONTEXT_HANDLE, handle);
-    list_push_back(pending_handles, &sched_context->elem);
-  }
-
-  /* Find, remove, and execute the handle next in the schedule. */
-  mylog(LOG_MAIN, 7, "uv__run_pending: %u pending handles\n", list_size(pending_handles));
-  while (!list_empty(pending_handles))
-  {
-    sched_context = scheduler_next_context(pending_handles);
-    if (sched_context)
-    {
-      list_remove(pending_handles, &sched_context->elem);
-      handle = (uv_handle_t *) sched_context->wrapper;
-      sched_context_destroy(sched_context);
-
-      /* TODO Move this extraction step to a scheduler API. */
-      if (handle->type == UV_UDP)
-        w = &((uv_udp_t *) handle)->io_watcher;
-      else
-        w = &((uv_stream_t *) handle)->io_watcher;
-      assert(w);
-
-      /* Remove from pq. */
-      q = &w->pending_queue;
-      QUEUE_REMOVE(q);
-      QUEUE_INIT(q);
-
-      /* Run the handle. */
-      mylog(LOG_MAIN, 7, "uv__run_pending: Running handle %p w %p\n", handle, w);
-      uv__uv__run_pending_set_active_cb((any_func) w->cb);
-      w->iocb_events = UV__POLLOUT;
-      invoke_callback_wrap((any_func) w->cb, UV__IO_CB, (long) loop, (long) w, (long) UV__POLLOUT);
-      uv__uv__run_pending_set_active_cb(NULL);
-    }
-    else
-      break;
-  }
-
-  /* Repair: add any handles we didn't run back onto the front of pending_queue. */
-  QUEUE_LEN(queue_len, q, &pq);
-  mylog(LOG_MAIN, 7, "uv__run_pending: Replacing %i un-scheduled items.\n", queue_len);
   while (!QUEUE_EMPTY(&pq)) {
     q = QUEUE_HEAD(&pq);
     QUEUE_REMOVE(q);
     QUEUE_INIT(q);
-    QUEUE_INSERT_HEAD(&loop->pending_queue, q);
+    w = QUEUE_DATA(q, uv__io_t, pending_queue);
+
+#ifdef UNIFIED_CALLBACK
+    w->iocb_events = UV__POLLOUT;
+    invoke_callback_wrap((any_func) w->cb, UV__IO_CB, (long) loop, (long) w, (long) UV__POLLOUT);
+#else
+    w->cb(loop, w, UV__POLLOUT);
+#endif
   }
 
-  DONE:
-    list_destroy_full(pending_handles, sched_context_list_destroy_func, NULL); 
-    uv__mark_uv__run_pending_end();
-    ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_pending: returning did_anything %i\n", did_anything));
-    return did_anything;
+  return 1;
 }
-
 
 static unsigned int next_power_of_two(unsigned int val) {
   val -= 1;
