@@ -47,6 +47,7 @@ static void uv__req_init(uv_loop_t* loop,
 static uv_once_t once = UV_ONCE_INIT;
 static uv_cond_t cond;
 static uv_mutex_t mutex;
+int n_work_items = 0; /* The total number of work items retrieved from wq by a worker thread. Protected by mutex. */
 static unsigned int idle_threads;
 static unsigned int nthreads;
 static uv_thread_t* threads;
@@ -81,8 +82,14 @@ static void worker(void* arg) {
   /* JD: TODO: Add calls to scheduler. */
   struct uv__work* w;
   QUEUE* q;
+  int work_item_number = -1; /* Holds value of n_work_items when worker gets each work item. */
+
+  /* Scheduler supplies. */
+  spd_got_work_t spd_got_work;
 
   (void) arg;
+
+  scheduler_register_thread(THREAD_TYPE_THREADPOOL);
 
   for (;;) {
     mylog(LOG_THREADPOOL, 1, "worker: begins\n");
@@ -104,6 +111,8 @@ static void worker(void* arg) {
       QUEUE_REMOVE(q);
       QUEUE_INIT(q);  /* Signal uv_cancel() that the work req is
                              executing. */
+      work_item_number = n_work_items;
+      n_work_items++;
     }
 
     uv_mutex_unlock(&mutex);
@@ -112,6 +121,12 @@ static void worker(void* arg) {
       break;
 
     w = QUEUE_DATA(q, struct uv__work, wq);
+
+    /* Yield to scheduler. */
+    spd_got_work_init(&spd_got_work);
+    spd_got_work.work_item = w;
+    spd_got_work.work_item_num = work_item_number;
+    scheduler_thread_yield(SCHEDULE_POINT_TP_GOT_WORK, &spd_got_work);
 
 #if UNIFIED_CALLBACK
     invoke_callback_wrap((any_func) w->work, UV__WORK_WORK, (long int) w);

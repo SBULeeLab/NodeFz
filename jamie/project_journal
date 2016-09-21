@@ -1906,9 +1906,9 @@ Hooray, I can (at last!) continue making progress
    - TODOs where the scheduler APIs should be called
 
 TODO
-
-- Call the new scheduler APIs
-- Complete scheduler_Fuzzing_Timer.[ch]
+  - Call the new scheduler APIs -- working on threadpool at the moment
+  - Register the looper thread
+  - Complete scheduler_Fuzzing_Timer.[ch]
 
 -----------
 

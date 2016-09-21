@@ -77,8 +77,7 @@ char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] =
     "BEFORE_EXEC_CB",
     "AFTER_EXEC_CB",
 
-    "TP_BEFORE_GET_WORK",
-    "TP_AFTER_GET_WORK",
+    "TP_GOT_WORK",
 
     "TP_BEFORE_PUT_DONE",
     "TP_AFTER_PUT_DONE",
@@ -90,6 +89,15 @@ const char * schedule_point_to_string (schedule_point_t point)
   assert(SCHEDULE_POINT_MIN <= point && point < SCHEDULE_POINT_MAX);
   str = schedule_point_strings[point - SCHEDULE_POINT_MIN];
   return str;
+}
+
+/* Schedule Point Details (SPD) functions. */
+static int SPD_GOT_WORK_MAGIC = 46548678;
+
+void spd_got_work_init (spd_got_work_t *spd_got_work)
+{
+  assert(spd_got_work != NULL);
+  spd_got_work->magic = SPD_GOT_WORK_MAGIC;
 }
 
 /* Scheduler. */

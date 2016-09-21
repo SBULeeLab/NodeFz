@@ -129,8 +129,7 @@ enum schedule_point_e
   SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_MIN,
   SCHEDULE_POINT_AFTER_EXEC_CB,
 
-  SCHEDULE_POINT_TP_BEFORE_GET_WORK,
-  SCHEDULE_POINT_TP_AFTER_GET_WORK,
+  SCHEDULE_POINT_TP_GOT_WORK,
 
   SCHEDULE_POINT_TP_BEFORE_PUT_DONE,
   SCHEDULE_POINT_TP_AFTER_PUT_DONE,
@@ -157,12 +156,14 @@ struct spd_after_exec_cb_s
 };
 typedef struct spd_after_exec_cb_s spd_after_exec_cb_t;
 
-struct spd_before_get_work_s
+struct spd_got_work_s
 {
   int magic;
-  /* TODO Anything? */
+  struct uv__work *work_item;
+  int work_item_num; /* What entry in wq was this? Starts at 0. */
 };
-typedef struct spd_before_get_work_s spd_before_get_work_t;
+typedef struct spd_got_work_s spd_got_work_t;
+void spd_got_work_init (spd_got_work_t *spd_got_work);
 
 struct spd_after_get_work_s
 {
