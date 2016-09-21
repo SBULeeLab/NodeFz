@@ -28,14 +28,9 @@
 #include <assert.h>
 #include <limits.h>
 
-/* For walking the heap in heap_apply. */
-struct heap_apply_info
-{
-  struct list *list;
-  enum execution_context exec_context;
-};
+UV_UNUSED(static int uv__timer_ready(uv_timer_t *handle));
 
-static int uv__timer_ready(uv_timer_t *handle)
+UV_UNUSED(static int uv__timer_ready(uv_timer_t *handle))
 {
   int ready = 0;
 
@@ -45,28 +40,6 @@ static int uv__timer_ready(uv_timer_t *handle)
   ready = (handle->timeout < handle->loop->time);
   ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__timer_ready: returning ready %i (timeout %llu time %llu)\n", ready, handle->timeout, handle->loop->time));
   return ready;
-}
-
-/* Wrapper around uv__timer_ready for use with heap_walk.
-   AUX is a heap_apply_info. 
-   If the timer of HN is ready, create a sched_context for it and add to the list in AUX. */
-static void uv__heap_timer_ready(struct heap_node *hn, void *aux)
-{
-  uv_timer_t* handle;
-  struct heap_apply_info *hai;
-  sched_context_t *sched_context;
-
-  assert(hn);
-  assert(aux);
-
-  hai = (struct heap_apply_info *) aux;
-  assert(hai->list);
-  handle = container_of(hn, uv_timer_t, heap_node);
-  if (uv__timer_ready(handle))
-  {
-    sched_context = sched_context_create(hai->exec_context, CALLBACK_CONTEXT_HANDLE, handle);
-    list_push_back(hai->list, &sched_context->elem);
-  }
 }
 
 static int timer_less_than(const struct heap_node* ha,

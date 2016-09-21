@@ -26,6 +26,7 @@
 #include "logical-callback-node.h"
 #include "unified-callback-enums.h"
 #include "scheduler.h"
+#include "scheduler_Fuzzing_Timer.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -50,6 +51,9 @@
 /* For determining peer info. */
 #include <sys/types.h>
 #include <sys/socket.h>
+
+/* Private helpers. */
+static void initialize_scheduler (void);
 
 typedef struct {
   uv_malloc_func local_malloc;
@@ -925,11 +929,7 @@ static unsigned lcbn_next_reg_id (void);
 unsigned lcbn_global_exec_counter = 0;
 unsigned lcbn_global_reg_counter = 0;
 
-uv_mutex_t invoke_callback_lcbn_lock;
-uv_cond_t not_my_turn;
-
 int is_active_user_cb = 0;
-uv_cond_t no_active_lcbn;
 
 struct list *lcbn_global_reg_order_list = NULL;
 
@@ -953,15 +953,13 @@ static lcbn_t * get_init_stack_lcbn (void)
   static lcbn_t *init_stack_lcbn = NULL;
   if (!init_stack_lcbn)
   {
-    scheduler_advance();
-
     init_stack_lcbn = lcbn_create(NULL, NULL, 0);
 
     init_stack_lcbn->cb_type = INITIAL_STACK;
 
     init_stack_lcbn->global_exec_id = lcbn_next_exec_id();
     init_stack_lcbn->global_reg_id = lcbn_next_reg_id();
-    scheduler_register_lcbn(sched_lcbn_create(init_stack_lcbn));
+    scheduler_register_lcbn(init_stack_lcbn);
   }
 
   assert(lcbn_looks_valid(init_stack_lcbn));
@@ -973,34 +971,36 @@ static lcbn_t * get_exit_lcbn (void)
   static lcbn_t *exit_lcbn = NULL;
   if (!exit_lcbn)
   {
-    scheduler_advance();
-
     exit_lcbn = lcbn_create(NULL, NULL, 0);
 
     exit_lcbn->cb_type = EXIT;
 
     exit_lcbn->global_exec_id = lcbn_next_exec_id();
     exit_lcbn->global_reg_id = lcbn_next_reg_id();
-    scheduler_register_lcbn(sched_lcbn_create(exit_lcbn));
+    scheduler_register_lcbn(exit_lcbn);
   }
 
   assert(lcbn_looks_valid(exit_lcbn));
   return exit_lcbn;
 }
 
-/* Initialize the data structures for the unified callback code. */
-void unified_callback_init (void)
+/* Initialize everything for the record-and-replay code. 
+ * This is a catch-all initialization function. 
+ * It initializes:
+ *    - logging (mylog)
+ *    - the scheduler
+ *    - unified callback variables
+ *
+ * It should be called exactly once.
+ */
+void initialize_record_and_replay (void)
 {
-  char *schedule_modeP = NULL, *schedule_fileP = NULL, *min_n_executed_before_divergence_allowedP = NULL;
-  int min_n_executed_before_divergence_allowed = -1;
-  enum schedule_mode schedule_mode;
-
   static int initialized = 0;
-  struct stat stat_buf;
 
   assert(!initialized);
   initialized = 1;
 
+  /* mylog */
   mylog_init();
   mylog_set_verbosity(LOG_MAIN, 9);
   mylog_set_verbosity(LOG_LCBN, 7);
@@ -1016,44 +1016,20 @@ void unified_callback_init (void)
   mylog_set_verbosity(LOG_UV_IO, 9);
 
 #ifdef JD_UT
-  mylog(LOG_MAIN, 1, "unified_callback_init: Running unit tests\n");
+  mylog(LOG_MAIN, 1, "initialize_record_and_replay: Running unit tests\n");
   list_UT();
   map_UT();
   tree_UT();
   lcbn_UT();
   mylog_UT();
   scheduler_UT();
-  mylog(LOG_MAIN, 1, "unified_callback_init: Done running unit tests\n");
+  mylog(LOG_MAIN, 1, "initialize_record_and_replay: Done running unit tests\n");
 #endif
 
-  schedule_modeP = getenv("UV_SCHEDULE_MODE");
-  if (!schedule_modeP)
-    schedule_modeP = "RECORD";
-  if (strcmp(schedule_modeP, "RECORD") != 0 && strcmp(schedule_modeP, "REPLAY") != 0)
-    assert(!"Error, UV_SCHEDULE_MODE was neither RECORD nor REPLAY");
+  /* scheduler */
+  initialize_scheduler();
 
-  schedule_fileP = getenv("UV_SCHEDULE_FILE");
-  if (!schedule_fileP)
-    schedule_fileP = "/tmp/f.sched";
-
-  min_n_executed_before_divergence_allowedP = getenv("UV_SCHEDULE_MIN_N_EXECUTED_BEFORE_DIVERGENCE_ALLOWED");
-  if (min_n_executed_before_divergence_allowedP)
-    min_n_executed_before_divergence_allowed = atoi(min_n_executed_before_divergence_allowedP); 
-  else
-    /* Divergence at any point is legal. */
-    min_n_executed_before_divergence_allowed = -1;
-
-  mylog(LOG_MAIN, 1, "schedule_mode %s schedule_file %s min_n_executed_before_divergence_allowed %i\n", schedule_modeP, schedule_fileP, min_n_executed_before_divergence_allowed);
-  schedule_mode = (strcmp(schedule_modeP, "RECORD") == 0) ? SCHEDULE_MODE_RECORD : SCHEDULE_MODE_REPLAY;
-  if (schedule_mode == SCHEDULE_MODE_REPLAY && stat(schedule_fileP, &stat_buf))
-    assert(!"Error, schedule_mode REPLAY but schedule_file does not exist");
-
-  scheduler_init(schedule_mode, schedule_fileP, min_n_executed_before_divergence_allowed);
-
-  uv_mutex_init(&invoke_callback_lcbn_lock);
-  uv_cond_init(&not_my_turn);
-  uv_cond_init(&no_active_lcbn);
-
+  /* invoke_callback */
   tid_to_current_lcbn = map_create();
   assert(tid_to_current_lcbn != NULL);
 
@@ -1062,7 +1038,77 @@ void unified_callback_init (void)
 
   (void) get_init_stack_lcbn(); /* Initializes the first time it is called. */
 
+  /* Record initialization time. */
   mark_global_start();
+}
+
+/* Initialize the scheduler (scheduler_init).
+ * Call exactly once.
+ *
+ * At the moment, scheduler parameters are provided through the following environment variables:
+ *    Environment variable            Details                           Default
+ * ---------------------------------------------------------------------------------
+ *     UV_SCHEDULER_TYPE           Changes the scheduler type         FUZZING_TIME
+ *                                 Choose from: FUZZING_TIME
+ *                                 FUZZING_TIME: Also provide env. vars:
+ *                                   UV_SCHEDULER_MIN_DELAY
+ *                                   UV_SCHEDULER_MAX_DELAY
+ *
+ *     UV_SCHEDULER_MODE           Choose from: RECORD, REPLAY        RECORD
+ *
+ *     UV_SCHEDULER_SCHEDULE_FILE  Where to emit or load schedule     /tmp/f.sched
+ */
+static void initialize_scheduler (void)
+{
+  char *scheduler_typeP = NULL, *scheduler_modeP = NULL, *schedule_fileP = NULL;
+  char *scheduler_min_delayP = NULL, *scheduler_max_delayP = NULL;
+  scheduler_type_t scheduler_type;
+  scheduler_mode_t scheduler_mode;
+  struct stat stat_buf;
+
+  scheduler_fuzzing_timer_args_t fuzzing_timer_args;
+  void *args;
+
+  /* Scheduler type. */
+  scheduler_typeP = getenv("UV_SCHEDULER_TYPE");
+  if (!scheduler_typeP)
+    scheduler_typeP = "FUZZING_TIME";
+
+  if (strcmp(scheduler_typeP, "FUZZING_TIME") == 0)
+  {
+    scheduler_type = SCHEDULER_TYPE_FUZZING_TIME;
+    scheduler_min_delayP = getenv("UV_SCHEDULER_MIN_DELAY");
+    scheduler_max_delayP = getenv("UV_SCHEDULER_MAX_DELAY");
+    assert(scheduler_min_delayP != NULL && scheduler_max_delayP != NULL);
+
+    fuzzing_timer_args.min_delay = atoi(scheduler_min_delayP);
+    fuzzing_timer_args.max_delay = atoi(scheduler_max_delayP);
+    args = &fuzzing_timer_args;
+  }
+  else
+    assert(!"Error, UV_SCHEDULER_TYPE was not FUZZING_TIME");
+
+  /* Scheduler mode. */
+  scheduler_modeP = getenv("UV_SCHEDULER_MODE");
+  if (!scheduler_modeP)
+    scheduler_modeP = "RECORD";
+
+  if (strcmp(scheduler_modeP, "RECORD") == 0)
+    scheduler_mode = SCHEDULER_MODE_RECORD; 
+  else if (strcmp(scheduler_modeP, "REPLAY") == 0)
+    scheduler_mode = SCHEDULER_MODE_REPLAY; 
+  else
+    assert(!"Error, UV_SCHEDULER_MODE was neither RECORD nor REPLAY");
+
+  /* Scheduler file. */
+  schedule_fileP = getenv("UV_SCHEDULER_SCHEDULE_FILE");
+  if (!schedule_fileP)
+    schedule_fileP = "/tmp/f.sched";
+  if (scheduler_mode == SCHEDULER_MODE_REPLAY && stat(schedule_fileP, &stat_buf))
+    assert(!"Error, scheduler_mode REPLAY but schedule_file does not exist");
+
+  mylog(LOG_MAIN, 1, "scheduler_type %s scheduler_mode %s schedule_file %s\n", scheduler_type_to_string(scheduler_type), scheduler_mode_to_string(scheduler_mode), schedule_fileP);
+  scheduler_init(scheduler_type, scheduler_mode, schedule_fileP, args);
 }
 
 /* Invoke the callback described by CBI.
@@ -1072,10 +1118,8 @@ void unified_callback_init (void)
    invoking LCBNs concurrently. */
 void invoke_callback (callback_info_t *cbi)
 {
+  /* JD: TODO Add calls to scheduler. */
   void *context = NULL;
-  uv_handle_t *context_handle = NULL;
-  uv_req_t *context_req = NULL;
-  struct map *cb_type_to_lcbn = NULL;
   enum callback_context cb_context;
   lcbn_t *lcbn_orig = NULL, /* The LCBN executing at the time of this call (i.e. this call is a nested CB). */
          *lcbn_cur = NULL,  /* The LCBN executed by this call. */
@@ -1083,8 +1127,7 @@ void invoke_callback (callback_info_t *cbi)
   tree_node_t *tree_par = NULL;
   int is_logical_cb = 0; /* 1 if it's a UV_*CB, 0 if it's a UV__*CB. */
   int is_user_cb = 0;    /* if (is_logical_cb): 1 if it's a user UV_*CB, else 0. Only 0 if it's the UV_ASYNC_CB associated with the TP's done items. */
-  int is_base_lcbn = 0;  /* if (is_logical_cb): 1 if it's the first LCBN in the stack for this thread, else 0 (nested). */
-  sched_lcbn_t *sched_lcbn = NULL;
+  /* if (is_user_cb), then is_logical_cb, too. */
 
   assert(cbi);
 
@@ -1095,12 +1138,16 @@ void invoke_callback (callback_info_t *cbi)
 
   if (is_logical_cb)
   {
+    struct map *cb_type_to_lcbn = NULL;
+    uv_handle_t *context_handle = NULL;
+    uv_req_t *context_req = NULL;
+
     /* Determine the context. */
     context = (void *) cbi->args[0];
     if (cb_context == CALLBACK_CONTEXT_HANDLE)
     {
       context_handle = (uv_handle_t *) context;
-      assert(context_handle && context_handle->magic == UV_HANDLE_MAGIC);
+      assert(context_handle != NULL && context_handle->magic == UV_HANDLE_MAGIC);
       cb_type_to_lcbn = context_handle->cb_type_to_lcbn;
     }
     else if (cb_context == CALLBACK_CONTEXT_REQ)
@@ -1113,14 +1160,15 @@ void invoke_callback (callback_info_t *cbi)
         context_req = (uv_req_t *) container_of(cbi->args[0], uv_getnameinfo_t, work_req);
       else
         context_req = (uv_req_t *) context;
-      assert(context_req && context_req->magic == UV_REQ_MAGIC);
+      assert(context_req != NULL && context_req->magic == UV_REQ_MAGIC);
       cb_type_to_lcbn = context_req->cb_type_to_lcbn;
     }
     else
       assert(!"invoke_callback: Error, unexpected cb_context type");
 
-    /* Mark non-user CBs.
-       The threadpool uses the async cb to signal pending 'done' items. */
+    /* Is it a user CB?
+     * The threadpool uses the async cb to signal pending 'done' items.
+     */
     if (cb_context == CALLBACK_CONTEXT_HANDLE && context_handle->type == UV_ASYNC && ((uv_async_t *) context_handle)->async_cb == uv__work_done)
       is_user_cb = 0;
     else
@@ -1154,51 +1202,12 @@ void invoke_callback (callback_info_t *cbi)
 
     /* Execution parent (if nested). */
     lcbn_orig = lcbn_current_get();
-    is_base_lcbn = (is_user_cb && lcbn_orig == NULL);
 
-    mylog(LOG_MAIN, 3, "invoke_callback: Working with lcbn %p (type %s) context %p parent %p (type %s) lcbn_orig %p; is_user_cb %i is_base_lcbn %i\n",
-      lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig, is_user_cb, is_base_lcbn);
+    mylog(LOG_MAIN, 3, "invoke_callback: Working with lcbn %p (type %s) context %p parent %p (type %s) lcbn_orig %p; is_user_cb %i\n",
+      lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig, is_user_cb);
 
     lcbn_cur->info = cbi;
     lcbn_cur->executing_thread = pthread_self_internal();
-
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
-    {
-      /* Wait until lcbn_cur is next in the schedule. 
-         It might not be if 'the other' type of thread must go next (variously looper, TP). */ 
-      mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
-      sched_lcbn = sched_lcbn_create(lcbn_cur);
-      scheduler_block_until_next(sched_lcbn);
-      sched_lcbn_destroy(sched_lcbn);
-      mylog(LOG_MAIN, 1, "invoke_callback: lcbn %p (type %s): done waiting for my turn\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type));
-    }
-
-    /* Critical section. */
-    uv_mutex_lock(&invoke_callback_lcbn_lock);
-
-    /* We're next, right? */
-    sched_lcbn = sched_lcbn_create(lcbn_cur);
-    assert(sched_lcbn_is_next(sched_lcbn));
-    sched_lcbn_destroy(sched_lcbn);
-
-    /* Only one (possibly nested) user CB is allowed at a time. 
-       Wait for any currently-active user CB to finish. */
-    if (is_user_cb)
-    {
-      if (is_base_lcbn)
-      {
-        if (is_active_user_cb)
-        {
-          mylog(LOG_MAIN, 7, "invoke_callback: is_active_user_cb %i is_base_lcbn %i; Waiting for exclusive LCBN execution\n", is_active_user_cb, is_base_lcbn);
-          while (is_active_user_cb && is_base_lcbn)
-            uv_cond_wait(&no_active_lcbn, &invoke_callback_lcbn_lock);
-          mylog(LOG_MAIN, 7, "invoke_callback: Done waiting for exclusive LCBN execution\n");
-          is_active_user_cb = 1;
-        }
-        is_active_user_cb = 1;
-      }
-      assert(is_active_user_cb);
-    }
 
     mylog(LOG_MAIN, 5, "invoke_callback: I am going to invoke LCBN %p (type %s). is_user_cb %i is_active_user_cb %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), is_user_cb, is_active_user_cb);
 
@@ -1226,21 +1235,11 @@ void invoke_callback (callback_info_t *cbi)
     }
 
     /* Commit to being the active CB. */
-
-    /* Advance the scheduler prior to invoking the CB. 
-       This way, if multiple LCBNs are nested (e.g. artificially for FS operations),
-       the nested ones will perceive themselves as 'next' in REPLAY mode. */
-    scheduler_advance();
-
-    /* TODO Why not do this? */
-    if (is_user_cb)
-      lcbn_current_set(lcbn_cur);
-
+    lcbn_current_set(lcbn_cur);
     lcbn_mark_begin(lcbn_cur);
     lcbn_cur->global_exec_id = lcbn_next_exec_id();
 
     mylog(LOG_MAIN, 7, "invoke_callback: Invoking lcbn %p (type %s) exec_id %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), lcbn_cur->global_exec_id);
-    uv_mutex_unlock(&invoke_callback_lcbn_lock);
   } /* is_logical_cb */
 
   /* User code or not, run the callback. */
@@ -1254,33 +1253,7 @@ void invoke_callback (callback_info_t *cbi)
   {
     mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s) exec_id %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), lcbn_cur->global_exec_id);
     lcbn_mark_end(lcbn_cur);
-
-    if (is_user_cb)
-      lcbn_current_set(lcbn_orig);
-
-    if (is_user_cb && scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
-    {
-      /* Replay: Now that the callback is done, check that it made exactly the children we expect. */
-      scheduler_check_lcbn_for_divergence(lcbn_cur);
-      if (scheduler_has_diverged())
-        mylog(LOG_MAIN, 1, "invoke_callback: schedule has diverged!\n");
-    }
-
-    /* Wake up any waiting invoke_callback callers. */
-    uv_mutex_lock(&invoke_callback_lcbn_lock); /* Lock to make sure to-be-waiters have begun to wait. */
-
-    uv_cond_broadcast(&not_my_turn);
-    mylog(LOG_MAIN, 7, "invoke_callback: broadcast'd on not_my_turn\n");
-
-    if (is_user_cb && is_base_lcbn)
-    {
-      assert(is_active_user_cb);
-      is_active_user_cb = 0;
-      uv_cond_broadcast(&no_active_lcbn);
-      mylog(LOG_MAIN, 7, "invoke_callback: is_active_user_cb %i; broadcast'd on no_active_lcbn\n", is_active_user_cb);
-    }
-
-    uv_mutex_unlock(&invoke_callback_lcbn_lock);
+    lcbn_current_set(lcbn_orig);
   }
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: returning\n"));
@@ -1351,7 +1324,7 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
 
   /* Add to metadata structures. */
   lcbn_new->global_reg_id = lcbn_next_reg_id();
-  scheduler_register_lcbn(sched_lcbn_create(lcbn_new));
+  scheduler_register_lcbn(lcbn_new);
 
   mylog(LOG_MAIN, 5, "uv__register_callback: lcbn %p context %p type %s registrar %p\n",
     lcbn_new, context, callback_type_to_string(cb_type), lcbn_cur);
@@ -1365,6 +1338,7 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
    resulting from the initial stack are descended appropriately. */
 void uv__mark_init_stack_begin (void)
 {
+  /* JD: TODO: Call to scheduler. */
   lcbn_t *init_stack_lcbn = NULL;
 
   /* Call at most once. */
@@ -1372,7 +1346,7 @@ void uv__mark_init_stack_begin (void)
   assert(!here);
   here = 1;
 
-  unified_callback_init();
+  initialize_record_and_replay();
 
   init_stack_lcbn = get_init_stack_lcbn();
   assert(lcbn_looks_valid(init_stack_lcbn));
@@ -1389,6 +1363,10 @@ void uv__mark_init_stack_begin (void)
    Pair with uv__mark_init_stack_begin. */
 void uv__mark_init_stack_end (void)
 {
+  /* JD: TODO: Call to scheduler.
+   * NB Cannot check for divergence yet because the first marker node and the EXIT node are added to the initial stack node later. 
+     Instead, we check for divergence of the initial stack when we generate the EXIT event. 
+   */
   lcbn_t *init_stack_lcbn = NULL;
 
   assert(uv__init_stack_active()); 
@@ -1397,19 +1375,6 @@ void uv__mark_init_stack_end (void)
   assert(lcbn_looks_valid(init_stack_lcbn));
   lcbn_mark_end(init_stack_lcbn);
   lcbn_current_set(NULL);
-
-  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
-  {
-    scheduler_check_lcbn_for_divergence(init_stack_lcbn);
-    if (scheduler_has_diverged())
-    {
-      mylog(LOG_MAIN, 1, "uv__mark_init_stack_end: Error, schedule has diverged at the completion of the INITIAL_STACK. This implies that the something in the starting environment (source code, FS, daemons, databases, etc.) has changed.\n");
-      exit(1);
-    }
-  }
-  
-  /* Cannot check for divergence yet because the first marker node and the EXIT node are added to the initial stack node later. 
-     Instead, we check for divergence of the initial stack when we generate the EXIT event. */
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_end: INITIAL_STACK has ended\n"));
 }
@@ -1490,10 +1455,13 @@ void uv__mark_exit_end (void)
   lcbn_mark_end(exit_lcbn);
   lcbn_current_set(NULL);
 
-  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+  if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
   {
+    /* JD: TODO: scheduler calls. */
+    /*
     scheduler_check_lcbn_for_divergence(get_init_stack_lcbn());
     scheduler_check_lcbn_for_divergence(exit_lcbn);
+    */
   }
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: EXIT has ended\n"));
@@ -1610,8 +1578,9 @@ int pthread_self_internal (void)
   return internal_id;
 }
 
-/* Not thread safe.
-   Call with invoke_callback_lcbn_lock. */
+/* Obtain the next available exec_id.
+ * Not thread safe, so caller should ensure mutex somehow.
+ */
 static unsigned lcbn_next_exec_id (void)
 {
   lcbn_global_exec_counter++;
@@ -1650,9 +1619,14 @@ void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
 }
 
 /* Go through the motions of executing LCBN
-    - mark it begin/end'ed
-    - acquire an execution ID
-    - advance the scheduler */
+ *  - mark it begin/end'ed
+ *  - acquire an execution ID
+ *  - advance the scheduler 
+ * Since it's internal, it doesn't actually have an associated CB.
+ *
+ * TODO This should really be going through invoke_callback to avoid code repetition.
+ *      Set the CB associated with the LCBN to a dummy function.
+ */
 static void execute_internal_lcbn (lcbn_t *lcbn)
 {
   assert(lcbn);
@@ -1660,24 +1634,12 @@ static void execute_internal_lcbn (lcbn_t *lcbn)
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "execute_internal_lcbn: begin: lcbn %p\n", lcbn));
 
-  uv_mutex_lock(&invoke_callback_lcbn_lock);
-
   /* Get an exec id, fake an execution, tell any waiters we're done. */
   mylog(LOG_MAIN, 7, "execute_internal_lcbn: Invoking lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
   lcbn_mark_begin(lcbn);
   lcbn->global_exec_id = lcbn_next_exec_id();
   lcbn_mark_end(lcbn);
   mylog(LOG_MAIN, 5, "execute_internal_lcbn: Done with lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
-
-  mylog(LOG_MAIN, 5, "execute_internal_lcbn: lcbn %p (type %s); advancing the scheduler\n", lcbn, callback_type_to_string(lcbn->cb_type));
-  scheduler_advance();
-
-  /* Just in case. 
-     TODO Necessary? */
-  uv_cond_broadcast(&not_my_turn);
-  uv_cond_broadcast(&no_active_lcbn);
-
-  uv_mutex_unlock(&invoke_callback_lcbn_lock);
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "execute_internal_lcbn: returning\n"));
 }
@@ -1689,7 +1651,6 @@ lcbn_t *prev_marker_event = NULL;
 void emit_marker_event (enum callback_type cbt)
 {
   lcbn_t *lcbn = lcbn_create(NULL, NULL, cbt), *parent = NULL;
-  sched_lcbn_t *sched_lcbn = sched_lcbn_create(lcbn);
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: begin: cbt %s\n", callback_type_to_string(cbt)));
   assert(is_marker_event(cbt));
@@ -1706,30 +1667,19 @@ void emit_marker_event (enum callback_type cbt)
   }
   lcbn_add_child(parent, lcbn);
   lcbn->global_reg_id = lcbn_next_reg_id();
-  scheduler_register_lcbn(sched_lcbn);
+  scheduler_register_lcbn(lcbn);
 
-  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+  if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
   {
-    scheduler_check_marker_for_divergence(cbt);
-    if (scheduler_has_diverged())
-      mylog(LOG_MAIN, 1, "emit_marker_event: schedule has diverged!\n");
-  }
-
-  if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
-  {
-    /* Wait until we're scheduled to go. */
     enum callback_type next_cb_type = scheduler_next_lcbn_type();
     mylog(LOG_MAIN, 5, "emit_marker_event: cbt %s next_cb_type %s\n", callback_type_to_string(cbt), callback_type_to_string(next_cb_type));
     assert(is_threadpool_cb(next_cb_type) || next_cb_type == cbt);
-    if (next_cb_type != cbt)
-    {
-      mylog(LOG_MAIN, 7, "emit_marker_event: waiting my turn; next_cb_type %s\n", callback_type_to_string(next_cb_type));
-      scheduler_block_until_next(sched_lcbn);
-      mylog(LOG_MAIN, 7, "emit_marker_event: done waiting my turn\n");
-    }
+    /* JD: TODO: Call to scheduler. */
   }
 
   execute_internal_lcbn(lcbn);
+
+  /* JD: TODO: Call to scheduler. */
 
   prev_marker_event = lcbn;
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: returning\n"));

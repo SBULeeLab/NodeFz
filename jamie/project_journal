@@ -1900,12 +1900,14 @@ Wed 21 Sep 2016
 
 Hooray, I can (at last!) continue making progress
 
-1. Finish work on schedule.[ch]
+1. Finish work on schedule.[ch].
+2. Refactor code to work with the new scheduler APIs (though it doesn't call them yet).
+   - Yay, it compiles!
+   - TODOs where the scheduler APIs should be called
 
 TODO
 
-- Refactor code to use the new scheduling APIs
-- Stub scheduler_Fuzzing_Timer.[ch] so things will compile
+- Call the new scheduler APIs
 - Complete scheduler_Fuzzing_Timer.[ch]
 
 -----------

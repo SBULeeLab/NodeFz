@@ -87,10 +87,10 @@ enum scheduler_type_e
   SCHEDULER_TYPE_MIN,
 
   SCHEDULER_TYPE_CBTREE = SCHEDULER_TYPE_MIN,
-  SCHEDULER_TYPE_FUZZER_TIMER,
-  SCHEDULER_TYPE_FUZZER_THREAD_ORDER,
+  SCHEDULER_TYPE_FUZZING_TIME,
+  SCHEDULER_TYPE_FUZZING_THREAD_ORDER,
 
-  SCHEDULER_TYPE_MAX = SCHEDULER_TYPE_FUZZER_THREAD_ORDER
+  SCHEDULER_TYPE_MAX = SCHEDULER_TYPE_FUZZING_THREAD_ORDER
 };
 typedef enum scheduler_type_e scheduler_type_t;
 const char * scheduler_type_to_string (scheduler_type_t type);
@@ -226,10 +226,10 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
  *   REPLAY mode: we don't want to overwrite the input schedule, so we emit to sprintf("%s-replay", schedule_file). 
  * Returns the name of the output file.
  */
-char * scheduler_emit (void);
+void scheduler_emit (void);
 
-/* REPLAY mode.
- * How many LCBNs from the input schedule have not been executed yet?
+/* How many LCBNs from the input schedule have not been executed yet?
+ * In RECORD mode, must return non-zero.
  */
 int scheduler_lcbns_remaining (void);
 
@@ -243,7 +243,9 @@ int scheduler_schedule_has_diverged (void);
  * at schedule point SCHEDULE_POINT_AFTER_EXEC_CB. */
 int scheduler_n_executed (void);
 
-/* RECORD vs. REPLAY mode may affect control-flow decisions. */
+/* RECORD vs. REPLAY mode may affect control-flow decisions. 
+ * The scheduler mode is not a constant. We may shift from REPLAY to RECORD mode.
+ */
 scheduler_mode_t scheduler_get_scheduler_mode (void);
 
 /*********************************

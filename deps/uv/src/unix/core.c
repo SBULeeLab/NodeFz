@@ -347,7 +347,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   mylog(LOG_MAIN, 1, "uv_run: r %i loop->stop_flag %i\n", r, loop->stop_flag);
   while (r != 0 && loop->stop_flag == 0)
   {
-    mylog(LOG_MAIN, 1, "uv_run: loop begins (%i CBs run, %i remaining, next %s)\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
+    /* TODO If we diverge we need to detect it and break out of the infinite loops here. */
+    mylog(LOG_MAIN, 1, "uv_run: loop begins (%i CBs run, %i remaining, next %s)\n", scheduler_n_executed(), scheduler_lcbns_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (1)\n");
     emit_marker_event(MARKER_RUN_TIMERS_1_BEGIN);
@@ -356,9 +357,9 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   RUN_TIMERS_1: 
     uv__update_time(loop);
     uv__run_timers(loop);
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
     {
-      if (scheduler_remaining() == 0)
+      if (scheduler_lcbns_remaining() == 0)
         goto REPLAY_NO_ITEMS_LEFT;
       next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type) || is_run_timers_cb(next_cb_type))
@@ -366,9 +367,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (1). next_cb_type %s\n", callback_type_to_string(next_cb_type));
         if (is_run_timers_cb(next_cb_type))
         {
-          /* Perhaps we've diverged. This might change the scheduler mode. */
-          sched_lcbn_is_next(NULL);
-          if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+          if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
           {
             /* Sleep until the next timer is ready. */
             timeout = uv__next_timeout(loop);
@@ -389,15 +388,13 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     /* TODO Not sure if this is valid. */
   RUN_PENDING:
     ran_pending = uv__run_pending(loop);
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
     {
-      if (scheduler_remaining() == 0)
+      if (scheduler_lcbns_remaining() == 0)
         goto REPLAY_NO_ITEMS_LEFT;
       next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type) || is_run_pending_cb(next_cb_type))
       {
-        /* Perhaps we've diverged. This might change the scheduler mode. */
-        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_pending. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_PENDING;
       }
@@ -409,15 +406,13 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   /* cf. RUN_CHECK. */
   RUN_IDLE:
     uv__run_idle(loop);
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
     {
-      if (scheduler_remaining() == 0)
+      if (scheduler_lcbns_remaining() == 0)
         goto REPLAY_NO_ITEMS_LEFT;
       next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type) || is_run_idle_cb(next_cb_type))
       {
-        /* Perhaps we've diverged. This might change the scheduler mode. */
-        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_idle. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_IDLE;
       }
@@ -428,7 +423,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     emit_marker_event(MARKER_RUN_PREPARE_BEGIN);
     uv__run_prepare(loop);
     /* TODO Why is this goto here? */
-    if (scheduler_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
+    if (scheduler_lcbns_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
     emit_marker_event(MARKER_RUN_PREPARE_END);
 
     mylog(LOG_MAIN, 1, "uv_run: uv__io_poll\n");
@@ -441,16 +436,14 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
       timeout = uv_backend_timeout(loop);
 
     uv__io_poll(loop, timeout);
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
     {
-      if (scheduler_remaining() == 0)
+      if (scheduler_lcbns_remaining() == 0)
         goto REPLAY_NO_ITEMS_LEFT;
       next_cb_type = scheduler_next_lcbn_type();
                                             /* TODO is_io_poll_cb is a hack. */
       if (is_threadpool_cb(next_cb_type) || is_io_poll_cb(next_cb_type))
       {
-        /* Perhaps we've diverged. This might change the scheduler mode. */
-        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__io_poll. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_IO_POLL;
       }
@@ -463,15 +456,13 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
      Repeat until the next looper event is not a check CB. */
   RUN_CHECK:
     uv__run_check(loop);
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
     {
-      if (scheduler_remaining() == 0)
+      if (scheduler_lcbns_remaining() == 0)
         goto REPLAY_NO_ITEMS_LEFT;
       next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type) || is_run_check_cb(next_cb_type))
       {
-        /* Perhaps we've diverged. This might change the scheduler mode. */
-        sched_lcbn_is_next(NULL);
         mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_check. next_cb_type %s\n", callback_type_to_string(next_cb_type));
         goto RUN_CHECK;
       }
@@ -482,7 +473,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     mylog(LOG_MAIN, 1, "uv_run: uv__run_closing_handles\n");
     emit_marker_event(MARKER_RUN_CLOSING_BEGIN);
     uv__run_closing_handles(loop);
-    if (scheduler_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
+    if (scheduler_lcbns_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
     emit_marker_event(MARKER_RUN_CLOSING_END);
 
     if (mode == UV_RUN_ONCE) {
@@ -500,9 +491,9 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     RUN_TIMERS_2: 
       uv__update_time(loop);
       uv__run_timers(loop);
-      if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+      if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
       {
-        if (scheduler_remaining() == 0)
+        if (scheduler_lcbns_remaining() == 0)
           goto REPLAY_NO_ITEMS_LEFT;
         next_cb_type = scheduler_next_lcbn_type();
         if (is_threadpool_cb(next_cb_type) || is_run_timers_cb(next_cb_type))
@@ -510,9 +501,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
           mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (2). next_cb_type %s\n", callback_type_to_string(next_cb_type));
           if (is_run_timers_cb(next_cb_type))
           {
-            /* Perhaps we've diverged. This might change the scheduler mode. */
-            sched_lcbn_is_next(NULL);
-            if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+            if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
             {
               /* Sleep until the next timer is ready. */
               timeout = uv__next_timeout(loop);

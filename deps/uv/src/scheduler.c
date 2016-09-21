@@ -1,9 +1,9 @@
 #include "scheduler.h"
 
 /* Include the various schedule implementations. */
-#if defined(ENABLE_SCHEDULER_FUZZING_TIMER)
+#if defined(ENABLE_SCHEDULER_FUZZING_TIME)
   #include "scheduler_Fuzzing_Timer.h"
-#endif /* ENABLE_SCHEDULER_FUZZING_TIMER */
+#endif /* ENABLE_SCHEDULER_FUZZING_TIME */
 
 #if defined(ENABLE_SCHEDULER_CBTREE)
   #include "scheduler_CBTree.h"
@@ -32,7 +32,7 @@
 char *scheduler_type_strings[SCHEDULER_TYPE_MAX - SCHEDULER_TYPE_MIN + 1] = 
   {
     "CBTREE",
-    "FUZZING_TIMER",
+    "FUZZING_TIME",
     "FUZZING_THREAD_ORDER"
   };
 
@@ -155,12 +155,12 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
       scheduler_cbTree_init(mode, args, &scheduler.impl);
       break;
 #endif
-    SCHEDULER_TYPE_FUZZING_TIMER:
-#if defined(ENABLE_SCHEDULER_FUZZING_TIMER)
+    case SCHEDULER_TYPE_FUZZING_TIME:
+#if defined(ENABLE_SCHEDULER_FUZZING_TIME)
       scheduler_fuzzing_timer_init(mode, args, &scheduler.impl);
       break;
 #endif
-    SCHEDULER_TYPE_FUZZING_THREAD_ORDER:
+    case SCHEDULER_TYPE_FUZZING_THREAD_ORDER:
 #if defined(ENABLE_SCHEDULER_FUZZING_THREAD_ORDER)
       scheduler_fuzzer_threadOrder_init(mode, args, &scheduler.impl);
       break;
@@ -168,6 +168,8 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
     default:
       assert(!"How did we get here?");
   }
+
+  scheduler_initialized = 1;
 
   return;
 }
@@ -210,9 +212,9 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
   return;
 }
 
-char output_file[1024];
-char * scheduler_emit (void)
+void scheduler_emit (void)
 {
+  char output_file[1024];
   assert(scheduler__looks_valid());
 
   strcpy(output_file, scheduler.schedule_file);
@@ -220,7 +222,7 @@ char * scheduler_emit (void)
     strcat(output_file, "-replay");
 
   scheduler.impl.emit(output_file);
-  return output_file;
+  return;
 }
 
 int scheduler_lcbns_remaining (void)
@@ -236,7 +238,7 @@ int scheduler_schedule_has_diverged (void)
 {
   int has_diverged = 0;
   assert(scheduler__looks_valid());
-  has_diverged = scheduler.impl.has_diverged();
+  has_diverged = scheduler.impl.schedule_has_diverged();
   return has_diverged;
 }
 

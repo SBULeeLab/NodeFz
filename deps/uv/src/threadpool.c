@@ -78,6 +78,7 @@ static void post(QUEUE* q) {
  * never holds the global mutex and the loop-local mutex at the same time.
  */
 static void worker(void* arg) {
+  /* JD: TODO: Add calls to scheduler. */
   struct uv__work* w;
   QUEUE* q;
 
@@ -289,6 +290,8 @@ void uv__work_done(uv_async_t* handle) {
       next_lcbn_type = scheduler_next_lcbn_type();
       done = !(next_lcbn_type == UV_AFTER_WORK_CB || is_threadpool_cb(next_lcbn_type));
     }
+    else
+      done = 1;
   } while (!done);
 
   mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is %s, so I can return\n", callback_type_to_string(scheduler_next_lcbn_type()));

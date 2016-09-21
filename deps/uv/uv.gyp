@@ -134,6 +134,7 @@
             '-Werror',
             '-fstack-protector-all',
             '-DJD_DEBUG',
+            '-DENABLE_SCHEDULER_FUZZING_TIME',
             #'-fstack-protector-strong', # Not portable, Ubuntu ships with older gcc
             #'-DJD_DEBUG_FULL',
             #'-DJD_UT',

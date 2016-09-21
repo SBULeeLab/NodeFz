@@ -250,14 +250,14 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       goto DONE;
     }
     else
-      mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
+      mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s\n", scheduler_n_executed(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
-    if (scheduler_get_mode() == SCHEDULE_MODE_REPLAY)
+    if (scheduler_get_mode() == SCHEDULER_MODE_REPLAY)
     {
       enum callback_type next_cb_type = scheduler_next_lcbn_type();
       if (is_threadpool_cb(next_cb_type))
       {
-        mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s, waiting for a non-threadpool CB to be next\n", scheduler_already_run(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
+        mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s, waiting for a non-threadpool CB to be next\n", scheduler_n_executed(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
         while (is_threadpool_cb(scheduler_next_lcbn_type()))
           uv_thread_yield();
       }
