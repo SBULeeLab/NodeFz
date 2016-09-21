@@ -155,11 +155,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   static int no_epoll_pwait;
   static int no_epoll_wait;
   struct uv__epoll_event events[1024];
-  struct uv__epoll_event* pe = NULL;
+  struct uv__epoll_event* pe;
   struct uv__epoll_event e;
   int real_timeout;
-  QUEUE* q = NULL;
-  uv__io_t* w = NULL;
+  QUEUE* q;
+  uv__io_t* w;
   sigset_t sigset;
   uint64_t sigmask;
   uint64_t base;
@@ -170,19 +170,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   int op;
   int i;
 
-  /* Supplies for scheduling. */
-  uv_handle_t *io_handle = NULL;
-  uv_loop_t *io_loop = NULL;
-  unsigned int io_events;
-
-  struct list *pending_wrappers = NULL;
-  sched_context_t *sched_context = NULL;
-
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__io_poll: begin: loop %p timeout %i\n", loop, timeout));
 
   if (loop->nfds == 0) {
     assert(QUEUE_EMPTY(&loop->watcher_queue));
-    goto DONE;
+    return;
   }
 
   while (!QUEUE_EMPTY(&loop->watcher_queue)) {
@@ -244,23 +236,15 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
         abort();
 
-    if (scheduler_remaining() == 0)
+    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
     {
-      mylog(LOG_MAIN, 1, "uv__io_poll: No items left to schedule. I'm outta here!\n");
-      goto DONE;
-    }
-    else
-      mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s\n", scheduler_n_executed(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
-
-    if (scheduler_get_mode() == SCHEDULER_MODE_REPLAY)
-    {
+      /* JD: TODO: Wait until the next LCBN is non-threadpool. 
+       *           We can't just epoll, because we might wait for 30 minutes for input when
+       *           really the only remaining events are threadpool ones.
+       *           This might be a scheduler call of some kind?
+       *           The scheduler could tell us the type of the next non-TP CB.
+       */
       enum callback_type next_cb_type = scheduler_next_lcbn_type();
-      if (is_threadpool_cb(next_cb_type))
-      {
-        mylog(LOG_MAIN, 3, "uv__io_poll: %i CBs run, %i remaining, next %s, waiting for a non-threadpool CB to be next\n", scheduler_n_executed(), scheduler_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
-        while (is_threadpool_cb(scheduler_next_lcbn_type()))
-          uv_thread_yield();
-      }
       if (next_cb_type == MARKER_IO_POLL_END)
       {
         mylog(LOG_MAIN, 3, "uv__io_poll: Next up is %s, busting out of this loop\n", callback_type_to_string(next_cb_type));
@@ -325,7 +309,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         continue;
 
       if (timeout == 0)
-        goto DONE;
+        return;
 
       /* Interrupted by a signal. Update timeout and poll again. */
       goto update_timeout;
@@ -336,11 +320,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     assert(loop->watchers != NULL);
     loop->watchers[loop->nwatchers] = (void*) events;
     loop->watchers[loop->nwatchers + 1] = (void*) (uintptr_t) nfds;
-
-    /* Interpret events as a list of sched_contexts. */
-    pending_wrappers = list_create();
-    for (i = 0; i < nfds; i++) 
-    {
+    for (i = 0; i < nfds; i++) {
       pe = events + i;
       fd = pe->data;
 
@@ -352,6 +332,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       assert((unsigned) fd < loop->nwatchers);
 
       w = loop->watchers[fd];
+
       if (w == NULL) {
         /* File descriptor that we've stopped watching, disarm it.
          *
@@ -363,112 +344,43 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
       mylog(LOG_MAIN, 7, "uv__io_poll: fd %i (w %p) is ready\n", fd, w);
 
-      /* The pending events determine whether or not we'll actually invoke w's CB. */
-      io_events = pe->events;
-      io_events &= w->pevents | UV__POLLERR | UV__POLLHUP;
-      if (io_events == UV__EPOLLERR || pe->events == UV__EPOLLHUP)
-        io_events |= w->pevents & (UV__EPOLLIN | UV__EPOLLOUT);
+      /* Give users only events they're interested in. Prevents spurious
+       * callbacks when previous callback invocation in this loop has stopped
+       * the current watcher. Also, filters out events that users has not
+       * requested us to watch.
+       */
+      pe->events &= w->pevents | UV__POLLERR | UV__POLLHUP;
 
-      if (io_events != 0) 
-      {
-        sched_context_t *sched_context = NULL;
+      /* Work around an epoll quirk where it sometimes reports just the
+       * EPOLLERR or EPOLLHUP event.  In order to force the event loop to
+       * move forward, we merge in the read/write events that the watcher
+       * is interested in; uv__read() and uv__write() will then deal with
+       * the error or hangup in the usual fashion.
+       *
+       * Note to self: happens when epoll reports EPOLLIN|EPOLLHUP, the user
+       * reads the available data, calls uv_read_stop(), then sometime later
+       * calls uv_read_start() again.  By then, libuv has forgotten about the
+       * hangup and the kernel won't report EPOLLIN again because there's
+       * nothing left to read.  If anything, libuv is to blame here.  The
+       * current hack is just a quick bandaid; to properly fix it, libuv
+       * needs to remember the error/hangup event.  We should get that for
+       * free when we switch over to edge-triggered I/O.
+       */
+      if (pe->events == UV__EPOLLERR || pe->events == UV__EPOLLHUP)
+        pe->events |= w->pevents & (UV__EPOLLIN | UV__EPOLLOUT);
 
-        mylog(LOG_MAIN, 5, "uv__io_poll: Relevant events for fd %i, adding it to the list of candidates\n", fd);
-        w->iocb_events = io_events;
-        if ((any_func) w->cb == uv_uv__async_io_ptr())
-        {
-          io_loop = loop;
-          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_ASYNC, io_loop);
-          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__async_io (sched_context %p)\n", fd, sched_context);
-        }
-        else if ((any_func) w->cb == uv_uv__inotify_read_ptr())
-        {
-          io_loop = loop;
-          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_INOTIFY_READ, io_loop);
-          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__inotify_read (sched_context %p)\n", fd, sched_context);
-        }
-        else if ((any_func) w->cb == uv_uv__signal_event_ptr())
-        {
-          io_loop = loop;
-          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_IO_SIGNAL_EVENT, io_loop);
-          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__signal_event (sched_context %p)\n", fd, sched_context);
-        }
-        else if ((any_func) w->cb == uv_uv__poll_io_ptr())
-        {
-          io_handle = (uv_handle_t *) container_of(w, uv_poll_t, io_watcher);
-          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle);
-          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__poll_io (sched_context %p)\n", fd, sched_context);
-        }
-        else if ((any_func) w->cb == uv_uv__stream_io_ptr())
-        {
-          io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
-          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle);
-          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__stream_io (sched_context %p)\n", fd, sched_context);
-        }
-        else if ((any_func) w->cb == uv_uv__server_io_ptr())
-        {
-          io_handle = (uv_handle_t *) container_of(w, uv_stream_t, io_watcher);
-          sched_context = sched_context_create(EXEC_CONTEXT_UV__IO_POLL, CALLBACK_CONTEXT_HANDLE, io_handle);
-          mylog(LOG_MAIN, 7, "uv__io_poll: fd %i's w->cb is uv__server_io (sched_context %p)\n", fd, sched_context);
-        }
-        else
-          assert(!"uv__io_poll: Error, unexpected w->cb");
-
-        list_push_back(pending_wrappers, &sched_context->elem);
-      }
-      else
-        mylog(LOG_MAIN, 5, "uv__io_poll: No relevant events for fd %i\n", fd);
-    }
-
-    while (!list_empty(pending_wrappers))
-    {
-      /* Find, remove, and execute the w next in the schedule. */
-      mylog(LOG_MAIN, 5, "uv__io_poll: %u pending wrappers\n", list_size(pending_wrappers));
-      sched_context = scheduler_next_context(pending_wrappers);
-      if (sched_context)
-      {
-        list_remove(pending_wrappers, &sched_context->elem);
-        switch (sched_context->cb_context)
-        {
-          case CALLBACK_CONTEXT_IO_ASYNC:
-            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is an async event\n");
-            w = &((uv_loop_t *) sched_context->wrapper)->async_watcher.io_watcher;
-            break;
-          case CALLBACK_CONTEXT_IO_INOTIFY_READ:
-            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is an inotify event\n");
-            w = &((uv_loop_t *) sched_context->wrapper)->inotify_read_watcher;
-            break;
-          case CALLBACK_CONTEXT_IO_SIGNAL_EVENT:
-            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is a signal event\n");
-            w = &((uv_loop_t *) sched_context->wrapper)->signal_io_watcher;
-            break;
-          case CALLBACK_CONTEXT_HANDLE:
-            mylog(LOG_MAIN, 7, "uv__io_poll: Next work item is a handle event\n");
-            io_handle = (uv_handle_t *) sched_context->wrapper;
-            if (io_handle->type == UV_POLL)
-              w = &((uv_poll_t *) io_handle)->io_watcher;
-            else
-              w = &((uv_stream_t *) io_handle)->io_watcher;
-            break;
-          default:
-            assert(!"uv__io_poll: Error, unexpected sched_context");
-        }
-        sched_context_destroy(sched_context);
-
-        /* Run w. */
+      if (pe->events != 0) {
+#ifdef UNIFIED_CALLBACK
+        w->iocb_events = pe->events;
         mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: w %p\n", w);
         invoke_callback_wrap((any_func) w->cb, UV__IO_CB, (long) loop, (long) w, (long) w->iocb_events);
         mylog(LOG_MAIN, 7, "uv__io_poll: Done with work item\n");
+#else
+        w->cb(loop, w, pe->events);
+#endif
         nevents++;
       }
-      else
-        break;
     }
-    /* Clean up the un-executed wrappers. Unlike the other uv__run_* functions, there is nothing to repair here.
-       libuv uses epoll in level-triggered mode, so un-handled events remain pending until they are
-       executed. */
-    list_destroy_full(pending_wrappers, sched_context_list_destroy_func, NULL); 
-
     mylog(LOG_MAIN, 7, "uv__io_poll: %i fds, ran (nevents) %i\n", nfds, nevents);
 
     loop->watchers[loop->nwatchers] = NULL;
@@ -480,11 +392,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         timeout = 0;
         continue;
       }
-      goto DONE;
+      return;
     }
 
     if (timeout == 0)
-      goto DONE;
+      return;
 
     if (timeout == -1)
       continue;
@@ -494,7 +406,7 @@ update_timeout:
 
     real_timeout -= (loop->time - base);
     if (real_timeout <= 0)
-      goto DONE;
+      return;
 
     timeout = real_timeout;
   }
