@@ -1,9 +1,17 @@
 #include "scheduler.h"
 
 /* Include the various schedule implementations. */
-#include "scheduler_CBTree.h"
-#include "scheduler_Fuzzing_Timer.h"
-#include "scheduler_Fuzzing_ThreadOrder.h"
+#if defined(ENABLE_SCHEDULER_FUZZING_TIMER)
+  #include "scheduler_Fuzzing_Timer.h"
+#endif /* ENABLE_SCHEDULER_FUZZING_TIMER */
+
+#if defined(ENABLE_SCHEDULER_CBTREE)
+  #include "scheduler_CBTree.h"
+#endif /* ENABLE_SCHEDULER_CBTREE */
+
+#if defined(ENABLE_SCHEDULER_FUZZING_THREAD_ORDER)
+  #include "scheduler_Fuzzing_ThreadOrder.h"
+#endif /* ENABLE_SCHEDULER_FUZZING_THREAD_ORDER */
 
 #include "list.h"
 #include "map.h"
@@ -21,18 +29,18 @@
 
 /* Functions for scheduler typedefs. */
 
-char *scheduler_type_strings[SCHEDULER_MODE_MAX - SCHEDULER_MODE_MIN + 1] = 
+char *scheduler_type_strings[SCHEDULER_TYPE_MAX - SCHEDULER_TYPE_MIN + 1] = 
   {
     "CBTREE",
-    "FUZZER_TIMER",
-    "FUZZER_THREAD_ORDER"
+    "FUZZING_TIMER",
+    "FUZZING_THREAD_ORDER"
   };
 
 const char * scheduler_type_to_string (scheduler_type_t type)
 {
   char *str = NULL;
-  assert(SCHEDULER_MODE_MIN <= type && type < SCHEDULER_MODE_MAX);
-  str = scheduler_type_strings[type - SCHEDULER_MODE_MIN];
+  assert(SCHEDULER_TYPE_MIN <= type && type < SCHEDULER_TYPE_MAX);
+  str = scheduler_type_strings[type - SCHEDULER_TYPE_MIN];
   return str;
 }
 
@@ -50,7 +58,7 @@ const char * scheduler_mode_to_string (scheduler_mode_t mode)
   return str;
 }
 
-char *thread_type_strings[SCHEDULER_MODE_MAX - SCHEDULER_MODE_MIN + 1] = 
+char *thread_type_strings[THREAD_TYPE_MAX - THREAD_TYPE_MIN + 1] = 
   {
     "LOOPER",
     "THREADPOOL"
@@ -59,12 +67,12 @@ char *thread_type_strings[SCHEDULER_MODE_MAX - SCHEDULER_MODE_MIN + 1] =
 const char * thread_type_to_string (thread_type_t type)
 {
   char *str = NULL;
-  assert(SCHEDULER_MODE_MIN <= type && type < SCHEDULER_MODE_MAX);
-  str = thread_type_strings[type - SCHEDULER_MODE_MIN];
+  assert(THREAD_TYPE_MIN <= type && type < THREAD_TYPE_MAX);
+  str = thread_type_strings[type - THREAD_TYPE_MIN];
   return str;
 }
 
-char *schedule_point_strings[SCHEDULER_MODE_MAX - SCHEDULER_MODE_MIN + 1] = 
+char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] = 
   {
     "BEFORE_EXEC_CB",
     "AFTER_EXEC_CB",
@@ -79,8 +87,8 @@ char *schedule_point_strings[SCHEDULER_MODE_MAX - SCHEDULER_MODE_MIN + 1] =
 const char * schedule_point_to_string (schedule_point_t point)
 {
   char *str = NULL;
-  assert(SCHEDULER_MODE_MIN <= type && type < SCHEDULER_MODE_MAX);
-  str = schedule_point_strings[type - SCHEDULER_MODE_MIN];
+  assert(SCHEDULE_POINT_MIN <= point && point < SCHEDULE_POINT_MAX);
+  str = schedule_point_strings[point - SCHEDULE_POINT_MIN];
   return str;
 }
 
@@ -94,7 +102,7 @@ struct
   int magic;
 
   /* Constants. */
-  schedule_type_t type;
+  scheduler_type_t type;
   scheduler_mode_t mode;
   char schedule_file[1024];
   void *args;
@@ -104,7 +112,7 @@ struct
   struct map *tidToType;
 
   /* Synchronization. */
-  reentrant_mutex_t mutex;
+  reentrant_mutex_t *mutex;
 
   /* Implementation-dependent. */
   schedulerImpl_t impl;
@@ -123,7 +131,7 @@ int scheduler__looks_valid (void);
 
 void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedule_file, void *args)
 {
-  assert(!initialized);
+  assert(!scheduler_initialized);
 
   /* Shared amongst all scheduler implementations. */
   scheduler.magic = SCHEDULER_MAGIC;
@@ -136,7 +144,8 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
   scheduler.tidToType = map_create();
   assert(scheduler.tidToType != NULL);
 
-  reentrant_mutex_init(&scheduler.mutex);
+  scheduler.mutex = reentrant_mutex_create();
+  assert(scheduler.mutex != NULL);
 
   /* Specifics based on the scheduler type. */
   switch (scheduler.type)
@@ -146,13 +155,13 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
       scheduler_cbTree_init(mode, args, &scheduler.impl);
       break;
 #endif
-    SCHEDULER_TYPE_FUZZER_TIMER:
-#if defined(ENABLE_SCHEDULER_FUZZER_TIMER)
-      scheduler_fuzzer_timer_init(mode, args, &scheduler.impl);
+    SCHEDULER_TYPE_FUZZING_TIMER:
+#if defined(ENABLE_SCHEDULER_FUZZING_TIMER)
+      scheduler_fuzzing_timer_init(mode, args, &scheduler.impl);
       break;
 #endif
-    SCHEDULER_TYPE_FUZZER_THREAD_ORDER:
-#if defined(ENABLE_SCHEDULER_FUZZER_THREAD_ORDER)
+    SCHEDULER_TYPE_FUZZING_THREAD_ORDER:
+#if defined(ENABLE_SCHEDULER_FUZZING_THREAD_ORDER)
       scheduler_fuzzer_threadOrder_init(mode, args, &scheduler.impl);
       break;
 #endif
@@ -251,13 +260,13 @@ scheduler_mode_t scheduler_get_scheduler_mode (void)
 void scheduler__lock (void)
 {
   assert(scheduler__looks_valid());
-  reentrant_mutex_lock(&scheduler.mutex);
+  reentrant_mutex_lock(scheduler.mutex);
 }
 
 void scheduler__unlock (void)
 {
   assert(scheduler__looks_valid());
-  reentrant_mutex_unlock(&scheduler.mutex);
+  reentrant_mutex_unlock(scheduler.mutex);
 }
 
 thread_type_t scheduler__get_thread_type (uv_thread_t tid)

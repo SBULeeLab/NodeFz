@@ -2,8 +2,10 @@
 #include "scheduler.h"
 
 #include <unistd.h> /* usleep, unlink */
+#include <string.h> /* memcpy */
+#include <assert.h>
 
-static int SCHEDULER_FUZZING_TIMER_MAGIC 65468789;
+static int SCHEDULER_FUZZING_TIMER_MAGIC = 65468789;
 
 /* implDetails for the fuzzing timer scheduler. */
 
@@ -26,15 +28,11 @@ int scheduler_fuzzing_timer_looks_valid (void);
  ***********************/
 
 void
-scheduler_fuzzing_timer_init (scheduler_mode_t mode, void *args, schedulerImpl_t *schedulerImpl, void **implDetails)
+scheduler_fuzzing_timer_init (scheduler_mode_t mode, void *args, schedulerImpl_t *schedulerImpl)
 {
-  scheduler_fuzzing_timer_args_t *sft_args = (scheduler_fuzzing_timer_args_t *) args;
-
   assert(args != NULL);
   assert(schedulerImpl != NULL);
   assert(schedulerImpl != NULL);
-  assert(implDetails != NULL);
-  assert(*implDetails != NULL);
 
   /* Populate schedulerImpl. */
   schedulerImpl->register_lcbn = scheduler_fuzzing_timer_register_lcbn;
@@ -48,7 +46,6 @@ scheduler_fuzzing_timer_init (scheduler_mode_t mode, void *args, schedulerImpl_t
   fuzzingTimer_implDetails.magic = SCHEDULER_FUZZING_TIMER_MAGIC;
   fuzzingTimer_implDetails.mode = mode;
   memcpy(&fuzzingTimer_implDetails.args, args, sizeof(fuzzingTimer_implDetails.args));
-  *implDetails = &fuzzingTimer_implDetails;
 
   return;
 }

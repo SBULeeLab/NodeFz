@@ -17,7 +17,9 @@
 struct reentrant_mutex_s;
 typedef struct reentrant_mutex_s reentrant_mutex_t;
 
-void reentrant_mutex_init (reentrant_mutex_t *mutex);
+/* Returns NULL on error. */
+reentrant_mutex_t * reentrant_mutex_create (void);
+void reentrant_mutex_destroy (reentrant_mutex_t *mutex);
 
 void reentrant_mutex_lock (reentrant_mutex_t *mutex);
 void reentrant_mutex_unlock (reentrant_mutex_t *mutex);

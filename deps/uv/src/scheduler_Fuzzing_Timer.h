@@ -1,7 +1,8 @@
 #ifndef UV_SRC_SCHEDULER_FUZZING_TIMER_H_
 #define UV_SRC_SCHEDULER_FUZZING_TIMER_H_
 
-#if defined(ENABLE_SCHEDULER_FUZZER_TIMER)
+#include "scheduler.h"
+#include "logical-callback-node.h"
 
 struct scheduler_fuzzing_timer_args_s
 {
@@ -30,7 +31,5 @@ scheduler_fuzzing_timer_lcbns_remaining (void);
 
 int
 scheduler_fuzzing_timer_schedule_has_diverged (void);
-
-#endif /* ENABLE_SCHEDULER_FUZZER_TIMER */
 
 #endif  /* UV_SRC_SCHEDULER_FUZZING_TIMER_H_ */

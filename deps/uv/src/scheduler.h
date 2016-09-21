@@ -90,10 +90,10 @@ enum scheduler_type_e
   SCHEDULER_TYPE_FUZZER_TIMER,
   SCHEDULER_TYPE_FUZZER_THREAD_ORDER,
 
-  SCHEDULER_TYPE_MAX = SCHEDULER_TYPE_FUZZER_THREAD_ORDER;
+  SCHEDULER_TYPE_MAX = SCHEDULER_TYPE_FUZZER_THREAD_ORDER
 };
 typedef enum scheduler_type_e scheduler_type_t;
-const char * schedule_type_to_string (schedule_type_t type);
+const char * scheduler_type_to_string (scheduler_type_t type);
 
 /* The mode in which the scheduler is to run. */
 enum scheduler_mode_e
@@ -124,9 +124,9 @@ const char * thread_type_to_string (thread_type_t mode);
 /* The different schedule points. */
 enum schedule_point_e
 {
-  SCHEDULE_POINT_TP_MIN,
+  SCHEDULE_POINT_MIN,
 
-  SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_TP_MIN,
+  SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_MIN,
   SCHEDULE_POINT_AFTER_EXEC_CB,
 
   SCHEDULE_POINT_TP_BEFORE_GET_WORK,
@@ -135,7 +135,7 @@ enum schedule_point_e
   SCHEDULE_POINT_TP_BEFORE_PUT_DONE,
   SCHEDULE_POINT_TP_AFTER_PUT_DONE,
 
-  SCHEDULE_POINT_TP_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
+  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
 };
 typedef enum schedule_point_e schedule_point_t;
 const char * schedule_point_to_string (schedule_point_t point);
@@ -145,36 +145,42 @@ const char * schedule_point_to_string (schedule_point_t point);
  */
 struct spd_before_exec_cb_s
 {
+  int magic;
   lcbn_t *lcbn;
 };
 typedef struct spd_before_exec_cb_s spd_before_exec_cb_t;
 
 struct spd_after_exec_cb_s
 {
+  int magic;
   lcbn_t *lcbn;
 };
 typedef struct spd_after_exec_cb_s spd_after_exec_cb_t;
 
 struct spd_before_get_work_s
 {
+  int magic;
   /* TODO Anything? */
 };
 typedef struct spd_before_get_work_s spd_before_get_work_t;
 
 struct spd_after_get_work_s
 {
+  int magic;
   /* TODO Anything? */
 };
 typedef struct spd_after_get_work_s spd_after_get_work_t;
 
 struct spd_before_put_done_s
 {
+  int magic;
   /* TODO Anything? */
 };
 typedef struct spd_before_put_done_s spd_before_put_done_t;
 
 struct spd_after_put_done_s
 {
+  int magic;
   /* TODO Anything? */
 };
 typedef struct spd_after_put_done_s spd_after_put_done_t;
@@ -203,6 +209,7 @@ void scheduler_register_lcbn (lcbn_t *lcbn);
 /* REPLAY mode. 
  * Returns the callback_type of the next scheduled LCBN.
  * If scheduler has diverged, returnes CALLBACK_TYPE_ANY.
+ * This allows uv__run to repeat loop stages if waiting for input or a timer.
  */
 enum callback_type scheduler_next_lcbn_type (void);
 
@@ -254,6 +261,9 @@ thread_type_t scheduler__get_thread_type (uv_thread_t tid);
  * Each scheduler implementation must define these APIs.
  ********************************/
 
+struct schedulerImpl_s;
+typedef struct schedulerImpl_s schedulerImpl_t;
+
 /* Initialize the scheduler implementation.
  * INPUTS:    mode: The mode in which the scheduler will run.
  *            args: Define this in your header file so users can parameterize you.
@@ -283,7 +293,6 @@ struct schedulerImpl_s
   schedulerImpl_lcbns_remaining lcbns_remaining;
   schedulerImpl_schedule_has_diverged schedule_has_diverged;
 };
-typedef struct schedulerImpl_s schedulerImpl_t;
 
 #if 0
 
