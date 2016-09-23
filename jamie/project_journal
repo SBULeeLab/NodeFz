@@ -1913,12 +1913,35 @@ Thur 22 Sep 2016
 2. Implement Fuzzing Timer yield (RECORD mode only)
 3. Experiment with random sleeps to see if we explore schedule appropriately 
 
+--------------------------------
+
+Fri 22 Sep 2016
+
+1. Call scheduler_yield everywhere it's appropriate.
+2. Attempt to reproduce both orders in fs-rw.js.
+
+    fs-rw.js works like this:
+      sync write of 'BEFORE'
+      async read (first step is work item 0)
+      async write (first step is work item 1) of 'AFTER'
+
+    If I artificially delay the 2nd threadpool item (number 1), R -> W (R sees 'BEFORE').
+    Otherwise, with the random delays introduced by timer fuzzing, W -> R (R sees 'AFTER').
+    I've tried {MIN|MAX}_DELAY with shorter delays (u seconds) and longer delays (seconds).
+
+    If I use the original node, I see either 'AFTER' or nothing (never 'BEFORE'). Some interesting thread interaction I guess.
+      for i in `seq 1 100`; do UV_THREADPOOL_SIZE=2 UV_SCHEDULER_MIN_DELAY=50000 UV_SCHEDULER_MAX_DELAY=100000 node /tmp/test/fs-rw/fs-rw.js 2>&1 | grep BEFORE; done | wc -l
+
+    My initial impression is that uniformly-sampled timer delays will not meaningfully affect execution.
+    If I make one thread slower or sample from a non-uniform distribution, we might get more variation.
+
 TODO
-  - Produce both orders in fs-rw.js 
-    > (Are we setting threadpool size artificially small? I think there's only one threadpool thread...)
   - Register the looper thread
-  - Call the new scheduler APIs -- working on threadpool at the moment
+  - Think about producing both orders in fs-rw.js 
+    > (Are we setting threadpool size artificially small? I think there's only one threadpool thread...)
+    > Fuzzing_ThreadOrder? Requires a focus on the threads themselves?
   - Anything left in scheduler_Fuzzing_Timer.[ch] ?
+  - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
 
 -----------
 
