@@ -149,6 +149,10 @@ struct spd_before_exec_cb_s
 };
 typedef struct spd_before_exec_cb_s spd_before_exec_cb_t;
 
+void spd_before_exec_cb_init (spd_before_exec_cb_t *spd_before_exec_cb);
+/* Returns non-zero if valid. */
+int spd_before_exec_cb_is_valid (spd_before_exec_cb_t *spd_before_exec_cb);
+
 struct spd_after_exec_cb_s
 {
   int magic;
@@ -156,35 +160,34 @@ struct spd_after_exec_cb_s
 };
 typedef struct spd_after_exec_cb_s spd_after_exec_cb_t;
 
+void spd_after_exec_cb_init (spd_after_exec_cb_t *spd_after_exec_cb);
+/* Returns non-zero if valid. */
+int spd_after_exec_cb_is_valid (spd_after_exec_cb_t *spd_after_exec_cb);
+
 struct spd_got_work_s
 {
   int magic;
   struct uv__work *work_item;
   int work_item_num; /* What entry in wq was this? Starts at 0. */
 };
+
 typedef struct spd_got_work_s spd_got_work_t;
 void spd_got_work_init (spd_got_work_t *spd_got_work);
+/* Returns non-zero if valid. */
+int spd_got_work_is_valid (spd_got_work_t *spd_got_work);
 
-struct spd_after_get_work_s
-{
-  int magic;
-  /* TODO Anything? */
-};
-typedef struct spd_after_get_work_s spd_after_get_work_t;
+/* {before,after}_put_done share the same structure. */
+typedef spd_got_work_t spd_before_put_done_t;
 
-struct spd_before_put_done_s
-{
-  int magic;
-  /* TODO Anything? */
-};
-typedef struct spd_before_put_done_s spd_before_put_done_t;
+void spd_before_put_done_init (spd_before_put_done_t *spd_before_put_done);
+/* Returns non-zero if valid. */
+int spd_before_put_done_is_valid (spd_before_put_done_t *spd_before_put_done);
 
-struct spd_after_put_done_s
-{
-  int magic;
-  /* TODO Anything? */
-};
-typedef struct spd_after_put_done_s spd_after_put_done_t;
+typedef spd_got_work_t spd_after_put_done_t;
+
+void spd_after_put_done_init (spd_after_put_done_t *spd_after_put_done);
+/* Returns non-zero if valid. */
+int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done);
 
 /* Call this prior to any other scheduler_* routines. 
  *   type: What type of scheduler to use?
@@ -258,7 +261,7 @@ scheduler_mode_t scheduler_get_scheduler_mode (void);
 void scheduler__lock (void);
 void scheduler__unlock (void);
 
-thread_type_t scheduler__get_thread_type (uv_thread_t tid);
+thread_type_t scheduler__get_thread_type (void);
 
 /********************************
  * Each scheduler implementation must define these APIs.

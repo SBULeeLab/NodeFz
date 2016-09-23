@@ -92,12 +92,70 @@ const char * schedule_point_to_string (schedule_point_t point)
 }
 
 /* Schedule Point Details (SPD) functions. */
+static int SPD_BEFORE_EXEC_CB_MAGIC = 11929224;
+static int SPD_AFTER_EXEC_CB_MAGIC = 11929224;
 static int SPD_GOT_WORK_MAGIC = 46548678;
+static int SPD_BEFORE_PUT_DONE_MAGIC = 59175099;
+static int SPD_AFTER_PUT_DONE_MAGIC = 99281732;
+
+void spd_before_exec_cb_init (spd_before_exec_cb_t *spd_before_exec_cb)
+{
+  assert(spd_before_exec_cb != NULL);
+  spd_before_exec_cb->magic = SPD_BEFORE_EXEC_CB_MAGIC;
+}
+
+int spd_before_exec_cb_is_valid (spd_before_exec_cb_t *spd_before_exec_cb)
+{
+  return (spd_before_exec_cb != NULL &&
+          spd_before_exec_cb->magic == SPD_BEFORE_EXEC_CB_MAGIC);
+}
+
+void spd_after_exec_cb_init (spd_after_exec_cb_t *spd_after_exec_cb)
+{
+  assert(spd_after_exec_cb != NULL);
+  spd_after_exec_cb->magic = SPD_AFTER_EXEC_CB_MAGIC;
+}
+
+int spd_after_exec_cb_is_valid (spd_after_exec_cb_t *spd_after_exec_cb)
+{
+  return (spd_after_exec_cb != NULL &&
+          spd_after_exec_cb->magic == SPD_AFTER_EXEC_CB_MAGIC);
+}
 
 void spd_got_work_init (spd_got_work_t *spd_got_work)
 {
   assert(spd_got_work != NULL);
   spd_got_work->magic = SPD_GOT_WORK_MAGIC;
+}
+
+int spd_got_work_is_valid (spd_got_work_t *spd_got_work)
+{
+  return (spd_got_work != NULL &&
+          spd_got_work->magic == SPD_GOT_WORK_MAGIC);
+}
+
+void spd_before_put_done_init (spd_before_put_done_t *spd_before_put_done)
+{
+  assert(spd_before_put_done != NULL);
+  spd_before_put_done->magic = SPD_BEFORE_PUT_DONE_MAGIC;
+}
+
+int spd_before_put_done_is_valid (spd_before_put_done_t *spd_before_put_done)
+{
+  return (spd_before_put_done != NULL &&
+          spd_before_put_done->magic == SPD_BEFORE_PUT_DONE_MAGIC);
+}
+
+void spd_after_put_done_init (spd_after_put_done_t *spd_after_put_done)
+{
+  assert(spd_after_put_done != NULL);
+  spd_after_put_done->magic = SPD_AFTER_PUT_DONE_MAGIC;
+}
+
+int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done)
+{
+  return (spd_after_put_done != NULL &&
+          spd_after_put_done->magic == SPD_AFTER_PUT_DONE_MAGIC);
 }
 
 /* Scheduler. */
@@ -279,14 +337,14 @@ void scheduler__unlock (void)
   reentrant_mutex_unlock(scheduler.mutex);
 }
 
-thread_type_t scheduler__get_thread_type (uv_thread_t tid)
+thread_type_t scheduler__get_thread_type (void)
 {
   int found = 0;
   thread_type_t type;
 
   assert(scheduler__looks_valid());
   
-  type = (thread_type_t) map_lookup(scheduler.tidToType, (int) tid, &found);
+  type = (thread_type_t) map_lookup(scheduler.tidToType, (int) uv_thread_self(), &found);
   assert(found);
 
   return type;
