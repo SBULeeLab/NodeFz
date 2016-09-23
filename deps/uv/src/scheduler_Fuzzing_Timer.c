@@ -94,18 +94,25 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
     case SCHEDULE_POINT_BEFORE_EXEC_CB:
       spd_before_exec_cb = (spd_before_exec_cb_t *) pointDetails;
       assert(spd_before_exec_cb_is_valid(spd_before_exec_cb));
+      scheduler__lock();
       break;
     case SCHEDULE_POINT_AFTER_EXEC_CB:
       spd_after_exec_cb = (spd_after_exec_cb_t *) pointDetails;
       assert(spd_after_exec_cb_is_valid(spd_after_exec_cb));
+      scheduler__unlock();
       break;
     case SCHEDULE_POINT_TP_GOT_WORK:
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
       spd_got_work = (spd_got_work_t *) pointDetails;
       assert(spd_got_work_is_valid(spd_got_work));
+#if 0
       /* TODO TESTING - significantly delay the first item */
-      if (spd_got_work->work_item_num == 0)
-        usleep(200000);
+      if (spd_got_work->work_item_num == 1)
+      {
+        mylog(LOG_SCHEDULER, 1, "scheduler_fuzzing_timer_thread_yield: Significantly delaying item 1\n");
+        usleep(2000000);
+      }
+#endif
       break;
     case SCHEDULE_POINT_TP_BEFORE_PUT_DONE:
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
