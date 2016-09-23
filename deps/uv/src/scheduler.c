@@ -158,7 +158,9 @@ int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done)
           spd_after_put_done->magic == SPD_AFTER_PUT_DONE_MAGIC);
 }
 
-/* Scheduler. */
+/***********************
+ * Scheduler variable declarations.
+ ***********************/
 
 static int SCHEDULER_MAGIC = 8675309; /* Jenny. */
 
@@ -276,6 +278,14 @@ enum callback_type scheduler_next_lcbn_type (void)
 void scheduler_thread_yield (schedule_point_t point, void *schedule_point_details)
 {
   assert(scheduler__looks_valid());
+
+  if (point == SCHEDULE_POINT_AFTER_EXEC_CB)
+  {
+    scheduler__lock();
+    scheduler.n_executed++;
+    scheduler__unlock();
+  }
+
   scheduler.impl.thread_yield(point, schedule_point_details);
   return;
 }
