@@ -1918,7 +1918,8 @@ Thur 22 Sep 2016
 Fri 22 Sep 2016
 
 1. Call scheduler_yield everywhere it's appropriate.
-2. Attempt to reproduce both orders in fs-rw.js.
+2. Register the looper thread
+3. Attempt to reproduce both orders in fs-rw.js.
 
     fs-rw.js works like this:
       sync write of 'BEFORE'
@@ -1935,12 +1936,44 @@ Fri 22 Sep 2016
     My initial impression is that uniformly-sampled timer delays will not meaningfully affect execution.
     If I make one thread slower or sample from a non-uniform distribution, we might get more variation.
 
+4. Discussion with DY:
+    - Yes, we need a schedule point between threadpool and looper (i.e. in invoke_callback) because looper can be doing synchronous versions of the async work in the threadpool
+    - He likes the idea of exploring timer fuzzing slightly more -- an anti-Gaussian (i.e. extremes) approach might turn up more interesting results
+      > try this. an easy implementation is to decide to slow down random items dramatically and let everything else go through
+    - He also likes the "degrees of freedom" idea, and suggests applying it in the TP with a single thread, and in uv__work_done to simulate different completion orders
+      > try this too
+
+5. Implementation of "slowing random items down dramatically" is a success. I can see the various interleavings manifested in the output.
+   In fs-rw.js, 75% are 'AFTER' and 'BEFORE'/'' occur for a combined 25%.
+   In fs-mkdir.js, 85% are 'fs.mkdir 2 failed' and 15% are 'fs.mkdir 1 failed'.
+
+   ####
+   # fs-rw.js
+   ####
+
+   rm -rf /tmp/t; mkdir /tmp/t; ./online/install.sh -i tests/module_races/fs/fs-rw.js  -d /tmp/t
+   rm /tmp/o; for i in `seq 1 200`; do UV_THREADPOOL_SIZE=2 UV_SCHEDULER_MIN_DELAY=100000 UV_SCHEDULER_MAX_DELAY=100000 node-devel /tmp/t/fs-rw/fs-rw.js >> /tmp/o 2>&1; echo $i; done
+   grep APP /tmp/o | grep -c 'data <>'
+     23
+   grep APP /tmp/o | grep -c 'data <AFTER>'
+     164
+   grep APP /tmp/o | grep -c 'data <BEFORE>'
+     13
+  
+   ####
+   # fs-mkdir.js
+   ####
+
+   rm -rf /tmp/t; mkdir /tmp/t; ./online/install.sh -i tests/module_races/fs/fs-mkdir.js  -d /tmp/t
+   rm /tmp/o; for i in `seq 1 200`; do UV_THREADPOOL_SIZE=2 UV_SCHEDULER_MIN_DELAY=100000 UV_SCHEDULER_MAX_DELAY=100000 node-devel /tmp/t/fs-mkdir/fs-mkdir.js >> /tmp/o 2>&1; echo $i; done;
+   grep -c 'fs.mkdir 2: failed' /tmp/o
+     170
+   grep -c 'fs.mkdir 1: failed' /tmp/o
+     30
+
 TODO
-  - Register the looper thread
-  - Think about producing both orders in fs-rw.js 
-    > (Are we setting threadpool size artificially small? I think there's only one threadpool thread...)
-    > Fuzzing_ThreadOrder? Requires a focus on the threads themselves?
-  - Anything left in scheduler_Fuzzing_Timer.[ch] ?
+  - Try the "degrees of freedom" idea, and suggests applying it in the TP with a single thread, and in uv__work_done to simulate different completion orders
+    > try this too
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
 
 -----------
