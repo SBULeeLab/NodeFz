@@ -1130,6 +1130,10 @@ void invoke_callback (callback_info_t *cbi)
   int is_user_cb = 0;    /* if (is_logical_cb): 1 if it's a user UV_*CB, else 0. Only 0 if it's the UV_ASYNC_CB associated with the TP's done items. */
   /* if (is_user_cb), then is_logical_cb, too. */
 
+  /* Scheduler supplies. */
+  spd_before_exec_cb_t spd_before_exec_cb;
+  spd_after_exec_cb_t spd_after_exec_cb;
+
   assert(cbi);
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: Begin: cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type)));
@@ -1243,6 +1247,11 @@ void invoke_callback (callback_info_t *cbi)
     mylog(LOG_MAIN, 7, "invoke_callback: Invoking lcbn %p (type %s) exec_id %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), lcbn_cur->global_exec_id);
   } /* is_logical_cb */
 
+  /* Yield to scheduler. */
+  spd_before_exec_cb_init(&spd_before_exec_cb);
+  spd_before_exec_cb.lcbn = lcbn_cur;
+  scheduler_thread_yield(SCHEDULE_POINT_BEFORE_EXEC_CB, &spd_before_exec_cb);
+
   /* User code or not, run the callback. */
   mylog(LOG_MAIN, 7, "invoke_callback: Invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
   cbi_execute_callback(cbi); 
@@ -1256,6 +1265,11 @@ void invoke_callback (callback_info_t *cbi)
     lcbn_mark_end(lcbn_cur);
     lcbn_current_set(lcbn_orig);
   }
+
+  /* Yield to scheduler. */
+  spd_after_exec_cb_init(&spd_after_exec_cb);
+  spd_after_exec_cb.lcbn = lcbn_cur;
+  scheduler_thread_yield(SCHEDULE_POINT_AFTER_EXEC_CB, &spd_after_exec_cb);
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: returning\n"));
 }
