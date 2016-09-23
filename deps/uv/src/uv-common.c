@@ -1028,6 +1028,7 @@ void initialize_record_and_replay (void)
 
   /* scheduler */
   initialize_scheduler();
+  scheduler_register_thread(THREAD_TYPE_LOOPER);
 
   /* invoke_callback */
   tid_to_current_lcbn = map_create();
