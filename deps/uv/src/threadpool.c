@@ -42,7 +42,7 @@ static void uv__req_init(uv_loop_t* loop,
 #include "logical-callback-node.h"
 #include "unified-callback-enums.h"
 
-#define MAX_THREADPOOL_SIZE 1
+#define MAX_THREADPOOL_SIZE 128
 
 static uv_once_t once = UV_ONCE_INIT;
 static uv_cond_t cond;
@@ -79,13 +79,14 @@ static void post(QUEUE* q) {
  * never holds the global mutex and the loop-local mutex at the same time.
  */
 static void worker(void* arg) {
-  /* JD: TODO: Add calls to scheduler. */
   struct uv__work* w;
   QUEUE* q;
   int work_item_number = -1; /* Holds value of n_work_items when worker gets each work item. */
 
   /* Scheduler supplies. */
   spd_got_work_t spd_got_work;
+  spd_before_put_done_t spd_before_put_done;
+  spd_after_put_done_t spd_after_put_done;
 
   (void) arg;
 
@@ -128,11 +129,21 @@ static void worker(void* arg) {
     spd_got_work.work_item_num = work_item_number;
     scheduler_thread_yield(SCHEDULE_POINT_TP_GOT_WORK, &spd_got_work);
 
+    /* Do work. */
+
 #if UNIFIED_CALLBACK
     invoke_callback_wrap((any_func) w->work, UV__WORK_WORK, (long int) w);
 #else
     w->work(w);
 #endif
+
+    /* Yield to the scheduler before and after adding the "done" item. 
+     * This allows the scheduler to perturb the order in which "done" items are queued.
+     */
+    spd_before_put_done_init(&spd_before_put_done);
+    spd_before_put_done.work_item = w;
+    spd_before_put_done.work_item_num = work_item_number;
+    scheduler_thread_yield(SCHEDULE_POINT_TP_BEFORE_PUT_DONE, &spd_before_put_done);
 
     uv_mutex_lock(&w->loop->wq_mutex);
     w->work = NULL;  /* Signal uv_cancel() that the work req is done
@@ -140,6 +151,11 @@ static void worker(void* arg) {
     QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
     uv_async_send(&w->loop->wq_async);
     uv_mutex_unlock(&w->loop->wq_mutex);
+
+    spd_after_put_done_init(&spd_after_put_done);
+    spd_after_put_done.work_item = w;
+    spd_after_put_done.work_item_num = work_item_number;
+    scheduler_thread_yield(SCHEDULE_POINT_TP_AFTER_PUT_DONE, &spd_after_put_done);
   }
 }
 
