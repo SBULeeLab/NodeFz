@@ -51,7 +51,7 @@ int n_work_items = 0; /* The total number of work items retrieved from wq by a w
 static unsigned int idle_threads;
 static unsigned int nthreads;
 static uv_thread_t* threads;
-static uv_thread_t default_threads[1];
+static uv_thread_t default_threads[4];
 static QUEUE exit_message;
 static QUEUE wq;
 static volatile int initialized;
@@ -64,11 +64,12 @@ static void uv__cancelled(struct uv__work* w) {
 }
 
 static void post(QUEUE* q) {
+  mylog(LOG_THREADPOOL, 9, "post: posting work item\n");
   uv_mutex_lock(&mutex);
   QUEUE_INSERT_TAIL(&wq, q);
   if (idle_threads > 0)
   {
-    mylog(LOG_THREADPOOL, 9, "Signal'ing the threadpool work cond\n");
+    mylog(LOG_THREADPOOL, 9, "post: Signal'ing the threadpool work cond\n");
     uv_cond_signal(&cond);
   }
   uv_mutex_unlock(&mutex);
@@ -91,9 +92,10 @@ static void worker(void* arg) {
   (void) arg;
 
   scheduler_register_thread(THREAD_TYPE_THREADPOOL);
+  mylog(LOG_THREADPOOL, 1, "worker %lli: begins\n", uv_thread_self());
 
   for (;;) {
-    mylog(LOG_THREADPOOL, 1, "worker: begins\n");
+    mylog(LOG_THREADPOOL, 1, "worker: top of loop\n");
     uv_mutex_lock(&mutex);
 
     while (QUEUE_EMPTY(&wq)) {
@@ -102,7 +104,6 @@ static void worker(void* arg) {
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
     }
-    mylog(LOG_THREADPOOL, 9, "worker: There is something in the queue\n");
 
     q = QUEUE_HEAD(&wq);
 
@@ -121,6 +122,7 @@ static void worker(void* arg) {
     if (q == &exit_message)
       break;
 
+    mylog(LOG_THREADPOOL, 9, "worker: Got work item %i\n", work_item_number);
     w = QUEUE_DATA(q, struct uv__work, wq);
 
     /* Yield to scheduler. */
@@ -130,12 +132,13 @@ static void worker(void* arg) {
     scheduler_thread_yield(SCHEDULE_POINT_TP_GOT_WORK, &spd_got_work);
 
     /* Do work. */
-
+    mylog(LOG_THREADPOOL, 9, "worker: Doing work item %i\n", work_item_number);
 #if UNIFIED_CALLBACK
     invoke_callback_wrap((any_func) w->work, UV__WORK_WORK, (long int) w);
 #else
     w->work(w);
 #endif
+    mylog(LOG_THREADPOOL, 9, "worker: Done doing work item %i\n", work_item_number);
 
     /* Yield to the scheduler before and after adding the "done" item. 
      * This allows the scheduler to perturb the order in which "done" items are queued.
@@ -218,6 +221,7 @@ static void init_once(void) {
 
   QUEUE_INIT(&wq);
 
+  mylog(LOG_THREADPOOL, 1, "init_once: %i threads\n", nthreads);
   for (i = 0; i < nthreads; i++)
     if (uv_thread_create(threads + i, worker, NULL))
       abort();
@@ -282,14 +286,17 @@ void uv__work_done(uv_async_t* handle) {
    */
   do
   {
-    mylog(LOG_THREADPOOL, 5, "uv__work_done: Checking for done LCBNs\n");
+    mylog(LOG_THREADPOOL, 5, "uv__work_done: Checking the done queue\n");
     QUEUE_INIT(&wq);
 
     uv_mutex_lock(&loop->wq_mutex);
     if (!QUEUE_EMPTY(&loop->wq)) {
+      mylog(LOG_THREADPOOL, 9, "worker: There are done items in the done queue\n");
       q = QUEUE_HEAD(&loop->wq);
       QUEUE_SPLIT(&loop->wq, q, &wq);
     }
+    else
+      mylog(LOG_THREADPOOL, 9, "worker: The done queue is empty\n");
     uv_mutex_unlock(&loop->wq_mutex);
 
     while (!QUEUE_EMPTY(&wq)) {
@@ -325,7 +332,7 @@ void uv__work_done(uv_async_t* handle) {
       done = 1;
   } while (!done);
 
-  mylog(LOG_THREADPOOL, 5, "uv__work_done: Next type is %s, so I can return\n", callback_type_to_string(scheduler_next_lcbn_type()));
+  mylog(LOG_THREADPOOL, 5, "uv__work_done: out of loop\n");
 
   if (replay_mode)
   {
