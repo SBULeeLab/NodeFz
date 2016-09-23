@@ -1905,10 +1905,20 @@ Hooray, I can (at last!) continue making progress
    - Yay, it compiles!
    - TODOs where the scheduler APIs should be called
 
+--------------------------------
+
+Thur 22 Sep 2016
+
+1. Call scheduler APIs in threadpool worker
+2. Implement Fuzzing Timer yield (RECORD mode only)
+3. Experiment with random sleeps to see if we explore schedule appropriately 
+
 TODO
-  - Call the new scheduler APIs -- working on threadpool at the moment
+  - Produce both orders in fs-rw.js 
+    > (Are we setting threadpool size artificially small? I think there's only one threadpool thread...)
   - Register the looper thread
-  - Complete scheduler_Fuzzing_Timer.[ch]
+  - Call the new scheduler APIs -- working on threadpool at the moment
+  - Anything left in scheduler_Fuzzing_Timer.[ch] ?
 
 -----------
 
