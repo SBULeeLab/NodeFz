@@ -645,6 +645,24 @@ int lcbn_threadpool (lcbn_t *lcbn)
   return threadpool;
 }
 
+/* list_filter_func, for use with a tree_as_list list of lcbn_t's. */
+int lcbn_remove_internal (struct list_elem *e, void *aux)
+{
+  lcbn_t *lcbn = NULL;
+  int internal = 0;
+
+  ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_remove_internal: begin\n"));
+  assert(e);
+  lcbn = tree_entry(list_entry(e, tree_node_t, tree_as_list_elem),
+                    lcbn_t, tree_node); 
+  assert(lcbn_looks_valid(lcbn));
+
+  internal = lcbn_internal(lcbn);
+
+  ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_remove_internal: returning internal %i\n", internal));
+  return internal;
+}
+
 int lcbn_is_active (lcbn_t *lcbn)
 {
   ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_is_active: begin: lcbn %p\n", lcbn));
