@@ -1079,7 +1079,8 @@ static void initialize_scheduler (void)
     scheduler_type = SCHEDULER_TYPE_FUZZING_TIME;
     scheduler_min_delayP = getenv("UV_SCHEDULER_MIN_DELAY");
     scheduler_max_delayP = getenv("UV_SCHEDULER_MAX_DELAY");
-    assert(scheduler_min_delayP != NULL && scheduler_max_delayP != NULL);
+    if (scheduler_min_delayP == NULL || scheduler_max_delayP == NULL)
+      assert(!"Error, for scheduler FUZZING_TIME, you must provide UV_SCHEDULER_{MIN,MAX}_DELAY");
 
     fuzzing_timer_args.min_delay = atoi(scheduler_min_delayP);
     fuzzing_timer_args.max_delay = atoi(scheduler_max_delayP);
