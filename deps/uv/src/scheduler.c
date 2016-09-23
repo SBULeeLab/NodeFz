@@ -39,7 +39,7 @@ char *scheduler_type_strings[SCHEDULER_TYPE_MAX - SCHEDULER_TYPE_MIN + 1] =
 const char * scheduler_type_to_string (scheduler_type_t type)
 {
   char *str = NULL;
-  assert(SCHEDULER_TYPE_MIN <= type && type < SCHEDULER_TYPE_MAX);
+  assert(SCHEDULER_TYPE_MIN <= type && type <= SCHEDULER_TYPE_MAX);
   str = scheduler_type_strings[type - SCHEDULER_TYPE_MIN];
   return str;
 }
@@ -53,7 +53,7 @@ char *scheduler_mode_strings[SCHEDULER_MODE_MAX - SCHEDULER_MODE_MIN + 1] =
 const char * scheduler_mode_to_string (scheduler_mode_t mode)
 {
   char *str = NULL;
-  assert(SCHEDULER_MODE_MIN <= mode && mode < SCHEDULER_MODE_MAX);
+  assert(SCHEDULER_MODE_MIN <= mode && mode <= SCHEDULER_MODE_MAX);
   str = scheduler_mode_strings[mode - SCHEDULER_MODE_MIN];
   return str;
 }
@@ -67,7 +67,7 @@ char *thread_type_strings[THREAD_TYPE_MAX - THREAD_TYPE_MIN + 1] =
 const char * thread_type_to_string (thread_type_t type)
 {
   char *str = NULL;
-  assert(THREAD_TYPE_MIN <= type && type < THREAD_TYPE_MAX);
+  assert(THREAD_TYPE_MIN <= type && type <= THREAD_TYPE_MAX);
   str = thread_type_strings[type - THREAD_TYPE_MIN];
   return str;
 }
@@ -86,7 +86,7 @@ char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] =
 const char * schedule_point_to_string (schedule_point_t point)
 {
   char *str = NULL;
-  assert(SCHEDULE_POINT_MIN <= point && point < SCHEDULE_POINT_MAX);
+  assert(SCHEDULE_POINT_MIN <= point && point <= SCHEDULE_POINT_MAX);
   str = schedule_point_strings[point - SCHEDULE_POINT_MIN];
   return str;
 }
@@ -248,6 +248,8 @@ void scheduler_register_thread (thread_type_t type)
   assert(map_lookup(scheduler.tidToType, (int) uv_thread_self(), &found) == NULL);
   assert(!found);
 #endif
+
+  mylog(LOG_SCHEDULER, 1, "scheduler_register_thread: registering %lli as %s\n", uv_thread_self(), thread_type_to_string(type));
 
   assert(scheduler__looks_valid());
 

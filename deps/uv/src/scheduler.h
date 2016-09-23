@@ -145,7 +145,7 @@ const char * schedule_point_to_string (schedule_point_t point);
 struct spd_before_exec_cb_s
 {
   int magic;
-  lcbn_t *lcbn;
+  lcbn_t *lcbn; /* NULL for non-logical CBs. */
 };
 typedef struct spd_before_exec_cb_s spd_before_exec_cb_t;
 
@@ -153,12 +153,8 @@ void spd_before_exec_cb_init (spd_before_exec_cb_t *spd_before_exec_cb);
 /* Returns non-zero if valid. */
 int spd_before_exec_cb_is_valid (spd_before_exec_cb_t *spd_before_exec_cb);
 
-struct spd_after_exec_cb_s
-{
-  int magic;
-  lcbn_t *lcbn;
-};
-typedef struct spd_after_exec_cb_s spd_after_exec_cb_t;
+/* {before,after}_exec_cb share the same structure. */
+typedef spd_before_exec_cb_t spd_after_exec_cb_t;
 
 void spd_after_exec_cb_init (spd_after_exec_cb_t *spd_after_exec_cb);
 /* Returns non-zero if valid. */
