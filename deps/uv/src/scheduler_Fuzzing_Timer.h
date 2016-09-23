@@ -6,8 +6,9 @@
 
 struct scheduler_fuzzing_timer_args_s
 {
-  int min_delay;
-  int max_delay;
+  int delay_perc; /* How frequently to delay an item? */
+  int min_delay; /* In usec. */
+  int max_delay; /* In usec. */
 };
 typedef struct scheduler_fuzzing_timer_args_s scheduler_fuzzing_timer_args_t;
 

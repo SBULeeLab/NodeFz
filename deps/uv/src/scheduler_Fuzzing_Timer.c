@@ -50,9 +50,10 @@ scheduler_fuzzing_timer_init (scheduler_mode_t mode, void *args, schedulerImpl_t
   /* Set implDetails. */
   fuzzingTimer_implDetails.magic = SCHEDULER_FUZZING_TIMER_MAGIC;
   fuzzingTimer_implDetails.mode = mode;
-  memcpy(&fuzzingTimer_implDetails.args, args, sizeof(fuzzingTimer_implDetails.args));
+  fuzzingTimer_implDetails.args = *(scheduler_fuzzing_timer_args_t *) args;
+  fuzzingTimer_implDetails.args.delay_perc = 25; /* TODO User-defined */
 
-  assert(fuzzingTimer_implDetails.args.min_delay < fuzzingTimer_implDetails.args.max_delay);
+  assert(fuzzingTimer_implDetails.args.min_delay <= fuzzingTimer_implDetails.args.max_delay);
   fuzzingTimer_implDetails.delay_range = fuzzingTimer_implDetails.args.max_delay - fuzzingTimer_implDetails.args.min_delay;
 
   return;
@@ -83,7 +84,8 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
   spd_before_put_done_t *spd_before_put_done = NULL;
   spd_after_put_done_t *spd_after_put_done = NULL;
 
-  useconds_t sleep_fuzz = fuzzingTimer_implDetails.args.min_delay + (rand() % fuzzingTimer_implDetails.delay_range);
+  /* Whether to sleep. */
+  int do_sleep = ((rand() % 100) < fuzzingTimer_implDetails.args.delay_perc);
 
   assert(scheduler_fuzzing_timer_looks_valid());
   assert(pointDetails != NULL);
@@ -95,24 +97,18 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
       spd_before_exec_cb = (spd_before_exec_cb_t *) pointDetails;
       assert(spd_before_exec_cb_is_valid(spd_before_exec_cb));
       scheduler__lock();
+      do_sleep = 0; /* This thread holds the mutex, so sleeping just delays forward progress. */
       break;
     case SCHEDULE_POINT_AFTER_EXEC_CB:
       spd_after_exec_cb = (spd_after_exec_cb_t *) pointDetails;
       assert(spd_after_exec_cb_is_valid(spd_after_exec_cb));
       scheduler__unlock();
+      do_sleep = 0; /* This thread is not about to do anything, so sleeping just delays forward progress. */
       break;
     case SCHEDULE_POINT_TP_GOT_WORK:
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
       spd_got_work = (spd_got_work_t *) pointDetails;
       assert(spd_got_work_is_valid(spd_got_work));
-#if 0
-      /* TODO TESTING - significantly delay the first item */
-      if (spd_got_work->work_item_num == 1)
-      {
-        mylog(LOG_SCHEDULER, 1, "scheduler_fuzzing_timer_thread_yield: Significantly delaying item 1\n");
-        usleep(2000000);
-      }
-#endif
       break;
     case SCHEDULE_POINT_TP_BEFORE_PUT_DONE:
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
@@ -123,14 +119,23 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
       spd_after_put_done = (spd_after_put_done_t *) pointDetails;
       assert(spd_after_put_done_is_valid(spd_after_put_done));
+      do_sleep = 0; /* This thread is not about to do anything, so sleeping just delays forward progress. */
       break;
     default:
       assert(!"scheduler_fuzzing_timer_thread_yield: Error, unexpected point");
   }
 
-  /* The fuzzing timer scheduler doesn't do anything fancy, it just perturbs the time. */
-  mylog(LOG_SCHEDULER, 1, "scheduler_fuzzing_timer_thread_yield: Sleeping for %llu usec\n", sleep_fuzz);
-  usleep(sleep_fuzz);
+  if (do_sleep)
+  {
+    /* Delay the thread. */
+    useconds_t sleep_fuzz = 0;
+    if (fuzzingTimer_implDetails.args.min_delay == fuzzingTimer_implDetails.args.max_delay)
+      sleep_fuzz = fuzzingTimer_implDetails.args.min_delay;
+    else
+      sleep_fuzz = fuzzingTimer_implDetails.args.min_delay + (rand() % fuzzingTimer_implDetails.delay_range);
+    mylog(LOG_SCHEDULER, 1, "scheduler_fuzzing_timer_thread_yield: Sleeping for %llu usec (%s)\n", sleep_fuzz, schedule_point_to_string(point));
+    usleep(sleep_fuzz);
+  }
 }
 
 void
