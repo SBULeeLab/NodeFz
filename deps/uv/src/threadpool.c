@@ -75,6 +75,29 @@ static void post(QUEUE* q) {
   uv_mutex_unlock(&mutex);
 }
 
+/* Return the queue element at the specified index.
+ * The returned element is still in the queue.
+ * It is a fatal error if QUEUE_LEN is not large enough.
+ */
+static QUEUE * QUEUE_INDEX (QUEUE *head, int index)
+{
+  QUEUE *q = NULL;
+  int i = 0;
+
+  assert(0 <= index);
+#ifdef JD_DEBUG_FULL
+  {
+    int queue_len = 0;
+    QUEUE_LEN(len, q, head);
+    assert(index < len);
+  }
+#endif
+
+  q = QUEUE_HEAD(head);
+  for (i = 0; i < index; i++)
+    q = QUEUE_NEXT(q);
+  return q;
+}
 
 /* To avoid deadlock with uv_cancel() it's crucial that the worker
  * never holds the global mutex and the loop-local mutex at the same time.
@@ -85,6 +108,7 @@ static void worker(void* arg) {
   int work_item_number = -1; /* Holds value of n_work_items when worker gets each work item. */
 
   /* Scheduler supplies. */
+  spd_getting_work_t spd_getting_work;
   spd_got_work_t spd_got_work;
   spd_before_put_done_t spd_before_put_done;
   spd_after_put_done_t spd_after_put_done;
@@ -105,7 +129,15 @@ static void worker(void* arg) {
       idle_threads -= 1;
     }
 
-    q = QUEUE_HEAD(&wq);
+    /* Get advice from scheduler about which work item to grab. 
+     * In the case of a TP with "degrees of freedom" to simulate more threads,
+     * we may be advised to use an index other than 0.
+     */
+    spd_getting_work_init(&spd_getting_work);
+    spd_getting_work.wq = &wq;
+    scheduler_thread_yield(SCHEDULE_POINT_TP_GETTING_WORK, &spd_getting_work);
+
+    q = QUEUE_INDEX(&wq, spd_getting_work.index);
 
     if (q == &exit_message)
       uv_cond_signal(&cond);

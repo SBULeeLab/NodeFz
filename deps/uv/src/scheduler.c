@@ -77,6 +77,7 @@ char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] =
     "BEFORE_EXEC_CB",
     "AFTER_EXEC_CB",
 
+    "TP_GETTING_WORK",
     "TP_GOT_WORK",
 
     "TP_BEFORE_PUT_DONE",
@@ -94,6 +95,7 @@ const char * schedule_point_to_string (schedule_point_t point)
 /* Schedule Point Details (SPD) functions. */
 static int SPD_BEFORE_EXEC_CB_MAGIC = 11929224;
 static int SPD_AFTER_EXEC_CB_MAGIC = 11929224;
+static int SPD_GETTING_WORK_MAGIC = 91827365;
 static int SPD_GOT_WORK_MAGIC = 46548678;
 static int SPD_BEFORE_PUT_DONE_MAGIC = 59175099;
 static int SPD_AFTER_PUT_DONE_MAGIC = 99281732;
@@ -120,6 +122,19 @@ int spd_after_exec_cb_is_valid (spd_after_exec_cb_t *spd_after_exec_cb)
 {
   return (spd_after_exec_cb != NULL &&
           spd_after_exec_cb->magic == SPD_AFTER_EXEC_CB_MAGIC);
+}
+
+void spd_getting_work_init (spd_getting_work_t *spd_getting_work)
+{
+  assert(spd_getting_work != NULL);
+  spd_getting_work->magic = SPD_GETTING_WORK_MAGIC;
+  spd_getting_work->index = -1;
+}
+
+int spd_getting_work_is_valid (spd_getting_work_t *spd_getting_work)
+{
+  return (spd_getting_work != NULL &&
+          spd_getting_work->magic == SPD_GETTING_WORK_MAGIC);
 }
 
 void spd_got_work_init (spd_got_work_t *spd_got_work)

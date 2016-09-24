@@ -80,6 +80,7 @@
 #include "logical-callback-node.h"
 
 #include <uv.h>
+#include "uv-common.h"
 
 /* The different scheduler types we support. */
 enum scheduler_type_e
@@ -129,6 +130,7 @@ enum schedule_point_e
   SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_MIN,
   SCHEDULE_POINT_AFTER_EXEC_CB,
 
+  SCHEDULE_POINT_TP_GETTING_WORK,
   SCHEDULE_POINT_TP_GOT_WORK,
 
   SCHEDULE_POINT_TP_BEFORE_PUT_DONE,
@@ -141,6 +143,7 @@ const char * schedule_point_to_string (schedule_point_t point);
 
 /* The Schedule Point Details (SPD) provided for each schedule point. 
  * There's an SPD_X_t for each schedule_point_t. Use them together.
+ * An SPD can include both input fields (guidance to scheduler) and output fields (guidance from scheduler)
  */
 struct spd_before_exec_cb_s
 {
@@ -159,6 +162,18 @@ typedef spd_before_exec_cb_t spd_after_exec_cb_t;
 void spd_after_exec_cb_init (spd_after_exec_cb_t *spd_after_exec_cb);
 /* Returns non-zero if valid. */
 int spd_after_exec_cb_is_valid (spd_after_exec_cb_t *spd_after_exec_cb);
+
+struct spd_getting_work_s
+{
+  int magic;
+  QUEUE *wq; /* INPUT. A non-empty wq. Caller must ensure mutex. */
+  int index; /* OUTPUT. The index to choose. A choice of 0 means 'treat wq as FIFO'. */
+};
+
+typedef struct spd_getting_work_s spd_getting_work_t;
+void spd_getting_work_init (spd_getting_work_t *spd_getting_work);
+/* Returns non-zero if valid. */
+int spd_getting_work_is_valid (spd_getting_work_t *spd_getting_work);
 
 struct spd_got_work_s
 {
@@ -218,6 +233,10 @@ enum callback_type scheduler_next_lcbn_type (void);
  * This gives the scheduler the opportunity to make a decision.
  *   RECORD mode: might make a random choice about who goes next
  *   REPLAY mode: lets us have reproducible results
+ *
+ * INPUT:         point: What state is the calling thread in?
+ * INPUT/OUTPUT:  schedule_point_details: The spd_X associated with the point.
+ *                  The scheduler may give advice in schedule_point_details.
  */
 void scheduler_thread_yield (schedule_point_t point, void *schedule_point_details);
 

@@ -80,6 +80,7 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
 {
   spd_before_exec_cb_t *spd_before_exec_cb = NULL;
   spd_after_exec_cb_t *spd_after_exec_cb = NULL;
+  spd_getting_work_t *spd_getting_work = NULL;
   spd_got_work_t *spd_got_work = NULL;
   spd_before_put_done_t *spd_before_put_done = NULL;
   spd_after_put_done_t *spd_after_put_done = NULL;
@@ -104,6 +105,12 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
       assert(spd_after_exec_cb_is_valid(spd_after_exec_cb));
       scheduler__unlock();
       do_sleep = 0; /* This thread is not about to do anything, so sleeping just delays forward progress. */
+      break;
+    case SCHEDULE_POINT_TP_GETTING_WORK:
+      assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
+      spd_getting_work = (spd_getting_work_t *) pointDetails;
+      assert(spd_getting_work_is_valid(spd_getting_work));
+      spd_getting_work->index = 0; /* As a fuzzing timer scheduler, we simply tell threads to honor the FIFO queue. */
       break;
     case SCHEDULE_POINT_TP_GOT_WORK:
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);

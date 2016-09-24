@@ -1944,12 +1944,11 @@ Fri 22 Sep 2016
       > try this too
 
 5. Implementation of "slowing random items down dramatically" is a success. I can see the various interleavings manifested in the output.
-   In fs-rw.js, 75% are 'AFTER' and 'BEFORE'/'' occur for a combined 25%.
-   In fs-mkdir.js, 85% are 'fs.mkdir 2 failed' and 15% are 'fs.mkdir 1 failed'.
 
    ####
    # fs-rw.js
    ####
+   In fs-rw.js, 75% are 'AFTER' and 'BEFORE'/'' occur for a combined 25%.
 
    rm -rf /tmp/t; mkdir /tmp/t; ./online/install.sh -i tests/module_races/fs/fs-rw.js  -d /tmp/t
    rm /tmp/o; for i in `seq 1 200`; do UV_THREADPOOL_SIZE=2 UV_SCHEDULER_MIN_DELAY=100000 UV_SCHEDULER_MAX_DELAY=100000 node-devel /tmp/t/fs-rw/fs-rw.js >> /tmp/o 2>&1; echo $i; done
@@ -1963,6 +1962,7 @@ Fri 22 Sep 2016
    ####
    # fs-mkdir.js
    ####
+   In fs-mkdir.js, 85% are 'fs.mkdir 2 failed' and 15% are 'fs.mkdir 1 failed'.
 
    rm -rf /tmp/t; mkdir /tmp/t; ./online/install.sh -i tests/module_races/fs/fs-mkdir.js  -d /tmp/t
    rm /tmp/o; for i in `seq 1 200`; do UV_THREADPOOL_SIZE=2 UV_SCHEDULER_MIN_DELAY=100000 UV_SCHEDULER_MAX_DELAY=100000 node-devel /tmp/t/fs-mkdir/fs-mkdir.js >> /tmp/o 2>&1; echo $i; done;
@@ -1971,9 +1971,42 @@ Fri 22 Sep 2016
    grep -c 'fs.mkdir 1: failed' /tmp/o
      30
 
+    ####
+    # mkdirp (real application)
+    ####
+    node-devel shows a wider variety of behaviors than vanilla node.
+
+    online/install.sh -i 19 -d /tmp/mkdir
+
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ rm /tmp/o; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=2 UV_SCHEDULER_MIN_DELAY=100000 UV_SCHEDULER_MAX_DELAY=100000 node-devel /tmp/mkdirp/node-mkdirp-2/triggerRace.js >> /tmp/o 2>&1; echo $i; done 
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ grep APP /tmp/o | grep Successfully | grep -c UNIQUE_DIR_0
+    66
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ grep APP /tmp/o | grep Successfully | grep -c UNIQUE_DIR_1
+    57
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ grep APP /tmp/o | grep Successfully | wc -l
+    123
+
+    ^ Note that we see more than 100 successes; in some cases, there was no race and both mkdirs succeeded.
+      In at least 25% of the cases, UNIQUE_DIR_1 was created.
+
+    Compared to vanilla node, we see 
+
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ rm /tmp/o; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=2 node /tmp/mkdirp/node-mkdirp-2/triggerRace.js >> /tmp/o 2>&1; echo $i; done 
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ grep APP /tmp/o | grep Successfully | grep -c UNIQUE_DIR_0
+    91
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ grep APP /tmp/o | grep Successfully | grep -c UNIQUE_DIR_1
+    9
+    jamie@smellythingMint ~/Documents/research/noderacer2/nodejsrr/jamie $ grep APP /tmp/o | grep Successfully | wc -l
+    100
+
+    ^ Here we see one, or the other, but not both, succeed.
+      In 9% of the cases, UNIQUE_DIR_1 was created.
+
+6. Work on "degrees of freedom" idea. b4cd5425 has the first steps.
+
 TODO
-  - Try the "degrees of freedom" idea, and suggests applying it in the TP with a single thread, and in uv__work_done to simulate different completion orders
-    > try this too
+  - Try the "degrees of freedom" idea, and suggests applying it in the TP with a single thread, and in uv__work_done to simulate different completion orders.
+    > Extend b4cd5425 to this end. See commit message for TODOs.
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
 
 -----------
