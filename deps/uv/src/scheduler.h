@@ -200,6 +200,13 @@ void spd_after_put_done_init (spd_after_put_done_t *spd_after_put_done);
 /* Returns non-zero if valid. */
 int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done);
 
+/* Returns non-zero if the {point, pointDetails} combination is valid. */
+int schedule_point_looks_valid (schedule_point_t point, void *pointDetails);
+
+/********************************
+ * "Public" scheduler methods intended for use throughout libuv.
+ ********************************/
+
 /* Call this prior to any other scheduler_* routines. 
  *   type: What type of scheduler to use?
  *   mode: What mode in which to use it? Not all schedulers support all modes.
@@ -268,7 +275,7 @@ int scheduler_n_executed (void);
 scheduler_mode_t scheduler_get_scheduler_mode (void);
 
 /*********************************
- * "Protected" scheduler functions shared by the scheduler implementations.
+ * "Protected" scheduler methods shared by the scheduler implementations.
  * Only scheduler implementation code should call these.
  *********************************/
 

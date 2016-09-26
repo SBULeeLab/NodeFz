@@ -173,6 +173,53 @@ int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done)
           spd_after_put_done->magic == SPD_AFTER_PUT_DONE_MAGIC);
 }
 
+int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
+{
+  spd_before_exec_cb_t *spd_before_exec_cb = NULL;
+  spd_after_exec_cb_t *spd_after_exec_cb = NULL;
+  spd_getting_work_t *spd_getting_work = NULL;
+  spd_got_work_t *spd_got_work = NULL;
+  spd_before_put_done_t *spd_before_put_done = NULL;
+  spd_after_put_done_t *spd_after_put_done = NULL;
+
+  int is_valid = 0;
+
+  assert(pointDetails != NULL);
+
+  /* Ensure valid input. */
+  switch (point)
+  {
+    case SCHEDULE_POINT_BEFORE_EXEC_CB:
+      spd_before_exec_cb = (spd_before_exec_cb_t *) pointDetails;
+      is_valid = spd_before_exec_cb_is_valid(spd_before_exec_cb);
+      break;
+    case SCHEDULE_POINT_AFTER_EXEC_CB:
+      spd_after_exec_cb = (spd_after_exec_cb_t *) pointDetails;
+      is_valid = spd_after_exec_cb_is_valid(spd_after_exec_cb);
+      break;
+    case SCHEDULE_POINT_TP_GETTING_WORK:
+      spd_getting_work = (spd_getting_work_t *) pointDetails;
+      is_valid = spd_getting_work_is_valid(spd_getting_work);
+      break;
+    case SCHEDULE_POINT_TP_GOT_WORK:
+      spd_got_work = (spd_got_work_t *) pointDetails;
+      is_valid = spd_got_work_is_valid(spd_got_work);
+      break;
+    case SCHEDULE_POINT_TP_BEFORE_PUT_DONE:
+      spd_before_put_done = (spd_before_put_done_t *) pointDetails;
+      is_valid = spd_before_put_done_is_valid(spd_before_put_done);
+      break;
+    case SCHEDULE_POINT_TP_AFTER_PUT_DONE:
+      spd_after_put_done = (spd_after_put_done_t *) pointDetails;
+      is_valid = spd_after_put_done_is_valid(spd_after_put_done);
+      break;
+    default:
+      assert(!"schedule_point_looks_valid: Error, unexpected point");
+  }
+
+  return is_valid;
+}
+
 /***********************
  * Scheduler variable declarations.
  ***********************/
