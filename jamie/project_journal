@@ -1915,7 +1915,7 @@ Thur 22 Sep 2016
 
 --------------------------------
 
-Fri 22 Sep 2016
+Fri 23 Sep 2016
 
 1. Call scheduler_yield everywhere it's appropriate.
 2. Register the looper thread
@@ -1962,7 +1962,8 @@ Fri 22 Sep 2016
    ####
    # fs-mkdir.js
    ####
-   In fs-mkdir.js, 85% are 'fs.mkdir 2 failed' and 15% are 'fs.mkdir 1 failed'.
+   In fs-mkdir.js, 85% are 'fs.mkdir 2 failed' and 15% are 'fs.mkdir 1 failed' with node-devel.
+   In vanilla node, 100% are 'fs.mkdir2 failed'.
 
    rm -rf /tmp/t; mkdir /tmp/t; ./online/install.sh -i tests/module_races/fs/fs-mkdir.js  -d /tmp/t
    rm /tmp/o; for i in `seq 1 200`; do UV_THREADPOOL_SIZE=2 UV_SCHEDULER_MIN_DELAY=100000 UV_SCHEDULER_MAX_DELAY=100000 node-devel /tmp/t/fs-mkdir/fs-mkdir.js >> /tmp/o 2>&1; echo $i; done;
@@ -1970,6 +1971,13 @@ Fri 22 Sep 2016
      170
    grep -c 'fs.mkdir 1: failed' /tmp/o
      30
+
+   rm /tmp/o; for i in `seq 1 200`; do UV_THREADPOOL_SIZE=2 node /tmp/t/fs-mkdir/fs-mkdir.js >> /tmp/o 2>&1; echo $i; done;
+   grep -c 'fs.mkdir 1: failed' /tmp/o
+     0
+   grep -c 'fs.mkdir 2: failed' /tmp/o
+     101
+
 
     ####
     # mkdirp (real application)
@@ -2004,10 +2012,23 @@ Fri 22 Sep 2016
 
 6. Work on "degrees of freedom" idea. b4cd5425 has the first steps.
 
+--------------------------------
+
+Mon 26 Sep 2016
+
+1. Improve scheduler arg processing in uv-common
+2. Refactor scheduler_fuzzing_timer_thread_yield so that it's understandable
+3. Work on the "degrees of freedom" scheduler
+  > Next step is to test it
+
 TODO
-  - Try the "degrees of freedom" idea, and suggests applying it in the TP with a single thread, and in uv__work_done to simulate different completion orders.
-    > Extend b4cd5425 to this end. See commit message for TODOs.
+  - The "degrees of freedom" scheduler -- there could be a "wait until TIMEOUT or looper thread is blocked" to ensure we get a maximally-sized queue from which to select
+    > Tricky because we hold mutex on the work queue, so the looper thread couldn't insert new work
+    > For starters, let's log the queue_len's we observe in a vaguely-complex application and ensure they aren't trivially small
+  - Address the TODOs in b4cd5425 and 51d25b96e0 for the "degrees of freedom" idea
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
+  - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
+  - Attempt to recreate those race conditions
 
 -----------
 
