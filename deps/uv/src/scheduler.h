@@ -89,9 +89,9 @@ enum scheduler_type_e
 
   SCHEDULER_TYPE_CBTREE = SCHEDULER_TYPE_MIN,
   SCHEDULER_TYPE_FUZZING_TIME,
-  SCHEDULER_TYPE_FUZZING_THREAD_ORDER,
+  SCHEDULER_TYPE_TP_FREEDOM,
 
-  SCHEDULER_TYPE_MAX = SCHEDULER_TYPE_FUZZING_THREAD_ORDER
+  SCHEDULER_TYPE_MAX = SCHEDULER_TYPE_TP_FREEDOM
 };
 typedef enum scheduler_type_e scheduler_type_t;
 const char * scheduler_type_to_string (scheduler_type_t type);

@@ -1,17 +1,18 @@
 #include "scheduler.h"
 
 /* Include the various schedule implementations. */
+
 #if defined(ENABLE_SCHEDULER_FUZZING_TIME)
   #include "scheduler_Fuzzing_Timer.h"
 #endif /* ENABLE_SCHEDULER_FUZZING_TIME */
 
+#if defined(ENABLE_SCHEDULER_TP_FREEDOM)
+  #include "scheduler_TP_Freedom.h"
+#endif /* ENABLE_SCHEDULER_TP_FREEDOM */
+
 #if defined(ENABLE_SCHEDULER_CBTREE)
   #include "scheduler_CBTree.h"
 #endif /* ENABLE_SCHEDULER_CBTREE */
-
-#if defined(ENABLE_SCHEDULER_FUZZING_THREAD_ORDER)
-  #include "scheduler_Fuzzing_ThreadOrder.h"
-#endif /* ENABLE_SCHEDULER_FUZZING_THREAD_ORDER */
 
 #include "list.h"
 #include "map.h"
@@ -33,7 +34,7 @@ char *scheduler_type_strings[SCHEDULER_TYPE_MAX - SCHEDULER_TYPE_MIN + 1] =
   {
     "CBTREE",
     "FUZZING_TIME",
-    "FUZZING_THREAD_ORDER"
+    "TP_FREEDOM"
   };
 
 const char * scheduler_type_to_string (scheduler_type_t type)
@@ -290,9 +291,9 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
       scheduler_fuzzing_timer_init(mode, args, &scheduler.impl);
       break;
 #endif
-    case SCHEDULER_TYPE_FUZZING_THREAD_ORDER:
-#if defined(ENABLE_SCHEDULER_FUZZING_THREAD_ORDER)
-      scheduler_fuzzer_threadOrder_init(mode, args, &scheduler.impl);
+    case SCHEDULER_TYPE_TP_FREEDOM:
+#if defined(ENABLE_SCHEDULER_TP_FREEDOM)
+      scheduler_tp_freedom_init(mode, args, &scheduler.impl);
       break;
 #endif
     default:

@@ -55,7 +55,6 @@ scheduler_fuzzing_timer_init (scheduler_mode_t mode, void *args, schedulerImpl_t
   fuzzingTimer_implDetails.magic = SCHEDULER_FUZZING_TIMER_MAGIC;
   fuzzingTimer_implDetails.mode = mode;
   fuzzingTimer_implDetails.args = *(scheduler_fuzzing_timer_args_t *) args;
-  fuzzingTimer_implDetails.args.delay_perc = 25; /* TODO User-defined */
 
   assert(fuzzingTimer_implDetails.args.min_delay <= fuzzingTimer_implDetails.args.max_delay);
   fuzzingTimer_implDetails.delay_range = fuzzingTimer_implDetails.args.max_delay - fuzzingTimer_implDetails.args.min_delay;

@@ -26,7 +26,14 @@
 #include "logical-callback-node.h"
 #include "unified-callback-enums.h"
 #include "scheduler.h"
-#include "scheduler_Fuzzing_Timer.h"
+
+#if defined(ENABLE_SCHEDULER_FUZZING_TIME)
+  #include "scheduler_Fuzzing_Timer.h"
+#endif
+
+#if defined(ENABLE_SCHEDULER_TP_FREEDOM)
+  #include "scheduler_TP_Freedom.h"
+#endif
 
 #include <stdio.h>
 #include <assert.h>
@@ -1047,48 +1054,77 @@ void initialize_record_and_replay (void)
  * Call exactly once.
  *
  * At the moment, scheduler parameters are provided through the following environment variables:
- *    Environment variable            Details                           Default
- * ---------------------------------------------------------------------------------
- *     UV_SCHEDULER_TYPE           Changes the scheduler type         FUZZING_TIME
- *                                 Choose from: FUZZING_TIME
- *                                 FUZZING_TIME: Also provide env. vars:
- *                                   UV_SCHEDULER_MIN_DELAY
- *                                   UV_SCHEDULER_MAX_DELAY
+ *    Environment variable            Details                                   Notes
+ * ---------------------------------------------------------------------------------------------------
+ *     UV_SCHEDULER_TYPE           Changes the scheduler type
+ *                                 Choose from: FUZZING_TIME, TP_FREEDOM
+ *                                 FUZZING_TIME                                 Schedule order is fuzzed through the insertion of random sleeps
+ *                                   Provide env. vars:
+ *                                     UV_SCHEDULER_MIN_DELAY                   In useconds
+ *                                     UV_SCHEDULER_MAX_DELAY                   In useconds
+ *                                     UV_SCHEDULER_DELAY_PERC                  The percentage of CBs to delay
  *
- *     UV_SCHEDULER_MODE           Choose from: RECORD, REPLAY        RECORD
+ *                                 TP_FREEDOM                                   Schedule order is fuzzed through explicitly flipping the order of TP "work" and "done" events
+ *                                   Provide env. vars:
+ *                                     UV_SCHEDULER_DEG_FREEDOM                 The number of TP threads to simulate
+ *                                     UV_THREADPOOL_SIZE                       Must be 1
  *
- *     UV_SCHEDULER_SCHEDULE_FILE  Where to emit or load schedule     /tmp/f.sched
+ *     UV_SCHEDULER_MODE           Choose from: RECORD[, REPLAY]                Defaults to RECORD
+ *
+ *     UV_SCHEDULER_SCHEDULE_FILE  Where to emit or load schedule             Defaults to /tmp/f.sched
  */
 static void initialize_scheduler (void)
 {
   char *scheduler_typeP = NULL, *scheduler_modeP = NULL, *schedule_fileP = NULL;
-  char *scheduler_min_delayP = NULL, *scheduler_max_delayP = NULL;
   scheduler_type_t scheduler_type;
   scheduler_mode_t scheduler_mode;
   struct stat stat_buf;
 
   scheduler_fuzzing_timer_args_t fuzzing_timer_args;
+  scheduler_tp_freedom_args_t tp_freedom_args;
   void *args;
 
   /* Scheduler type. */
   scheduler_typeP = getenv("UV_SCHEDULER_TYPE");
   if (!scheduler_typeP)
-    scheduler_typeP = "FUZZING_TIME";
+    assert(!"Error, you must provide UV_SCHEDULER_TYPE");
 
   if (strcmp(scheduler_typeP, "FUZZING_TIME") == 0)
   {
+    char *scheduler_min_delayP = NULL, *scheduler_max_delayP = NULL, *scheduler_delay_percP = NULL;
+
     scheduler_type = SCHEDULER_TYPE_FUZZING_TIME;
+
     scheduler_min_delayP = getenv("UV_SCHEDULER_MIN_DELAY");
     scheduler_max_delayP = getenv("UV_SCHEDULER_MAX_DELAY");
-    if (scheduler_min_delayP == NULL || scheduler_max_delayP == NULL)
-      assert(!"Error, for scheduler FUZZING_TIME, you must provide UV_SCHEDULER_{MIN,MAX}_DELAY");
+    scheduler_delay_percP = getenv("UV_SCHEDULER_DELAY_PERC");
+    if (scheduler_min_delayP == NULL || scheduler_max_delayP == NULL || scheduler_delay_percP == NULL)
+      assert(!"Error, for scheduler FUZZING_TIME, you must provide env. vars: UV_SCHEDULER_{MIN,MAX}_DELAY, UV_SCHEDULER_DELAY_PERC");
 
     fuzzing_timer_args.min_delay = atoi(scheduler_min_delayP);
     fuzzing_timer_args.max_delay = atoi(scheduler_max_delayP);
+    fuzzing_timer_args.delay_perc = atoi(scheduler_delay_percP);
     args = &fuzzing_timer_args;
   }
+  else if (strcmp(scheduler_typeP, "TP_FREEDOM") == 0)
+  {
+    char *scheduler_deg_freedomP = NULL, *tp_sizeP = NULL;
+
+    scheduler_type = SCHEDULER_TYPE_TP_FREEDOM;
+
+    scheduler_deg_freedomP = getenv("UV_SCHEDULER_DEG_FREEDOM");
+    if (scheduler_deg_freedomP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_DEG_FREEDOM");
+
+    tp_sizeP = getenv("UV_THREADPOOL_SIZE");
+    if (tp_sizeP == NULL || atoi(tp_sizeP) != 1)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_THREADPOOL_SIZE=1");
+
+    tp_freedom_args.degrees_of_freedom = atoi(scheduler_deg_freedomP);
+    args = &tp_freedom_args;
+  }
   else
-    assert(!"Error, UV_SCHEDULER_TYPE was not FUZZING_TIME");
+    assert(!"Error, unsupported UV_SCHEDULER_TYPE");
 
   /* Scheduler mode. */
   scheduler_modeP = getenv("UV_SCHEDULER_MODE");
