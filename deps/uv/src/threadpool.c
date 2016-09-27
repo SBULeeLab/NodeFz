@@ -137,6 +137,7 @@ static void worker(void* arg) {
     spd_getting_work.wq = &wq;
     scheduler_thread_yield(SCHEDULE_POINT_TP_GETTING_WORK, &spd_getting_work);
 
+    mylog(LOG_THREADPOOL, 7, "worker: getting item at index %i\n", spd_getting_work.index);
     q = QUEUE_INDEX(&wq, spd_getting_work.index);
 
     if (q == &exit_message)

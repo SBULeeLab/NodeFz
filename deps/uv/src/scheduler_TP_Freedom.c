@@ -88,7 +88,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
 
   QUEUE *q = NULL;
   int queue_len = 0;
-  int q_ix = 0;
+  int queue_ix = 0;
 
   assert(scheduler_tp_freedom__looks_valid());
   /* Ensure {point, pointDetails} are consistent. Afterwards we know the inputs are correct. */
@@ -102,9 +102,9 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       spd_getting_work = (spd_getting_work_t *) pointDetails;
       QUEUE_LEN(queue_len, q, spd_getting_work->wq);
       assert(0 < queue_len);
-      q_ix = rand() % MIN(queue_len, tpFreedom_implDetails.args.degrees_of_freedom);
-      spd_getting_work->index = q_ix;
-      mylog(LOG_SCHEDULER, 1, "uv__work_done: %s: index %i\n", schedule_point_to_string(point), q_ix);
+      queue_ix = rand() % MIN(queue_len, tpFreedom_implDetails.args.degrees_of_freedom);
+      spd_getting_work->index = queue_ix;
+      mylog(LOG_SCHEDULER, 1, "uv__work_done: %s: index %i (len %i)\n", schedule_point_to_string(point), queue_ix, queue_len);
       break;
     default:
       /* Nothing to do. */
