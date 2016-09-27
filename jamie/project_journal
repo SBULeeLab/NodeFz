@@ -2021,11 +2021,80 @@ Mon 26 Sep 2016
 3. Work on the "degrees of freedom" scheduler
   > Next step is to test it
 
+--------------------------------
+
+Tue 27 Sep 2016
+
+1. Add SCHEDULER_POINT_LOOPER_GETTING_DONE
+2. Refactor to avoid duplicated code when ensuring mutex during CB execution
+3. Test the "degrees of freedom" (TP_FREEDOM) scheduler
+  > I ran 100 iterations on fs-mkdir.js and fs-rw.js, and the TP thread never had more than one item in the queue at a time.
+    However, the looper thread consistently did have multiple items in the queue at a time.
+
+    I think the fact that the TP thread had only one item at a time is an artifact of the fact that these tests have only 2 concurrent TP items at a time.
+    So let's avoid "gaming the system" until we've tried a more complex test.
+
+    New test: fs-manyIO.js
+      This has an fs rw race with 10 fs writes in between the w and the r.
+      This fills the TP work queue faster than the TP thread can empty it, so the TP_FREEDOM scheduler can perturb the schedule more significantly.
+
+    Using the TP_FREEDOM scheduler, we observe w -> r 57% and r -> w 43%.
+    Using the FUZZING_TIMER scheduler, we observe w -> r 97% and r -> w 3%.
+    Using the vanilla node, we observe w -> r 100% and r-> w 0%.
+
+    TP_FREEDOM
+      $ rm /tmp/o; rm /tmp/err; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_DEG_FREEDOM=5 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js >>/tmp/o 2>>/tmp/err; echo $i; done
+      $ grep -c exiting /tmp/o
+      43
+      $ grep -c 'BEFOREAFTER' /tmp/o
+      57
+
+    FUZZING_TIMER (3 different parameters):
+
+      MAX_DELAY 0.1 seconds. This test took approximately 2 minutes to run, at about 1 second per run. w -> r 97%, r -> w 3%.
+        $ rm /tmp/o; rm /tmp/err; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=5 UV_SCHEDULER_TYPE=FUZZING_TIMER UV_SCHEDULER_MIN_DELAY=1 UV_SCHEDULER_MAX_DELAY=100000 UV_SCHEDULER_DELAY_PERC=10 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js >>/tmp/o 2>>/tmp/err; echo $i; done
+        $ grep -c 'BEFOREAFTER' /tmp/o
+        97
+        $ grep -c exiting /tmp/o
+        3
+
+      MAX_DELAY 0.01 seconds. This test ran more quickly. w -> r 99%, r -> w 1%
+        $ rm /tmp/o; rm /tmp/err; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=5 UV_SCHEDULER_TYPE=FUZZING_TIMER UV_SCHEDULER_MIN_DELAY=1 UV_SCHEDULER_MAX_DELAY=1000 UV_SCHEDULER_DELAY_PERC=10 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js >>/tmp/o 2>>/tmp/err; echo $i; done 
+        $ grep -c 'BEFOREAFTER' /tmp/o
+        99
+        $ grep -c exiting /tmp/o
+        1
+
+      MAX_DELAY .001 seconds. This test ran more quickly. w -> r 100%, r -> w 0%
+        $ rm /tmp/o; rm /tmp/err; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=5 UV_SCHEDULER_TYPE=FUZZING_TIMER UV_SCHEDULER_MIN_DELAY=1 UV_SCHEDULER_MAX_DELAY=100 UV_SCHEDULER_DELAY_PERC=10 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js >>/tmp/o 2>>/tmp/err; echo $i; done 
+        $ grep -c 'BEFOREAFTER' /tmp/o
+        100
+        $ grep -c exiting /tmp/o
+        0
+
+    VANILLA:
+      $ rm /tmp/o; rm /tmp/err; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=5 node /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js >>/tmp/o 2>>/tmp/err; done 
+      $ grep -c exiting /tmp/o
+      0
+      $ grep -c BEFOREAFTER /tmp/o
+      100
+
+    1. These results show that the TP_FREEDOM scheduler can trigger races that the vanilla node never sees.
+
+    2. The worker thread handles 38 work items. On 24/38 (63%) occasions to take an item from the work queue, there is more than one item in the queue.
+       The "high water mark" is 11 items, corresponding to an item from 11 of the 12 concurrent FS operations.
+       This suggests that in an application where there's a non-trival amount of TP work, the TP_FREEDOM scheduler will likely have opportunities
+       to perturb the execution.
+
+         $ grep freedom_thread_yield /tmp/err | grep GETTING_WORK | wc -l
+         38
+         $ grep freedom_thread_yield /tmp/err | grep GETTING_WORK | grep -v '1/1' | wc -l
+         24
+
+       We could introduce a "Wait until TIMEOUT or looper thread is blocked" policy to maximize the size of the work queue, to increase the
+       probability of having a choice. However, given these results, this tactic seems unnecessary for now.
+
 TODO
-  - The "degrees of freedom" scheduler -- there could be a "wait until TIMEOUT or looper thread is blocked" to ensure we get a maximally-sized queue from which to select
-    > Tricky because we hold mutex on the work queue, so the looper thread couldn't insert new work
-    > For starters, let's log the queue_len's we observe in a vaguely-complex application and ensure they aren't trivially small
-  - Address the TODOs in b4cd5425 and 51d25b96e0 for the "degrees of freedom" idea
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
   - Attempt to recreate those race conditions
