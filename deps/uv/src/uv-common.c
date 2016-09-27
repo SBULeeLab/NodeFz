@@ -1067,6 +1067,8 @@ void initialize_record_and_replay (void)
  *                                 TP_FREEDOM                                   Schedule order is fuzzed through explicitly flipping the order of TP "work" and "done" events
  *                                   Provide env. vars:
  *                                     UV_SCHEDULER_DEG_FREEDOM                 The number of TP threads to simulate
+ *                                     UV_SCHEDULER_MAX_DELAY                   Max delay in us while waiting for queue to fill
+ *                                     UV_SCHEDULER_EPOLL_THRESHOLD             Max time looper can be in epoll while TP waits for work queue to fill
  *                                     UV_THREADPOOL_SIZE                       Must be 1
  *
  *     UV_SCHEDULER_MODE           Choose from: RECORD[, REPLAY]                Defaults to RECORD
@@ -1083,6 +1085,9 @@ static void initialize_scheduler (void)
   scheduler_fuzzing_timer_args_t fuzzing_timer_args;
   scheduler_tp_freedom_args_t tp_freedom_args;
   void *args;
+
+  memset(&fuzzing_timer_args, 0, sizeof fuzzing_timer_args);
+  memset(&tp_freedom_args, 0, sizeof tp_freedom_args);
 
   /* Scheduler type. */
   scheduler_typeP = getenv("UV_SCHEDULER_TYPE");
@@ -1108,7 +1113,7 @@ static void initialize_scheduler (void)
   }
   else if (strcmp(scheduler_typeP, "TP_FREEDOM") == 0)
   {
-    char *scheduler_deg_freedomP = NULL, *tp_sizeP = NULL;
+    char *scheduler_deg_freedomP = NULL, *scheduler_max_delayP = NULL, *scheduler_epoll_thresholdP = NULL, *tp_sizeP = NULL;
 
     scheduler_type = SCHEDULER_TYPE_TP_FREEDOM;
 
@@ -1116,11 +1121,21 @@ static void initialize_scheduler (void)
     if (scheduler_deg_freedomP == NULL)
       assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_DEG_FREEDOM");
 
+    scheduler_max_delayP = getenv("UV_SCHEDULER_MAX_DELAY");
+    if (scheduler_max_delayP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_MAX_DELAY");
+
+    scheduler_epoll_thresholdP = getenv("UV_SCHEDULER_EPOLL_THRESHOLD");
+    if (scheduler_epoll_thresholdP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_EPOLL_THRESHOLD");
+
     tp_sizeP = getenv("UV_THREADPOOL_SIZE");
     if (tp_sizeP == NULL || atoi(tp_sizeP) != 1)
       assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_THREADPOOL_SIZE=1");
 
     tp_freedom_args.degrees_of_freedom = atoi(scheduler_deg_freedomP);
+    tp_freedom_args.max_delay_us = atol(scheduler_max_delayP);
+    tp_freedom_args.epoll_threshold = atol(scheduler_epoll_thresholdP);
     args = &tp_freedom_args;
   }
   else

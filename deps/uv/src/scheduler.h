@@ -29,7 +29,7 @@
  * On unix, the pthreads library decides when each thread gets scheduled in terms of a generic scheduling quantum.
  * We add our own scheduler that can make decisions at the libuv semantic level.
  *
- * Our scheduler requires threads to call into it before and after completing a "sensitive activity".
+ * Our scheduler requires threads to call into it at "interesting points".
  * These call points are called "schedule points" and are indicated to the scheduler via scheduler_thread_yield().
  *
  *  Thread type         Sensitive activities (schedule points)
@@ -127,8 +127,18 @@ enum schedule_point_e
 {
   SCHEDULE_POINT_MIN,
 
+  /* Schedule points reached by TP and Looper threads. */
   SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_MIN,
   SCHEDULE_POINT_AFTER_EXEC_CB,
+
+  /* Looper schedule points. */
+  SCHEDULE_POINT_LOOPER_BEFORE_EPOLL,
+  SCHEDULE_POINT_LOOPER_AFTER_EPOLL,
+
+  SCHEDULE_POINT_LOOPER_GETTING_DONE,
+
+  /* TP schedule points. */
+  SCHEDULE_POINT_TP_WANTS_WORK,
 
   SCHEDULE_POINT_TP_GETTING_WORK,
   SCHEDULE_POINT_TP_GOT_WORK,
@@ -136,11 +146,10 @@ enum schedule_point_e
   SCHEDULE_POINT_TP_BEFORE_PUT_DONE,
   SCHEDULE_POINT_TP_AFTER_PUT_DONE,
 
-  SCHEDULE_POINT_LOOPER_GETTING_DONE,
-
-  SCHEDULE_POINT_MAX = SCHEDULE_POINT_LOOPER_GETTING_DONE
+  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
 };
 typedef enum schedule_point_e schedule_point_t;
+
 const char * schedule_point_to_string (schedule_point_t point);
 
 /* The Schedule Point Details (SPD) provided for each schedule point. 
@@ -165,14 +174,47 @@ void spd_after_exec_cb_init (spd_after_exec_cb_t *spd_after_exec_cb);
 /* Returns non-zero if valid. */
 int spd_after_exec_cb_is_valid (spd_after_exec_cb_t *spd_after_exec_cb);
 
+struct spd_before_epoll_s
+{
+  int magic;
+};
+typedef struct spd_before_epoll_s spd_before_epoll_t;
+
+void spd_before_epoll_init (spd_before_epoll_t *spd_before_epoll);
+/* Returns non-zero if valid. */
+int spd_before_epoll_is_valid (spd_before_epoll_t *spd_before_epoll);
+
+struct spd_after_epoll_s
+{
+  int magic;
+};
+typedef struct spd_after_epoll_s spd_after_epoll_t;
+
+void spd_after_epoll_init (spd_after_epoll_t *spd_after_epoll);
+/* Returns non-zero if valid. */
+int spd_after_epoll_is_valid (spd_after_epoll_t *spd_after_epoll);
+
+struct spd_wants_work_s
+{
+  int magic;
+  struct timespec start_time; /* INPUT. When did we start wanting work? */
+  QUEUE *wq; /* INPUT. A non-empty wq. Caller must ensure mutex. */
+  int should_get_work; /* OUTPUT. Whether or not to proceed to SCHEDULE_POINT_TP_GETTING_WORK. 1 means "proceed". */
+};
+typedef struct spd_wants_work_s spd_wants_work_t;
+
+void spd_wants_work_init (spd_wants_work_t *spd_wants_work);
+/* Returns non-zero if valid. */
+int spd_wants_work_is_valid (spd_wants_work_t *spd_wants_work);
+
 struct spd_getting_work_s
 {
   int magic;
   QUEUE *wq; /* INPUT. A non-empty wq. Caller must ensure mutex. */
   int index; /* OUTPUT. The index to choose. A choice of 0 means 'treat wq as FIFO'. */
 };
-
 typedef struct spd_getting_work_s spd_getting_work_t;
+
 void spd_getting_work_init (spd_getting_work_t *spd_getting_work);
 /* Returns non-zero if valid. */
 int spd_getting_work_is_valid (spd_getting_work_t *spd_getting_work);
@@ -183,8 +225,8 @@ struct spd_got_work_s
   struct uv__work *work_item;
   int work_item_num; /* What entry in wq was this? Starts at 0. */
 };
-
 typedef struct spd_got_work_s spd_got_work_t;
+
 void spd_got_work_init (spd_got_work_t *spd_got_work);
 /* Returns non-zero if valid. */
 int spd_got_work_is_valid (spd_got_work_t *spd_got_work);
@@ -222,7 +264,6 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails);
  *   schedule_file: In RECORD mode, where to put the schedule we record.
  *                  In REPLAY mode, where to find the schedule we wish to replay. 
  *   args: Depends on type. Consult the header file for the scheduler implementation.
- *         Must be persistent throughout program lifetime (TODO The scheduler implementations should just make a copy).
  */
 void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedule_file, void *args);
 

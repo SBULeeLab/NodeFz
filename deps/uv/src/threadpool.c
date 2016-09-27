@@ -38,6 +38,8 @@ static void uv__req_init(uv_loop_t* loop,
 #endif
 
 #include <stdlib.h>
+#include <unistd.h> /* usleep */
+
 #include "scheduler.h"
 #include "logical-callback-node.h"
 #include "unified-callback-enums.h"
@@ -109,6 +111,7 @@ static void worker(void* arg) {
   int work_item_number = -1; /* Holds value of n_work_items when worker gets each work item. */
 
   /* Scheduler supplies. */
+  spd_wants_work_t spd_wants_work;
   spd_getting_work_t spd_getting_work;
   spd_got_work_t spd_got_work;
   spd_before_put_done_t spd_before_put_done;
@@ -121,14 +124,39 @@ static void worker(void* arg) {
 
   for (;;) {
     mylog(LOG_THREADPOOL, 1, "worker: top of loop\n");
-    uv_mutex_lock(&mutex);
 
+    memset(&spd_wants_work, 0, sizeof spd_wants_work);
+    spd_wants_work_init(&spd_wants_work);
+    assert(clock_gettime(CLOCK_MONOTONIC, &spd_wants_work.start_time) == 0);
+    spd_wants_work.wq = &wq;
+
+   GET_WORK: /* worker holds no locks. */
+    uv_mutex_lock(&mutex);
     while (QUEUE_EMPTY(&wq)) {
       mylog(LOG_THREADPOOL, 1, "worker: No work, waiting. %i LCBNs already executed.\n", scheduler_n_executed());
       idle_threads += 1;
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
+      /* Reset the spd_wants_work clock. */
+      assert(clock_gettime(CLOCK_MONOTONIC, &spd_wants_work.start_time) == 0);
     }
+
+    /* Now we know there is at least one work item in the queue. 
+     * Ask the scheduler if we can get a work item yet.
+     */
+    scheduler_thread_yield(SCHEDULE_POINT_TP_WANTS_WORK, &spd_wants_work);
+    if (!spd_wants_work.should_get_work)
+    {
+      mylog(LOG_THREADPOOL, 5, "worker: scheduler says I can't get a work item yet\n");
+      uv_mutex_unlock(&mutex);
+      
+      /* Let looper thread proceed. */
+      assert(uv_thread_yield() == 0);
+      usleep(10); /* Seems to be more effective on Ubuntu than just uv_thread_yield. */
+
+      goto GET_WORK;
+    }
+    mylog(LOG_THREADPOOL, 5, "worker: getting work item\n");
 
     /* Get advice from scheduler about which work item to grab. 
      * In the case of a TP with "degrees of freedom" to simulate more threads,

@@ -2094,7 +2094,15 @@ Tue 27 Sep 2016
        We could introduce a "Wait until TIMEOUT or looper thread is blocked" policy to maximize the size of the work queue, to increase the
        probability of having a choice. However, given these results, this tactic seems unnecessary for now.
 
+4. Enhance the "degrees of freedom" scheduler to rein in the TP thread according to a few policies before letting it get work.
+   The TP thread will now refrain from getting work until the scheduler lets it do so.
+   The scheduler's decision is based on:
+     - how long the TP thread has been waiting
+     - how many items are in the queue
+     - whether the looper thread appears to be blocked in epoll
+
 TODO
+  - degrees of freedom: analogous tweaks for looper to wait while getting done items
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
   - Attempt to recreate those race conditions

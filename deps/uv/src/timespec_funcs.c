@@ -26,3 +26,10 @@ void timespec_sub (const struct timespec *stop, const struct timespec *start, st
 
   return;
 }
+
+long timespec_us (const struct timespec *ts)
+{
+  assert(ts != NULL);
+  /* Convert to ns, then to us. */
+  return ((long) ts->tv_sec*1000000000 + (long) ts->tv_nsec)/1000;
+}

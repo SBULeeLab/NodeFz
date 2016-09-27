@@ -82,6 +82,7 @@ void
 scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails)
 {
   /* SPDs whose inputs/outputs we may need to examine. */
+  spd_wants_work_t *spd_wants_work = NULL;
   spd_getting_work_t *spd_getting_work = NULL;
   spd_getting_done_t *spd_getting_done = NULL;
 
@@ -114,8 +115,13 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
   /* - Supply output for points that want it. */
   switch (point)
   {
-    /* As a fuzzing timer scheduler, we simply tell threads to honor the FIFO queue. 
+    /* As a fuzzing timer scheduler, we simply tell threads to "behave normally" (e.g. honor the FIFO queue). 
      * Any variation in work and done item execution order must come from the sleeps we inject. */
+    case SCHEDULE_POINT_TP_WANTS_WORK:
+      assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
+      spd_wants_work = (spd_wants_work_t *) pointDetails;
+      spd_wants_work->should_get_work = 1;
+      break;
     case SCHEDULE_POINT_TP_GETTING_WORK:
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
       spd_getting_work = (spd_getting_work_t *) pointDetails;

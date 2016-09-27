@@ -170,6 +170,10 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   int op;
   int i;
 
+  /* Scheduler supplies. */
+  spd_before_epoll_t spd_before_epoll;
+  spd_after_epoll_t spd_after_epoll;
+
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__io_poll: begin: loop %p timeout %i\n", loop, timeout));
 
   if (loop->nfds == 0) {
@@ -253,6 +257,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     }
 
     mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing (timeout %i)\n", timeout);
+
+    /* Tell scheduler we're about to epoll. */
+    spd_before_epoll_init(&spd_before_epoll);
+    scheduler_thread_yield(SCHEDULE_POINT_LOOPER_BEFORE_EPOLL, &spd_before_epoll);
+
     if (no_epoll_wait != 0 || (sigmask != 0 && no_epoll_pwait == 0)) {
       nfds = uv__epoll_pwait(loop->backend_fd,
                              events,
@@ -269,6 +278,11 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (nfds == -1 && errno == ENOSYS)
         no_epoll_wait = 1;
     }
+
+    /* Tell scheduler we're done epoll'ing. */
+    spd_after_epoll_init(&spd_after_epoll);
+    scheduler_thread_yield(SCHEDULE_POINT_LOOPER_AFTER_EPOLL, &spd_after_epoll);
+
     mylog(LOG_MAIN, 5, "uv__io_poll: done epoll'ing\n");
 
     if (sigmask != 0 && no_epoll_pwait != 0)
