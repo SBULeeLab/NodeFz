@@ -1,5 +1,5 @@
 #include "synchronization.h"
-#include <uv.h>
+#include <uv.h> /* uv_thread_t */
 #include <assert.h>
 
 #include <uv-common.h> /* Memory management */
@@ -8,7 +8,6 @@
  * Private variable and type declarations.
  ***********************/
 
-static uv_thread_t NO_HOLDER = -1;
 static int REENTRANT_MUTEX_MAGIC = 98486132;
 
 struct reentrant_mutex_s
@@ -16,7 +15,7 @@ struct reentrant_mutex_s
   int magic;
 
   uv_thread_t holder;
-  int lock_depth; /* 0 means NO_HOLDER, 1 means thread has locked it x1, 2 means thread has locked it x2, etc. */
+  int lock_depth; /* 0 means REENTRANT_MUTEX_NO_HOLDER, 1 means thread has locked it x1, 2 means thread has locked it x2, etc. */
   uv_mutex_t mutex;
 };
 
@@ -84,12 +83,26 @@ void reentrant_mutex_unlock (reentrant_mutex_t *mutex)
   mutex->lock_depth--;
   if (mutex->lock_depth == 0)
   {
-    mutex->holder = NO_HOLDER;
+    mutex->holder = REENTRANT_MUTEX_NO_HOLDER;
     uv_mutex_unlock(&mutex->mutex);
   }
 
   assert(0 <= mutex->lock_depth);
   return;
+}
+
+uv_thread_t
+reentrant_mutex_holder (reentrant_mutex_t *mutex)
+{
+  assert(reentrant_mutex__looks_valid(mutex));
+  return mutex->holder;
+}
+
+
+int reentrant_mutex_depth (reentrant_mutex_t *mutex)
+{
+  assert(reentrant_mutex__looks_valid(mutex));
+  return mutex->lock_depth;
 }
 
 /***********************
@@ -108,7 +121,7 @@ static int reentrant_mutex__init (reentrant_mutex_t *mutex)
   assert(mutex != NULL);
 
   mutex->magic = REENTRANT_MUTEX_MAGIC;
-  mutex->holder = NO_HOLDER;
+  mutex->holder = REENTRANT_MUTEX_NO_HOLDER;
   mutex->lock_depth = 0;
 
   return uv_mutex_init(&mutex->mutex);

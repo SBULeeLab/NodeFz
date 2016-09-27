@@ -1304,6 +1304,7 @@ void invoke_callback (callback_info_t *cbi)
   }
 
   /* Yield to scheduler. */
+  assert(scheduler_current_cb_thread() == uv_thread_self()); /* Only fails if threadpool.c:cleanup ever happens and returns from the CB. */
   spd_after_exec_cb_init(&spd_after_exec_cb);
   spd_after_exec_cb.lcbn = lcbn_cur;
   scheduler_thread_yield(SCHEDULE_POINT_AFTER_EXEC_CB, &spd_after_exec_cb);

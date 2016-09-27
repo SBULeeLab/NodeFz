@@ -64,7 +64,7 @@ static void uv__cancelled(struct uv__work* w) {
 }
 
 static void post(QUEUE* q) {
-  mylog(LOG_THREADPOOL, 9, "post: posting work item\n");
+  mylog(LOG_THREADPOOL, 9, "post: posting work item q %p\n", q);
   uv_mutex_lock(&mutex);
   QUEUE_INSERT_TAIL(&wq, q);
   if (idle_threads > 0)
@@ -73,6 +73,7 @@ static void post(QUEUE* q) {
     uv_cond_signal(&cond);
   }
   uv_mutex_unlock(&mutex);
+  mylog(LOG_THREADPOOL, 9, "post: Done posting work item q %p\n", q);
 }
 
 /* Return the queue element at the specified index.
@@ -204,6 +205,18 @@ UV_DESTRUCTOR(static void cleanup(void)) {
     return;
 
   post(&exit_message);
+  while (scheduler_current_cb_thread() == uv_thread_self())
+  {
+    /* We came here through process.exit() in the middle of executing a CB, and won't ever return from the CB.
+     * Tell the scheduler we're done (with the entire CB stack) so that other waiters (the TP worker thread(s)) can make progress.
+     */
+    spd_after_exec_cb_t spd_after_exec_cb;
+
+    mylog(LOG_THREADPOOL, 1, "cleanup: unwinding CB stack\n");
+    spd_after_exec_cb_init(&spd_after_exec_cb);
+    spd_after_exec_cb.lcbn = NULL;
+    scheduler_thread_yield(SCHEDULE_POINT_AFTER_EXEC_CB, &spd_after_exec_cb);
+  }
 
   for (i = 0; i < nthreads; i++)
     if (uv_thread_join(threads + i))

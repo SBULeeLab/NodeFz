@@ -259,9 +259,10 @@ struct
   char schedule_file[1024];
   void *args;
 
-  /* Things we can track ourselves. */
+  /* Things we can track ourselves (not handled by a schedulerImpl_t). */
   int n_executed; /* Protected by mutex. */
   struct map *tidToType;
+  uv_thread_t current_cb_thread;
 
   /* Synchronization. */
   reentrant_mutex_t *mutex; /* Control using scheduler__[un]lock. */
@@ -270,12 +271,19 @@ struct
   schedulerImpl_t impl;
 } scheduler;
 
+
 /***********************
  * Private scheduler API declarations.
  ***********************/
 
 /* Returns non-zero if scheduler is initialized and magic is OK. */
 int scheduler__looks_valid (void);
+
+/* Returns the current holder of scheduler.mutex, or REENTRANT_MUTEX_NO_HOLDER if no holder. */
+uv_thread_t scheduler__current_lock_holder (void);
+
+/* Returns the depth of scheduler.mutex. */
+int scheduler__lock_depth (void);
 
 /***********************
  * Public scheduler API definitions.
@@ -295,6 +303,7 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
   scheduler.n_executed = 0;
   scheduler.tidToType = map_create();
   assert(scheduler.tidToType != NULL);
+  scheduler.current_cb_thread = NO_CURRENT_CB_THREAD;
 
   scheduler.mutex = reentrant_mutex_create();
   assert(scheduler.mutex != NULL);
@@ -373,8 +382,13 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
   {
     case SCHEDULE_POINT_BEFORE_EXEC_CB:
       scheduler__lock();
+      scheduler.current_cb_thread = uv_thread_self();
       break;
     case SCHEDULE_POINT_AFTER_EXEC_CB:
+      assert(scheduler_current_cb_thread() == uv_thread_self());
+      /* If we're executing the bottom-most CB in a stack, there's no current CB thread. */
+      if (scheduler__lock_depth() == 1)
+        scheduler.current_cb_thread = NO_CURRENT_CB_THREAD;
       scheduler__unlock();
       break;
     default:
@@ -383,6 +397,11 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
   }
 
   return;
+}
+
+uv_thread_t scheduler_current_cb_thread (void)
+{
+  return scheduler.current_cb_thread;
 }
 
 void scheduler_emit (void)
@@ -465,4 +484,16 @@ int scheduler__looks_valid (void)
 {
   return (scheduler_initialized &&
           scheduler.magic == SCHEDULER_MAGIC);
+}
+
+uv_thread_t scheduler__current_lock_holder (void)
+{
+  assert(scheduler__looks_valid());
+  return reentrant_mutex_holder(scheduler.mutex);
+}
+
+int scheduler__lock_depth (void)
+{
+  assert(scheduler__looks_valid());
+  return reentrant_mutex_depth(scheduler.mutex);
 }

@@ -258,6 +258,19 @@ enum callback_type scheduler_next_lcbn_type (void);
  */
 void scheduler_thread_yield (schedule_point_t point, void *schedule_point_details);
 
+/* Returns the thread id of the thread currently executing a CB, or NO_CURRENT_CB_THREAD.
+ * Only thread-safe if the calling thread is the one currently executing a CB.
+ * This facilitates a clean release in the exit() path:
+ *   while (uv_thread_self() == scheduler_current_cb_thread())
+ *   {
+ *     ...
+ *     scheduler_thread_yield(SCHEDULE_POINT_AFTER_EXEC_CB, &spd_after_exec_cb);
+ *   }
+ * The loop is necessary because the exit() could be invoked at the top of a a stack of nested CBs.
+ */
+static const uv_thread_t NO_CURRENT_CB_THREAD = -1;
+uv_thread_t scheduler_current_cb_thread (void);
+
 /* Dump the schedule (whatever that means; depends on the scheduler implementation) to the schedule_file specified in schedule_init. 
  *   RECORD mode: duh
  *   REPLAY mode: we don't want to overwrite the input schedule, so we emit to sprintf("%s-replay", schedule_file). 
