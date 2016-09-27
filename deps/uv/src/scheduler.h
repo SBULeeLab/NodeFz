@@ -241,6 +241,8 @@ enum callback_type scheduler_next_lcbn_type (void);
  *   RECORD mode: might make a random choice about who goes next
  *   REPLAY mode: lets us have reproducible results
  *
+ * For points SCHEDULE_POINT_{BEFORE,AFTER}_EXEC_CB, ensures mutex during execution of CB.
+ *
  * INPUT:         point: What state is the calling thread in?
  * INPUT/OUTPUT:  schedule_point_details: The spd_X associated with the point.
  *                  The scheduler may give advice in schedule_point_details.

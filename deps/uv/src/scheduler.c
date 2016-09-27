@@ -239,11 +239,11 @@ struct
   void *args;
 
   /* Things we can track ourselves. */
-  int n_executed;
+  int n_executed; /* Protected by mutex. */
   struct map *tidToType;
 
   /* Synchronization. */
-  reentrant_mutex_t *mutex;
+  reentrant_mutex_t *mutex; /* Control using scheduler__[un]lock. */
 
   /* Implementation-dependent. */
   schedulerImpl_t impl;
@@ -343,13 +343,24 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
   assert(scheduler__looks_valid());
 
   if (point == SCHEDULE_POINT_AFTER_EXEC_CB)
-  {
-    scheduler__lock();
-    scheduler.n_executed++;
-    scheduler__unlock();
-  }
+    scheduler.n_executed++; /* We hold scheduler__lock. */
 
   scheduler.impl.thread_yield(point, schedule_point_details);
+
+  /* Ensure mutex during CB execution. */
+  switch (point)
+  {
+    case SCHEDULE_POINT_BEFORE_EXEC_CB:
+      scheduler__lock();
+      break;
+    case SCHEDULE_POINT_AFTER_EXEC_CB:
+      scheduler__unlock();
+      break;
+    default:
+      /* Nothing to do. */
+      break;
+  }
+
   return;
 }
 

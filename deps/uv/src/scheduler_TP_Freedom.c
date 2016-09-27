@@ -111,20 +111,6 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       break;
   }
 
-  /* Ensure mutex during CB execution. */
-  switch (point)
-  {
-    case SCHEDULE_POINT_BEFORE_EXEC_CB:
-      scheduler__lock();
-      break;
-    case SCHEDULE_POINT_AFTER_EXEC_CB:
-      scheduler__unlock();
-      break;
-    default:
-      /* Nothing to do. */
-      break;
-  }
-
 }
 
 void
