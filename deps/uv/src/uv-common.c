@@ -1089,7 +1089,7 @@ static void initialize_scheduler (void)
   if (!scheduler_typeP)
     assert(!"Error, you must provide UV_SCHEDULER_TYPE");
 
-  if (strcmp(scheduler_typeP, "FUZZING_TIME") == 0)
+  if (strcmp(scheduler_typeP, "FUZZING_TIME") == 0 || strcmp(scheduler_typeP, "FUZZING_TIMER") == 0)
   {
     char *scheduler_min_delayP = NULL, *scheduler_max_delayP = NULL, *scheduler_delay_percP = NULL;
 

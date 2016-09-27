@@ -83,32 +83,38 @@ scheduler_tp_freedom_next_lcbn_type (void)
 void
 scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
 {
-  /* SPDs whose inputs/outputs we may need to examine. */
-  spd_getting_work_t *spd_getting_work = NULL;
-
-  QUEUE *q = NULL;
-  int queue_len = 0;
-  int queue_ix = 0;
-
   assert(scheduler_tp_freedom__looks_valid());
   /* Ensure {point, pointDetails} are consistent. Afterwards we know the inputs are correct. */
   assert(schedule_point_looks_valid(point, pointDetails));
 
-  /* For SCHEDULE_POINT_TP_GETTING_WORK, choose the queue index. */
-  switch (point)
+  /* For SCHEDULE_POINT_..._GETTING_{WORK,DONE}, choose the queue index. */
+  if (point == SCHEDULE_POINT_TP_GETTING_WORK || point == SCHEDULE_POINT_LOOPER_GETTING_DONE)
   {
-    case SCHEDULE_POINT_TP_GETTING_WORK:
-      assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
-      spd_getting_work = (spd_getting_work_t *) pointDetails;
-      QUEUE_LEN(queue_len, q, spd_getting_work->wq);
-      assert(0 < queue_len);
-      queue_ix = rand() % MIN(queue_len, tpFreedom_implDetails.args.degrees_of_freedom);
-      spd_getting_work->index = queue_ix;
-      mylog(LOG_SCHEDULER, 1, "uv__work_done: %s: index %i (len %i)\n", schedule_point_to_string(point), queue_ix, queue_len);
-      break;
-    default:
-      /* Nothing to do. */
-      break;
+    QUEUE *wq = NULL, *q = NULL;
+    int *indexP = NULL; /* Points to "index" field of the pointDetails object. */
+    int wq_len = 0;
+    int wq_ix = 0;
+
+    if (point == SCHEDULE_POINT_TP_GETTING_WORK)
+    {
+      wq = ((spd_getting_work_t *) pointDetails)->wq;
+      indexP = &((spd_getting_work_t *) pointDetails)->index;
+    }
+    else if (point == SCHEDULE_POINT_LOOPER_GETTING_DONE)
+    {
+      wq = ((spd_getting_done_t *) pointDetails)->wq;
+      indexP = &((spd_getting_done_t *) pointDetails)->index;
+    }
+    else
+      assert(!"scheduler_tp_freedom_thread_yield: Error, how did we get here?");
+    assert(wq != NULL && indexP != NULL);
+
+    QUEUE_LEN(wq_len, q, wq);
+    assert(0 < wq_len);
+    wq_ix = rand() % MIN(wq_len, tpFreedom_implDetails.args.degrees_of_freedom);
+    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: Chose wq_ix %i (item %i/%i) (%s)\n", wq_ix, wq_ix+1, wq_len, schedule_point_to_string(point));
+
+    *indexP = wq_ix;
   }
 
 }

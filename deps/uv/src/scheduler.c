@@ -83,6 +83,8 @@ char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] =
 
     "TP_BEFORE_PUT_DONE",
     "TP_AFTER_PUT_DONE",
+
+    "LOOPER_GETTING_DONE"
   };
 
 const char * schedule_point_to_string (schedule_point_t point)
@@ -100,6 +102,7 @@ static int SPD_GETTING_WORK_MAGIC = 91827365;
 static int SPD_GOT_WORK_MAGIC = 46548678;
 static int SPD_BEFORE_PUT_DONE_MAGIC = 59175099;
 static int SPD_AFTER_PUT_DONE_MAGIC = 99281732;
+static int SPD_GETTING_DONE_MAGIC = 10229334;
 
 void spd_before_exec_cb_init (spd_before_exec_cb_t *spd_before_exec_cb)
 {
@@ -174,6 +177,19 @@ int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done)
           spd_after_put_done->magic == SPD_AFTER_PUT_DONE_MAGIC);
 }
 
+void spd_getting_done_init (spd_getting_done_t *spd_getting_done)
+{
+  assert(spd_getting_done != NULL);
+  spd_getting_done->magic = SPD_GETTING_DONE_MAGIC;
+  spd_getting_done->index = -1;
+}
+
+int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done)
+{
+  return (spd_getting_done != NULL &&
+          spd_getting_done->magic == SPD_GETTING_DONE_MAGIC);
+}
+
 int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
 {
   spd_before_exec_cb_t *spd_before_exec_cb = NULL;
@@ -182,6 +198,7 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
   spd_got_work_t *spd_got_work = NULL;
   spd_before_put_done_t *spd_before_put_done = NULL;
   spd_after_put_done_t *spd_after_put_done = NULL;
+  spd_getting_done_t *spd_getting_done = NULL;
 
   int is_valid = 0;
 
@@ -213,6 +230,10 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
     case SCHEDULE_POINT_TP_AFTER_PUT_DONE:
       spd_after_put_done = (spd_after_put_done_t *) pointDetails;
       is_valid = spd_after_put_done_is_valid(spd_after_put_done);
+      break;
+    case SCHEDULE_POINT_LOOPER_GETTING_DONE:
+      spd_getting_done = (spd_getting_done_t *) pointDetails;
+      is_valid = spd_getting_done_is_valid(spd_getting_done);
       break;
     default:
       assert(!"schedule_point_looks_valid: Error, unexpected point");

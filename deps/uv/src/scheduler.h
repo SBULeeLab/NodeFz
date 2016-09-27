@@ -136,7 +136,9 @@ enum schedule_point_e
   SCHEDULE_POINT_TP_BEFORE_PUT_DONE,
   SCHEDULE_POINT_TP_AFTER_PUT_DONE,
 
-  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
+  SCHEDULE_POINT_LOOPER_GETTING_DONE,
+
+  SCHEDULE_POINT_MAX = SCHEDULE_POINT_LOOPER_GETTING_DONE
 };
 typedef enum schedule_point_e schedule_point_t;
 const char * schedule_point_to_string (schedule_point_t point);
@@ -199,6 +201,13 @@ typedef spd_got_work_t spd_after_put_done_t;
 void spd_after_put_done_init (spd_after_put_done_t *spd_after_put_done);
 /* Returns non-zero if valid. */
 int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done);
+
+/* getting_{work,done} share the same structure. */
+typedef spd_getting_work_t spd_getting_done_t;
+
+void spd_getting_done_init (spd_getting_done_t *spd_getting_done);
+/* Returns non-zero if valid. */
+int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done);
 
 /* Returns non-zero if the {point, pointDetails} combination is valid. */
 int schedule_point_looks_valid (schedule_point_t point, void *pointDetails);

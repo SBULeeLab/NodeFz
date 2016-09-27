@@ -312,6 +312,9 @@ void uv__work_done(uv_async_t* handle) {
   int replay_mode = (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY);
   int done = 0;
 
+  /* Scheduler supplies. */
+  spd_getting_done_t spd_getting_done;
+
   loop = container_of(handle, uv_loop_t, wq_async);
 
   /* In REPLAY mode, spin until the next CB is a non-AFTER_WORK looper CB. 
@@ -324,16 +327,27 @@ void uv__work_done(uv_async_t* handle) {
 
     uv_mutex_lock(&loop->wq_mutex);
     if (!QUEUE_EMPTY(&loop->wq)) {
-      mylog(LOG_THREADPOOL, 9, "worker: There are done items in the done queue\n");
+      mylog(LOG_THREADPOOL, 9, "uv__work_done: There are done items in the done queue\n");
       q = QUEUE_HEAD(&loop->wq);
       QUEUE_SPLIT(&loop->wq, q, &wq);
     }
     else
-      mylog(LOG_THREADPOOL, 9, "worker: The done queue is empty\n");
+      mylog(LOG_THREADPOOL, 9, "uv__work_done: The done queue is empty\n");
     uv_mutex_unlock(&loop->wq_mutex);
 
     while (!QUEUE_EMPTY(&wq)) {
-      q = QUEUE_HEAD(&wq);
+
+      /* Get advice from scheduler about which done item to grab. 
+       * In the case of a TP with "degrees of freedom" to simulate more threads,
+       * we may be advised to use an index other than 0.
+       */
+      spd_getting_done_init(&spd_getting_done);
+      spd_getting_done.wq = &wq;
+      scheduler_thread_yield(SCHEDULE_POINT_LOOPER_GETTING_DONE, &spd_getting_done);
+
+      mylog(LOG_THREADPOOL, 7, "uv__work_done: getting item at index %i\n", spd_getting_done.index);
+      q = QUEUE_INDEX(&wq, spd_getting_done.index);
+
       QUEUE_REMOVE(q);
 
       w = container_of(q, struct uv__work, wq);
