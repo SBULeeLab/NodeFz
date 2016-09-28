@@ -2131,12 +2131,12 @@ Wed 28 Sep 2016
     0
 
 TODO
-  - per-item "done fd" for unified epoll queue
-  - degrees of freedom: analogous tweaks for looper to wait while getting done items
+  - per-item "done fd" for unified epoll queue; remove the done queue
+  - TCP server: does a single fd store up multiple pending connections (an fd with a "sub-queue", just like the "done queue" fd)? If so, deferring and so on could be problematic.
+  - How does nextTick look at the libuv level?
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
   - Attempt to recreate those race conditions
-  - How does nextTick look at the libuv level?
 
 -----------
 
