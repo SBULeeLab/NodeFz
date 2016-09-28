@@ -155,6 +155,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   static int no_epoll_pwait;
   static int no_epoll_wait;
   struct uv__epoll_event events[1024];
+  int should_handle_event[1024]; /* 1 if we should handle event, 0 to defer. */
   struct uv__epoll_event* pe;
   struct uv__epoll_event e;
   int real_timeout;
@@ -163,7 +164,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   sigset_t sigset;
   uint64_t sigmask;
   uint64_t base;
-  int nevents;
+  int nevents; /* The number of fds whose CBs we invoked, per epoll iter. */
   int count;
   int nfds;
   int fd;
@@ -173,6 +174,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
   /* Scheduler supplies. */
   spd_before_epoll_t spd_before_epoll;
   spd_after_epoll_t spd_after_epoll;
+  spd_iopoll_before_handling_events_t spd_iopoll_before_handling_events;
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__io_poll: begin: loop %p timeout %i\n", loop, timeout));
 
@@ -181,6 +183,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     return;
   }
 
+  /* Add any new watchers (from uv__io_start) to list of fds monitored by the epoll backend_fd. */
   while (!QUEUE_EMPTY(&loop->watcher_queue)) {
     q = QUEUE_HEAD(&loop->watcher_queue);
     QUEUE_REMOVE(q);
@@ -334,9 +337,45 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     assert(loop->watchers != NULL);
     loop->watchers[loop->nwatchers] = (void*) events;
     loop->watchers[loop->nwatchers + 1] = (void*) (uintptr_t) nfds;
-    for (i = 0; i < nfds; i++) {
+
+    /* TODO Testing. */
+    for (i = 0; i < nfds; i++)
+    {
       pe = events + i;
       fd = pe->data;
+      mylog(LOG_MAIN, 7, "uv__io_poll: BEFORE: i %i fd %i\n", i, fd);
+    }
+
+    /* Ask scheduler which events to handle in what order. */
+    spd_iopoll_before_handling_events_init(&spd_iopoll_before_handling_events);
+    spd_iopoll_before_handling_events.events = events;
+    spd_iopoll_before_handling_events.nevents = nfds;
+    spd_iopoll_before_handling_events.should_handle_event = (int *) &should_handle_event;
+    scheduler_thread_yield(SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS, &spd_iopoll_before_handling_events);
+
+    /* TODO Testing. */
+    for (i = 0; i < spd_iopoll_before_handling_events.nevents; i++)
+    {
+      pe = spd_iopoll_before_handling_events.events + i;
+      fd = pe->data;
+      mylog(LOG_MAIN, 7, "uv__io_poll: AFTER: i %i fd %i\n", i, fd);
+    }
+
+    /* Handle each ready event (fd). */
+    for (i = 0; i < spd_iopoll_before_handling_events.nevents; i++)
+    {
+      pe = spd_iopoll_before_handling_events.events + i;
+      fd = pe->data;
+
+      /* Defer fds identified by scheduler. */
+      if (!spd_iopoll_before_handling_events.should_handle_event[i])
+      {
+        mylog(LOG_MAIN, 7, "uv__io_poll: Deferring fd %i\n", fd);
+        continue;
+      }
+
+      /* Handle the event. */
+      mylog(LOG_MAIN, 7, "uv__io_poll: Handling fd %i\n", fd);
 
       /* Skip invalidated events, see uv__platform_invalidate_fd */
       if (fd == -1)

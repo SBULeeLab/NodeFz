@@ -129,23 +129,25 @@ enum schedule_point_e
   SCHEDULE_POINT_MIN,
 
   /* Schedule points reached by TP and Looper threads. */
-  SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_MIN,
-  SCHEDULE_POINT_AFTER_EXEC_CB,
+  SCHEDULE_POINT_BEFORE_EXEC_CB = SCHEDULE_POINT_MIN, /* Either type: invoke_callback, just before cbi_execute_callback(). */
+  SCHEDULE_POINT_AFTER_EXEC_CB, /* Either type: invoke_callback, just after cbi_execute_callback(). */
 
   /* Looper schedule points. */
-  SCHEDULE_POINT_LOOPER_BEFORE_EPOLL,
-  SCHEDULE_POINT_LOOPER_AFTER_EPOLL,
+  SCHEDULE_POINT_LOOPER_BEFORE_EPOLL, /* LOOPER: uv__io_poll, before epoll_wait(). */
+  SCHEDULE_POINT_LOOPER_AFTER_EPOLL,  /* LOOPER: uv__io_poll, after epoll_wait(). */
 
-  SCHEDULE_POINT_LOOPER_GETTING_DONE,
+  SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS, /* LOOPER: uv__io_poll, before handling the events returned by epoll_wait(). */
+
+  SCHEDULE_POINT_LOOPER_GETTING_DONE, /* LOOPER: uv__work_done, just before getting item from private done queue. */
 
   /* TP schedule points. */
-  SCHEDULE_POINT_TP_WANTS_WORK,
+  SCHEDULE_POINT_TP_WANTS_WORK, /* TP: worker, when wq is locked and non-empty. */
 
-  SCHEDULE_POINT_TP_GETTING_WORK,
-  SCHEDULE_POINT_TP_GOT_WORK,
+  SCHEDULE_POINT_TP_GETTING_WORK,  /* TP: worker, when about to retrieve an item from locked and non-empty wq. */
+  SCHEDULE_POINT_TP_GOT_WORK, /* TP: worker, after retrieving a work item. */
 
-  SCHEDULE_POINT_TP_BEFORE_PUT_DONE,
-  SCHEDULE_POINT_TP_AFTER_PUT_DONE,
+  SCHEDULE_POINT_TP_BEFORE_PUT_DONE, /* TP: worker, before placing done item in done queue. */
+  SCHEDULE_POINT_TP_AFTER_PUT_DONE, /* TP: worker, after placing done item in done queue. */
 
   SCHEDULE_POINT_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
 };
@@ -155,7 +157,8 @@ const char * schedule_point_to_string (schedule_point_t point);
 
 /* The Schedule Point Details (SPD) provided for each schedule point. 
  * There's an SPD_X_t for each schedule_point_t. Use them together.
- * An SPD can include both input fields (guidance to scheduler) and output fields (guidance from scheduler)
+ * An SPD can include both input fields (guidance to scheduler) and output fields (guidance from scheduler).
+ * If an SPD requires output, all schedulers should fill it in appropriately.
  */
 struct spd_before_exec_cb_s
 {
@@ -194,6 +197,20 @@ typedef struct spd_after_epoll_s spd_after_epoll_t;
 void spd_after_epoll_init (spd_after_epoll_t *spd_after_epoll);
 /* Returns non-zero if valid. */
 int spd_after_epoll_is_valid (spd_after_epoll_t *spd_after_epoll);
+
+struct spd_iopoll_before_handling_events_s
+{
+  int magic;
+
+  int nevents; /* INPUT: The number of events. */
+  struct uv__epoll_event *events; /* INPUT/OUTPUT: Array of nevents events returned by epoll_wait. Scheduler may shuffle the events. */
+  int *should_handle_event; /* OUTPUT: Array of nevents returned by epoll_wait. 1 means handle the corresponding entry in events, 0 means defer. */
+};
+typedef struct spd_iopoll_before_handling_events_s spd_iopoll_before_handling_events_t;
+
+void spd_iopoll_before_handling_events_init (spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events);
+/* Returns non-zero if valid. */
+int spd_iopoll_before_handling_events_is_valid (spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events);
 
 struct spd_wants_work_s
 {

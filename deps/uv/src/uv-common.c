@@ -1076,9 +1076,11 @@ void initialize_record_and_replay (void)
  *
  *                                 TP_FREEDOM                                   Schedule order is fuzzed through explicitly flipping the order of TP "work" and "done" events
  *                                  Parameters
- *                                     UV_SCHEDULER_DEG_FREEDOM                 The number of TP threads to simulate
- *                                     UV_SCHEDULER_MAX_DELAY                   Max delay in us while waiting for queue to fill
- *                                     UV_SCHEDULER_EPOLL_THRESHOLD             Max time looper can be in epoll while TP waits for work queue to fill
+ *                                     UV_SCHEDULER_TP_DEG_FREEDOM              TP: The number of TP threads to simulate
+ *                                     UV_SCHEDULER_TP_MAX_DELAY                TP: Max delay in us while waiting for queue to fill
+ *                                     UV_SCHEDULER_TP_EPOLL_THRESHOLD          TP: Max time looper can be in epoll while TP waits for work queue to fill
+ *                                     UV_SCHEDULER_IOPOLL_DEG_FREEDOM          Looper (io_poll): Legal "shuffle distance" of the epoll events
+ *                                     UV_SCHEDULER_IOPOLL_DEFER_PERC           Looper (io_poll): Percentage of epoll events to defer each loop
  *                                     UV_THREADPOOL_SIZE                       Must be 1
  *
  *     UV_SCHEDULER_MODE           Choose from: RECORD[, REPLAY]                Defaults to RECORD
@@ -1130,29 +1132,41 @@ static void initialize_scheduler (void)
   }
   else if (strcmp(scheduler_typeP, "TP_FREEDOM") == 0)
   {
-    char *scheduler_deg_freedomP = NULL, *scheduler_max_delayP = NULL, *scheduler_epoll_thresholdP = NULL, *tp_sizeP = NULL;
+    char *scheduler_tp_deg_freedomP = NULL, *scheduler_tp_max_delayP = NULL, *scheduler_tp_epoll_thresholdP = NULL,
+         *scheduler_iopoll_deg_freedomP = NULL, *scheduler_iopoll_defer_percP = NULL,
+         *tp_sizeP = NULL;
 
     scheduler_type = SCHEDULER_TYPE_TP_FREEDOM;
 
-    scheduler_deg_freedomP = getenv("UV_SCHEDULER_DEG_FREEDOM");
-    if (scheduler_deg_freedomP == NULL)
-      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_DEG_FREEDOM");
+    scheduler_tp_deg_freedomP = getenv("UV_SCHEDULER_TP_DEG_FREEDOM");
+    if (scheduler_tp_deg_freedomP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_TP_DEG_FREEDOM");
 
-    scheduler_max_delayP = getenv("UV_SCHEDULER_MAX_DELAY");
-    if (scheduler_max_delayP == NULL)
-      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_MAX_DELAY");
+    scheduler_tp_max_delayP = getenv("UV_SCHEDULER_TP_MAX_DELAY");
+    if (scheduler_tp_max_delayP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_TP_MAX_DELAY");
 
-    scheduler_epoll_thresholdP = getenv("UV_SCHEDULER_EPOLL_THRESHOLD");
-    if (scheduler_epoll_thresholdP == NULL)
-      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_EPOLL_THRESHOLD");
+    scheduler_tp_epoll_thresholdP = getenv("UV_SCHEDULER_TP_EPOLL_THRESHOLD");
+    if (scheduler_tp_epoll_thresholdP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_TP_EPOLL_THRESHOLD");
+
+    scheduler_iopoll_deg_freedomP = getenv("UV_SCHEDULER_IOPOLL_DEG_FREEDOM");
+    if (scheduler_iopoll_deg_freedomP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_IOPOLL_DEG_FREEDOM");
+
+    scheduler_iopoll_defer_percP = getenv("UV_SCHEDULER_IOPOLL_DEFER_PERC");
+    if (scheduler_iopoll_defer_percP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_IOPOLL_DEFER_PERC");
 
     tp_sizeP = getenv("UV_THREADPOOL_SIZE");
     if (tp_sizeP == NULL || atoi(tp_sizeP) != 1)
       assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_THREADPOOL_SIZE=1");
 
-    tp_freedom_args.degrees_of_freedom = atoi(scheduler_deg_freedomP);
-    tp_freedom_args.max_delay_us = atol(scheduler_max_delayP);
-    tp_freedom_args.epoll_threshold = atol(scheduler_epoll_thresholdP);
+    tp_freedom_args.tp_degrees_of_freedom = atoi(scheduler_tp_deg_freedomP);
+    tp_freedom_args.tp_max_delay_us = atol(scheduler_tp_max_delayP);
+    tp_freedom_args.tp_epoll_threshold = atol(scheduler_tp_epoll_thresholdP);
+    tp_freedom_args.iopoll_degrees_of_freedom = atoi(scheduler_iopoll_deg_freedomP);
+    tp_freedom_args.iopoll_defer_perc = atoi(scheduler_iopoll_defer_percP);
     args = &tp_freedom_args;
   }
   else

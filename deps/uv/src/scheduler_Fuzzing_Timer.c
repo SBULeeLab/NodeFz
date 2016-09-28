@@ -1,9 +1,11 @@
 #include "scheduler_Fuzzing_Timer.h"
+
 #include "scheduler.h"
+#include "uv-random.h"
 
 #include <unistd.h> /* usleep, unlink */
 #include <string.h> /* memcpy */
-#include <stdlib.h> /* srand, rand */
+#include <stdlib.h> /* srand */
 #include <time.h>   /* time */
 #include <assert.h>
 
@@ -85,10 +87,13 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
   spd_wants_work_t *spd_wants_work = NULL;
   spd_getting_work_t *spd_getting_work = NULL;
   spd_getting_done_t *spd_getting_done = NULL;
+  spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events = NULL;
+
+  int i = 0;
 
   /* Whether to sleep. */
   int could_sleep = 1;
-  int sleep_prob = (rand() % 100);
+  int sleep_prob = rand_int(100);
 
   assert(scheduler_fuzzing_timer__looks_valid());
   /* Ensure {point, pointDetails} are consistent. Afterwards we know the inputs are correct. */
@@ -126,6 +131,13 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
       spd_getting_work = (spd_getting_work_t *) pointDetails;
       spd_getting_work->index = 0;
+      break;
+    case SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS:
+      assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
+      spd_iopoll_before_handling_events = (spd_iopoll_before_handling_events_t *) pointDetails;
+      /* Handle every event. */
+      for (i = 0; i < spd_iopoll_before_handling_events->nevents; i++)
+        spd_iopoll_before_handling_events->should_handle_event[i] = 1;
       break;
     case SCHEDULE_POINT_LOOPER_GETTING_DONE:
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
@@ -181,7 +193,7 @@ scheduler_fuzzing_timer__pick_sleep_time (void)
   if (fuzzingTimer_implDetails.args.min_delay == fuzzingTimer_implDetails.args.max_delay)
     sleep_fuzz = fuzzingTimer_implDetails.args.min_delay;
   else
-    sleep_fuzz = fuzzingTimer_implDetails.args.min_delay + (rand() % fuzzingTimer_implDetails.delay_range);
+    sleep_fuzz = fuzzingTimer_implDetails.args.min_delay + rand_int(fuzzingTimer_implDetails.delay_range);
 
   return sleep_fuzz;
 }

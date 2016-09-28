@@ -175,6 +175,21 @@ int spd_after_epoll_is_valid (spd_after_epoll_t *spd_after_epoll)
           spd_after_epoll->magic == SPD_LOOPER_AFTER_EPOLL_MAGIC);
 }
 
+void spd_iopoll_before_handling_events_init (spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events)
+{
+  assert(spd_iopoll_before_handling_events != NULL);
+  memset(spd_iopoll_before_handling_events, 0, sizeof *spd_iopoll_before_handling_events);
+  spd_iopoll_before_handling_events->magic = SPD_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS_MAGIC;
+}
+
+int spd_iopoll_before_handling_events_is_valid (spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events)
+{
+  return (spd_iopoll_before_handling_events != NULL &&
+          spd_iopoll_before_handling_events->magic == SPD_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS_MAGIC &&
+          spd_iopoll_before_handling_events->events != NULL &&
+          spd_iopoll_before_handling_events->should_handle_event != NULL);
+}
+
 void spd_wants_work_init (spd_wants_work_t *spd_wants_work)
 {
   assert(spd_wants_work != NULL);
@@ -264,6 +279,7 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
   spd_after_exec_cb_t *spd_after_exec_cb = NULL;
   spd_before_epoll_t *spd_before_epoll = NULL;
   spd_after_epoll_t *spd_after_epoll = NULL;
+  spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events = NULL;
   spd_wants_work_t *spd_wants_work = NULL;
   spd_getting_work_t *spd_getting_work = NULL;
   spd_got_work_t *spd_got_work = NULL;
@@ -293,6 +309,10 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
     case SCHEDULE_POINT_LOOPER_AFTER_EPOLL:
       spd_after_epoll = (spd_after_epoll_t *) pointDetails;
       is_valid = spd_after_epoll_is_valid(spd_after_epoll);
+      break;
+    case SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS:
+      spd_iopoll_before_handling_events = (spd_iopoll_before_handling_events_t *) pointDetails;
+      is_valid = spd_iopoll_before_handling_events_is_valid(spd_iopoll_before_handling_events);
       break;
     case SCHEDULE_POINT_LOOPER_GETTING_DONE:
       spd_getting_done = (spd_getting_done_t *) pointDetails;

@@ -2107,9 +2107,30 @@ Wed 28 Sep 2016
 
 1. Meeting with DY
 2. "Vanilla" scheduler for comparative purposes (e.g. measuring system overhead)
+3. Implement "epoll fuzzer". It has parameters UV_SCHEDULER_IOPOLL_DEG_FREEDOM, UV_SCHEDULER_IOPOLL_DEFER_PERC.
+
+   To test this I set up the http_closed_system_{easy,medium,hard}.js tests.
+   In these tests, a "surprising" ordering of client HTTP request arrivals can yield an uncaught ECONNREFUSED exception, crashing the application.
+
+   $ rm -rf /tmp/http_closed_system_hard; mkdir /tmp/http_closed_system_hard; ./online/install.sh -i tests/no_races/complex/http_closed_system_hard.js  -d /tmp/http_closed_system_hard
+   $ rm core; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_DEG_FREEDOM=5 UV_SCHEDULER_MAX_DELAY=1000 UV_SCHEDULER_EPOLL_THRESHOLD=1000 UV_SCHEDULER_EPOLL_DEFER_PERC=0 node-devel /tmp/http_closed_system_hard/http_closed_system_hard/http_closed_system_hard.js >/tmp/o_$i 2>/tmp/err_$i; echo "iter $i: rc $?"; done
+
+    This yields one of:
+      - rc 0      Successful excution
+      - rc 1      Uncaught exception ECONNREFUSED is thrown. The result of either epoll fuzzing interleaving or the threadpool delay. It doesn't happen without high-enough TP scheduler delays.
+      - rc 139    Segfault in uv__read (map_hash). A bug in my logging code. This is unusual, and I'm not going to worry about it right now.
+
+    20% of the time we get a bad order and fail with ECONNREFUSED. 
+    $ grep -c ECONNREFUSED /tmp/err_* | grep -v ':0' | wc -l
+    20
+
+    With "vanilla node", we see this race 0% of the time.
+
+    $ rm core; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=5 node /tmp/http_closed_system_hard/http_closed_system_hard/http_closed_system_hard.js >/tmp/o_$i 2>/tmp/err_$i; echo "iter $i: rc $?"; done
+    $ grep -c ECONNREFUSED /tmp/err_* | grep -v ':0' | wc -l
+    0
 
 TODO
-  - epoll fuzzer
   - per-item "done fd" for unified epoll queue
   - degrees of freedom: analogous tweaks for looper to wait while getting done items
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.

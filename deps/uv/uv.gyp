@@ -62,6 +62,7 @@
         'src/scheduler_TP_Freedom.c',
         'src/logical-callback-node.c',
         'src/unified-callback-enums.c',
+        'src/uv-random.c',
         'src/synchronization.c',
         'include/uv-errno.h',
         'include/uv-threadpool.h',

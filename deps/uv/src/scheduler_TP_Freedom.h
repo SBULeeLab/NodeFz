@@ -6,14 +6,24 @@
 
 struct scheduler_tp_freedom_args_s
 {
-  /* How far into the queue can we select work and done items? 
+  /* TP parameters. */
+
+  /* How far into the work queue can we select work and done items? 
    * This corresponds to the number of simulated threads in the TP. */
-  int degrees_of_freedom;
+  int tp_degrees_of_freedom;
 
   /* Maximum time to wait for work/done queue to fill. */
-  useconds_t max_delay_us;
+  useconds_t tp_max_delay_us;
   /* If looper has been in epoll for longer than epoll_threshold useconds, assume it's blocked and that work queue will not fill further. */
-  useconds_t epoll_threshold;
+  useconds_t tp_epoll_threshold;
+
+  /* Looper epoll (uv__io_poll) parameters. */
+
+  /* In iopoll, how far can we swap ready events? Give -1 for "no limit". */
+  int iopoll_degrees_of_freedom;
+  /* In iopoll, what percentage of ready events to defer until the next loop? 
+   * A value of 100 will result in no forward progress. */
+  int iopoll_defer_perc;
 };
 typedef struct scheduler_tp_freedom_args_s scheduler_tp_freedom_args_t;
 

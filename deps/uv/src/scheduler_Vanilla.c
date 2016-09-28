@@ -67,6 +67,11 @@ scheduler_vanilla_next_lcbn_type (void)
 void
 scheduler_vanilla_thread_yield (schedule_point_t point, void *pointDetails)
 {
+  /* SPDs with complex inputs/outputs to modify. */
+  spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events = NULL;
+
+  int i = 0;
+
   assert(scheduler_vanilla__looks_valid());
   /* Ensure {point, pointDetails} are consistent. Afterwards we know the inputs are correct. */
   assert(schedule_point_looks_valid(point, pointDetails));
@@ -82,6 +87,13 @@ scheduler_vanilla_thread_yield (schedule_point_t point, void *pointDetails)
     case SCHEDULE_POINT_TP_GETTING_WORK:
       assert(scheduler__get_thread_type() == THREAD_TYPE_THREADPOOL);
       ((spd_getting_work_t *) pointDetails)->index = 0;
+      break;
+    case SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS:
+      assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
+      spd_iopoll_before_handling_events = (spd_iopoll_before_handling_events_t *) pointDetails;
+      /* Handle every event. */
+      for (i = 0; i < spd_iopoll_before_handling_events->nevents; i++)
+        spd_iopoll_before_handling_events->should_handle_event[i] = 1;
       break;
     case SCHEDULE_POINT_LOOPER_GETTING_DONE:
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);

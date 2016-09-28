@@ -1,10 +1,13 @@
 #include "scheduler_TP_Freedom.h"
+
+#include "unix/linux-syscalls.h" /* struct uv__epoll_event */
 #include "scheduler.h"
 #include "timespec_funcs.h"
+#include "uv-random.h"
 
 #include <unistd.h> /* usleep, unlink */
 #include <string.h> /* memcpy */
-#include <stdlib.h> /* srand, rand, getenv */
+#include <stdlib.h> /* srand, getenv */
 #include <time.h>   /* time */
 #include <assert.h>
 
@@ -34,6 +37,12 @@ int scheduler_tp_freedom__looks_valid (void);
 
 /* Returns the queue len of q. */
 int scheduler_tp_freedom__queue_len (QUEUE *q);
+
+/* Shuffle array of nitems events, each of size item_size.
+ * Break the array into chunks of size degrees_of_freedom and shuffle each chunk.
+ * degrees_of_freedom == -1 means "shuffle everything together".
+ */
+void scheduler_tp_freedom__shuffle_events (int degrees_of_freedom, void *events, int nitems, size_t item_size);
 
 /***********************
  * Public API definitions
@@ -67,6 +76,9 @@ scheduler_tp_freedom_init (scheduler_mode_t mode, void *args, schedulerImpl_t *s
   tpFreedom_implDetails.mode = mode;
   tpFreedom_implDetails.args = *(scheduler_tp_freedom_args_t *) args;
 
+  assert(0 <= tpFreedom_implDetails.args.tp_degrees_of_freedom);
+  assert(0 <= tpFreedom_implDetails.args.iopoll_defer_perc && tpFreedom_implDetails.args.iopoll_defer_perc <= 100);
+
   return;
 }
 
@@ -97,7 +109,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
   {
     /* For SCHEDULE_POINT_TP_WANTS_WORK, decide whether or not to let the worker get work. 
      * Rules:
-     *    - If the wq holds at least degrees_of_freedom items, we have nothing more to wait for
+     *    - If the wq holds at least tp_degrees_of_freedom items, we have nothing more to wait for
      *    - Once looper blocks, we know there won't be more items
      *    - Worker can't wait too long
      */
@@ -118,23 +130,23 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       looper_epoll_diff_us = timespec_us(&looper_epoll_diff);
     }
 
-    if (tpFreedom_implDetails.args.degrees_of_freedom <= queue_len)
+    if (tpFreedom_implDetails.args.tp_degrees_of_freedom <= queue_len)
     {
-      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (degrees_of_freedom %i, queue_len %i) (%s)\n", tpFreedom_implDetails.args.degrees_of_freedom, queue_len, schedule_point_to_string(point));
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (tp_degrees_of_freedom %i, queue_len %i) (%s)\n", tpFreedom_implDetails.args.tp_degrees_of_freedom, queue_len, schedule_point_to_string(point));
       spd_wants_work->should_get_work = 1;
     }
-    else if (tpFreedom_implDetails.args.max_delay_us <= wait_diff_us)
+    else if (tpFreedom_implDetails.args.tp_max_delay_us <= wait_diff_us)
     {
-      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (max_delay_us %llu exceeded) (%s)\n", tpFreedom_implDetails.args.max_delay_us, schedule_point_to_string(point));
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (tp_max_delay_us %llu exceeded) (%s)\n", tpFreedom_implDetails.args.tp_max_delay_us, schedule_point_to_string(point));
       spd_wants_work->should_get_work = 1;
     }
-    else if (tpFreedom_implDetails.looper_in_epoll && tpFreedom_implDetails.args.epoll_threshold <= looper_epoll_diff_us)
+    else if (tpFreedom_implDetails.looper_in_epoll && tpFreedom_implDetails.args.tp_epoll_threshold <= looper_epoll_diff_us)
     {
-      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (looper blocked in epoll for more than %llu us, no more work coming) (%s)\n", tpFreedom_implDetails.args.epoll_threshold, schedule_point_to_string(point));
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (looper blocked in epoll for more than %llu us, no more work coming) (%s)\n", tpFreedom_implDetails.args.tp_epoll_threshold, schedule_point_to_string(point));
       spd_wants_work->should_get_work = 1;
     }
     else
-      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can't get work yet (degrees_of_freedom %i, queue_len %i; delay %llu max_delay_us %llu; looper_in_epoll %i looper_epoll_diff_us %li epoll_threshold %li) (%s)\n", tpFreedom_implDetails.args.degrees_of_freedom, queue_len, wait_diff_us, tpFreedom_implDetails.args.max_delay_us, tpFreedom_implDetails.looper_in_epoll, looper_epoll_diff_us, tpFreedom_implDetails.args.epoll_threshold, schedule_point_to_string(point));
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can't get work yet (tp_degrees_of_freedom %i, queue_len %i; delay %llu tp_max_delay_us %llu; looper_in_epoll %i looper_epoll_diff_us %li tp_epoll_threshold %li) (%s)\n", tpFreedom_implDetails.args.tp_degrees_of_freedom, queue_len, wait_diff_us, tpFreedom_implDetails.args.tp_max_delay_us, tpFreedom_implDetails.looper_in_epoll, looper_epoll_diff_us, tpFreedom_implDetails.args.tp_epoll_threshold, schedule_point_to_string(point));
   }
   else if (point == SCHEDULE_POINT_TP_GETTING_WORK || point == SCHEDULE_POINT_LOOPER_GETTING_DONE)
   {
@@ -160,7 +172,8 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     assert(wq != NULL && indexP != NULL);
 
     wq_len = scheduler_tp_freedom__queue_len(wq);
-    wq_ix = rand() % MIN(wq_len, tpFreedom_implDetails.args.degrees_of_freedom);
+    assert(0 < wq_len);
+    wq_ix = rand_int(MIN(wq_len, tpFreedom_implDetails.args.tp_degrees_of_freedom));
     mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: Chose wq_ix %i (item %i/%i) (%s)\n", wq_ix, wq_ix+1, wq_len, schedule_point_to_string(point));
 
     *indexP = wq_ix;
@@ -175,6 +188,35 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
   {
     assert(tpFreedom_implDetails.looper_in_epoll);
     tpFreedom_implDetails.looper_in_epoll = 0;
+  }
+  else if (point == SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS)
+  {
+    /* For SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS, decide the order of events and whether or not to handle each one.
+     * Rules:
+     *    - If the wq holds at least tp_degrees_of_freedom items, we have nothing more to wait for
+     *    - Once looper blocks, we know there won't be more items
+     *    - Worker can't wait too long
+     */
+
+    spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events = (spd_iopoll_before_handling_events_t *) pointDetails;
+
+    if (0 < spd_iopoll_before_handling_events->nevents)
+    {
+      int i = 0, should_defer = 0;
+
+      /* Shuffle events to permute input order. */
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: shuffling %i events with %i degrees of freedom\n", spd_iopoll_before_handling_events->nevents, tpFreedom_implDetails.args.iopoll_degrees_of_freedom);
+      scheduler_tp_freedom__shuffle_events(tpFreedom_implDetails.args.iopoll_degrees_of_freedom, spd_iopoll_before_handling_events->events, spd_iopoll_before_handling_events->nevents, sizeof(struct uv__epoll_event));
+
+      /* Defer events. */
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: deferring %i%% of events\n", tpFreedom_implDetails.args.iopoll_defer_perc);
+      for (i = 0; i < spd_iopoll_before_handling_events->nevents; i++)
+      {
+        should_defer = (rand_int(100) < tpFreedom_implDetails.args.iopoll_defer_perc);
+        spd_iopoll_before_handling_events->should_handle_event[i] = !should_defer;
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: event %i should_handle_event %i\n", i, spd_iopoll_before_handling_events->should_handle_event[i]);
+      }
+    }
   }
 
 }
@@ -221,4 +263,36 @@ int scheduler_tp_freedom__queue_len (QUEUE *q)
   QUEUE_LEN(queue_len, qP, q);
   assert(0 <= queue_len);
   return queue_len;
+}
+
+void scheduler_tp_freedom__shuffle_events (int degrees_of_freedom, void *events, int nitems, size_t item_size)
+{
+  int chunk_len = 0, n_chunks = 0, last_chunk_len = 0, i = 0;
+  char *eventsP = events;
+
+  if (nitems <= 1)
+    return;
+
+  if (degrees_of_freedom == -1)
+    chunk_len = nitems;
+  else
+    chunk_len = degrees_of_freedom;
+  assert(0 < chunk_len);
+
+  n_chunks = nitems / chunk_len;
+  if (nitems % chunk_len != 0)
+    n_chunks++;
+  last_chunk_len = (nitems % chunk_len == 0) ? chunk_len : nitems % chunk_len;
+
+  mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom__shuffle_events: nitems %i degrees_of_freedom %i chunk_len %i n_chunks %i\n", nitems, degrees_of_freedom, chunk_len, n_chunks);
+
+  for (i = 0; i < n_chunks; i++)
+  {
+    int this_chunk_len = (i < n_chunks-1) ? chunk_len : last_chunk_len;
+    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom__shuffle_events: i %i n_chunks %i this_chunk_len %i\n", i, n_chunks, this_chunk_len);
+    random_shuffle(eventsP, this_chunk_len, item_size);
+    eventsP += this_chunk_len*item_size;
+  }
+
+  return;
 }
