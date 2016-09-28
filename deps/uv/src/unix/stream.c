@@ -917,7 +917,7 @@ start:
     do {
       if (iovcnt == 1) {
         n = write(uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len);
-        mylog(LOG_UV_STREAM, 7, "uv__write: stream %p, %i = write(%i, %p, %i) (content hash %u)\n", stream, n, uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len, map_hash(iov[0].iov_base, n));
+        mylog(LOG_UV_STREAM, 7, "uv__write: stream %p, %i = write(%i, %p, %i) (content hash %u)\n", stream, n, uv__stream_fd(stream), iov[0].iov_base, iov[0].iov_len, map_hash(iov[0].iov_base, n)); /* TODO Sometimes segfaults? http_closed_system_hard, about .1% of the time. */
         mylog_buf(LOG_UV_STREAM, 7, iov[0].iov_base, n);
       } else {
         n = writev(uv__stream_fd(stream), iov, iovcnt);
@@ -1248,6 +1248,7 @@ static void uv__read(uv_stream_t* stream) {
         nread = read(uv__stream_fd(stream), buf.base, buf.len);
       }
       while (nread < 0 && errno == EINTR);
+      mylog(LOG_UV_STREAM, 7, "uv__read: stream %p, %i = read(%i, ...)\n", stream, nread, uv__stream_fd(stream));
       mylog(LOG_UV_STREAM, 7, "uv__read: stream %p, %i = read(%i, ...) (content hash %u)\n", stream, nread, uv__stream_fd(stream), map_hash(buf.base, nread));
       mylog_buf(LOG_UV_STREAM, 7, buf.base, nread);
     } else {
