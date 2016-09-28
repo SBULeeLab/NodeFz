@@ -57,6 +57,7 @@
         'src/map.c',
         'src/timespec_funcs.c',
         'src/scheduler.c',
+        'src/scheduler_Vanilla.c',
         'src/scheduler_Fuzzing_Timer.c',
         'src/scheduler_TP_Freedom.c',
         'src/logical-callback-node.c',
@@ -135,6 +136,7 @@
             '-Werror',
             '-fstack-protector-all',
             '-DJD_DEBUG',
+            '-DENABLE_SCHEDULER_VANILLA',
             '-DENABLE_SCHEDULER_FUZZING_TIME',
             '-DENABLE_SCHEDULER_TP_FREEDOM',
             #'-fstack-protector-strong', # Not portable, Ubuntu ships with older gcc

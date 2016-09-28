@@ -27,6 +27,10 @@
 #include "unified-callback-enums.h"
 #include "scheduler.h"
 
+#if defined(ENABLE_SCHEDULER_VANILLA)
+  #include "scheduler_Vanilla.h"
+#endif
+
 #if defined(ENABLE_SCHEDULER_FUZZING_TIME)
   #include "scheduler_Fuzzing_Timer.h"
 #endif
@@ -1056,16 +1060,22 @@ void initialize_record_and_replay (void)
  * At the moment, scheduler parameters are provided through the following environment variables:
  *    Environment variable            Details                                   Notes
  * ---------------------------------------------------------------------------------------------------
- *     UV_SCHEDULER_TYPE           Changes the scheduler type
- *                                 Choose from: FUZZING_TIME, TP_FREEDOM
+ *     UV_SCHEDULER_TYPE           Changes the scheduler type.
+ *                                 Choose from: VANILLA, FUZZING_TIME, TP_FREEDOM.
+ *                                 Each scheduler is parameterized using environment variables.
+ *
+ *                                 VANILLA                                      Schedule is inviolate. As natural as possible.
+ *                                  Parameters
+ *                                     [UV_THREADPOOL_SIZE]                     Default 4
  *                                 FUZZING_TIME                                 Schedule order is fuzzed through the insertion of random sleeps
- *                                   Provide env. vars:
+ *                                  Parameters
  *                                     UV_SCHEDULER_MIN_DELAY                   In useconds
  *                                     UV_SCHEDULER_MAX_DELAY                   In useconds
  *                                     UV_SCHEDULER_DELAY_PERC                  The percentage of CBs to delay
+ *                                     [UV_THREADPOOL_SIZE]                     Default 4
  *
  *                                 TP_FREEDOM                                   Schedule order is fuzzed through explicitly flipping the order of TP "work" and "done" events
- *                                   Provide env. vars:
+ *                                  Parameters
  *                                     UV_SCHEDULER_DEG_FREEDOM                 The number of TP threads to simulate
  *                                     UV_SCHEDULER_MAX_DELAY                   Max delay in us while waiting for queue to fill
  *                                     UV_SCHEDULER_EPOLL_THRESHOLD             Max time looper can be in epoll while TP waits for work queue to fill
@@ -1082,10 +1092,12 @@ static void initialize_scheduler (void)
   scheduler_mode_t scheduler_mode;
   struct stat stat_buf;
 
+  scheduler_vanilla_args_t vanilla_args;
   scheduler_fuzzing_timer_args_t fuzzing_timer_args;
   scheduler_tp_freedom_args_t tp_freedom_args;
   void *args;
 
+  memset(&vanilla_args, 0, sizeof vanilla_args);
   memset(&fuzzing_timer_args, 0, sizeof fuzzing_timer_args);
   memset(&tp_freedom_args, 0, sizeof tp_freedom_args);
 
@@ -1094,7 +1106,12 @@ static void initialize_scheduler (void)
   if (!scheduler_typeP)
     assert(!"Error, you must provide UV_SCHEDULER_TYPE");
 
-  if (strcmp(scheduler_typeP, "FUZZING_TIME") == 0 || strcmp(scheduler_typeP, "FUZZING_TIMER") == 0)
+  if (strcmp(scheduler_typeP, "VANILLA") == 0)
+  {
+    scheduler_type = SCHEDULER_TYPE_VANILLA;
+    args = &fuzzing_timer_args;
+  }
+  else if (strcmp(scheduler_typeP, "FUZZING_TIME") == 0 || strcmp(scheduler_typeP, "FUZZING_TIMER") == 0)
   {
     char *scheduler_min_delayP = NULL, *scheduler_max_delayP = NULL, *scheduler_delay_percP = NULL;
 

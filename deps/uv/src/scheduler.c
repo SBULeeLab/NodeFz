@@ -2,6 +2,10 @@
 
 /* Include the various schedule implementations. */
 
+#if defined(ENABLE_SCHEDULER_VANILLA)
+  #include "scheduler_Vanilla.h"
+#endif /* ENABLE_SCHEDULER_VANILLA */
+
 #if defined(ENABLE_SCHEDULER_FUZZING_TIME)
   #include "scheduler_Fuzzing_Timer.h"
 #endif /* ENABLE_SCHEDULER_FUZZING_TIME */
@@ -32,6 +36,7 @@
 
 char *scheduler_type_strings[SCHEDULER_TYPE_MAX - SCHEDULER_TYPE_MIN + 1] = 
   {
+    "VANILLA",
     "CBTREE",
     "FUZZING_TIME",
     "TP_FREEDOM"
@@ -382,6 +387,11 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
   /* Specifics based on the scheduler type. */
   switch (scheduler.type)
   {
+    case SCHEDULER_TYPE_VANILLA:
+#if defined(ENABLE_SCHEDULER_VANILLA)
+      scheduler_vanilla_init(mode, args, &scheduler.impl);
+      break;
+#endif
     case SCHEDULER_TYPE_CBTREE:
 #if defined(ENABLE_SCHEDULER_CBTREE)
       scheduler_cbTree_init(mode, args, &scheduler.impl);

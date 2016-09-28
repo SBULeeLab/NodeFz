@@ -2101,11 +2101,21 @@ Tue 27 Sep 2016
      - how many items are in the queue
      - whether the looper thread appears to be blocked in epoll
 
+--------------------------------
+
+Wed 28 Sep 2016
+
+1. Meeting with DY
+2. "Vanilla" scheduler for comparative purposes (e.g. measuring system overhead)
+
 TODO
+  - epoll fuzzer
+  - per-item "done fd" for unified epoll queue
   - degrees of freedom: analogous tweaks for looper to wait while getting done items
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
   - Attempt to recreate those race conditions
+  - How does nextTick look at the libuv level?
 
 -----------
 
