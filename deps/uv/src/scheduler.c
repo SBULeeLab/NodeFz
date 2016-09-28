@@ -80,13 +80,19 @@ const char * thread_type_to_string (thread_type_t type)
 
 char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] = 
   {
+    /* Shared */
     "BEFORE_EXEC_CB",
     "AFTER_EXEC_CB",
 
+    /* Looper */
     "LOOPER_BEFORE_EPOLL",
     "LOOPER_AFTER_EPOLL",
+
+    "LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS",
+
     "LOOPER_GETTING_DONE",
 
+    /* TP */
     "TP_WANTS_WORK",
 
     "TP_GETTING_WORK",
@@ -107,14 +113,15 @@ const char * schedule_point_to_string (schedule_point_t point)
 /* Schedule Point Details (SPD) functions. */
 static int SPD_BEFORE_EXEC_CB_MAGIC = 11929224;
 static int SPD_AFTER_EXEC_CB_MAGIC = 19283382;
-static int SPD_BEFORE_EPOLL_MAGIC = 83911652;
-static int SPD_AFTER_EPOLL_MAGIC = 88474402;
-static int SPD_WANTS_WORK_MAGIC = 81892192;
-static int SPD_GETTING_WORK_MAGIC = 91827365;
-static int SPD_GOT_WORK_MAGIC = 46548678;
-static int SPD_BEFORE_PUT_DONE_MAGIC = 59175099;
-static int SPD_AFTER_PUT_DONE_MAGIC = 99281732;
-static int SPD_GETTING_DONE_MAGIC = 10229334;
+static int SPD_LOOPER_BEFORE_EPOLL_MAGIC = 83911652;
+static int SPD_LOOPER_AFTER_EPOLL_MAGIC = 88474402;
+static int SPD_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS_MAGIC = 66459788;
+static int SPD_TP_WANTS_WORK_MAGIC = 81892192;
+static int SPD_TP_GETTING_WORK_MAGIC = 91827365;
+static int SPD_TP_GOT_WORK_MAGIC = 46548678;
+static int SPD_TP_BEFORE_PUT_DONE_MAGIC = 59175099;
+static int SPD_TP_AFTER_PUT_DONE_MAGIC = 99281732;
+static int SPD_LOOPER_GETTING_DONE_MAGIC = 10229334;
 
 void spd_before_exec_cb_init (spd_before_exec_cb_t *spd_before_exec_cb)
 {
@@ -146,33 +153,33 @@ void spd_before_epoll_init (spd_before_epoll_t *spd_before_epoll)
 {
   assert(spd_before_epoll != NULL);
   memset(spd_before_epoll, 0, sizeof *spd_before_epoll);
-  spd_before_epoll->magic = SPD_BEFORE_EPOLL_MAGIC;
+  spd_before_epoll->magic = SPD_LOOPER_BEFORE_EPOLL_MAGIC;
 }
 
 int spd_before_epoll_is_valid (spd_before_epoll_t *spd_before_epoll)
 {
   return (spd_before_epoll != NULL &&
-          spd_before_epoll->magic == SPD_BEFORE_EPOLL_MAGIC);
+          spd_before_epoll->magic == SPD_LOOPER_BEFORE_EPOLL_MAGIC);
 }
 
 void spd_after_epoll_init (spd_after_epoll_t *spd_after_epoll)
 {
   assert(spd_after_epoll != NULL);
   memset(spd_after_epoll, 0, sizeof *spd_after_epoll);
-  spd_after_epoll->magic = SPD_AFTER_EPOLL_MAGIC;
+  spd_after_epoll->magic = SPD_LOOPER_AFTER_EPOLL_MAGIC;
 }
 
 int spd_after_epoll_is_valid (spd_after_epoll_t *spd_after_epoll)
 {
   return (spd_after_epoll != NULL &&
-          spd_after_epoll->magic == SPD_AFTER_EPOLL_MAGIC);
+          spd_after_epoll->magic == SPD_LOOPER_AFTER_EPOLL_MAGIC);
 }
 
 void spd_wants_work_init (spd_wants_work_t *spd_wants_work)
 {
   assert(spd_wants_work != NULL);
   memset(spd_wants_work, 0, sizeof *spd_wants_work);
-  spd_wants_work->magic = SPD_WANTS_WORK_MAGIC;
+  spd_wants_work->magic = SPD_TP_WANTS_WORK_MAGIC;
   spd_wants_work->wq = NULL;
   spd_wants_work->should_get_work = 0;
 }
@@ -180,14 +187,14 @@ void spd_wants_work_init (spd_wants_work_t *spd_wants_work)
 int spd_wants_work_is_valid (spd_wants_work_t *spd_wants_work)
 {
   return (spd_wants_work != NULL &&
-          spd_wants_work->magic == SPD_WANTS_WORK_MAGIC);
+          spd_wants_work->magic == SPD_TP_WANTS_WORK_MAGIC);
 }
 
 void spd_getting_work_init (spd_getting_work_t *spd_getting_work)
 {
   assert(spd_getting_work != NULL);
   memset(spd_getting_work, 0, sizeof *spd_getting_work);
-  spd_getting_work->magic = SPD_GETTING_WORK_MAGIC;
+  spd_getting_work->magic = SPD_TP_GETTING_WORK_MAGIC;
   spd_getting_work->wq = NULL;
   spd_getting_work->index = -1;
 }
@@ -195,60 +202,60 @@ void spd_getting_work_init (spd_getting_work_t *spd_getting_work)
 int spd_getting_work_is_valid (spd_getting_work_t *spd_getting_work)
 {
   return (spd_getting_work != NULL &&
-          spd_getting_work->magic == SPD_GETTING_WORK_MAGIC);
+          spd_getting_work->magic == SPD_TP_GETTING_WORK_MAGIC);
 }
 
 void spd_got_work_init (spd_got_work_t *spd_got_work)
 {
   assert(spd_got_work != NULL);
   memset(spd_got_work, 0, sizeof *spd_got_work);
-  spd_got_work->magic = SPD_GOT_WORK_MAGIC;
+  spd_got_work->magic = SPD_TP_GOT_WORK_MAGIC;
 }
 
 int spd_got_work_is_valid (spd_got_work_t *spd_got_work)
 {
   return (spd_got_work != NULL &&
-          spd_got_work->magic == SPD_GOT_WORK_MAGIC);
+          spd_got_work->magic == SPD_TP_GOT_WORK_MAGIC);
 }
 
 void spd_before_put_done_init (spd_before_put_done_t *spd_before_put_done)
 {
   assert(spd_before_put_done != NULL);
   memset(spd_before_put_done, 0, sizeof *spd_before_put_done);
-  spd_before_put_done->magic = SPD_BEFORE_PUT_DONE_MAGIC;
+  spd_before_put_done->magic = SPD_TP_BEFORE_PUT_DONE_MAGIC;
 }
 
 int spd_before_put_done_is_valid (spd_before_put_done_t *spd_before_put_done)
 {
   return (spd_before_put_done != NULL &&
-          spd_before_put_done->magic == SPD_BEFORE_PUT_DONE_MAGIC);
+          spd_before_put_done->magic == SPD_TP_BEFORE_PUT_DONE_MAGIC);
 }
 
 void spd_after_put_done_init (spd_after_put_done_t *spd_after_put_done)
 {
   assert(spd_after_put_done != NULL);
   memset(spd_after_put_done, 0, sizeof *spd_after_put_done);
-  spd_after_put_done->magic = SPD_AFTER_PUT_DONE_MAGIC;
+  spd_after_put_done->magic = SPD_TP_AFTER_PUT_DONE_MAGIC;
 }
 
 int spd_after_put_done_is_valid (spd_after_put_done_t *spd_after_put_done)
 {
   return (spd_after_put_done != NULL &&
-          spd_after_put_done->magic == SPD_AFTER_PUT_DONE_MAGIC);
+          spd_after_put_done->magic == SPD_TP_AFTER_PUT_DONE_MAGIC);
 }
 
 void spd_getting_done_init (spd_getting_done_t *spd_getting_done)
 {
   assert(spd_getting_done != NULL);
   memset(spd_getting_done, 0, sizeof *spd_getting_done);
-  spd_getting_done->magic = SPD_GETTING_DONE_MAGIC;
+  spd_getting_done->magic = SPD_LOOPER_GETTING_DONE_MAGIC;
   spd_getting_done->index = -1;
 }
 
 int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done)
 {
   return (spd_getting_done != NULL &&
-          spd_getting_done->magic == SPD_GETTING_DONE_MAGIC);
+          spd_getting_done->magic == SPD_LOOPER_GETTING_DONE_MAGIC);
 }
 
 int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
