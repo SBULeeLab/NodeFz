@@ -211,8 +211,11 @@ typedef struct {
   unsigned long flags;                                                        \
   int backend_fd;                                                             \
   void* pending_queue[2];                                                     \
+  /* watcher_queue: Queue of fds added in uv__io_start and not yet monitored by the epoll backend_fd. \
+   *                Emptied in uv__io_poll before epoll'ing. */               \
   void* watcher_queue[2];                                                     \
   uv__io_t** watchers;                                                        \
+  /* nwatchers: Array with 2 extra slots at the end. */                       \
   unsigned int nwatchers;                                                     \
   unsigned int nfds;                                                          \
   void* wq[2];                                                                \
