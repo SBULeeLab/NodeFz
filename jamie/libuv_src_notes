@@ -296,7 +296,7 @@ Detail:
         to discover and invoke the UV_ASYNC_CB for each of the send'd fds.
 
     My understanding is that where possible, libuv will "compress" the number of fds it has to monitor in epoll_wait for performance purposes.
-    This cannot be done for individual sockets, but for cases where libuv can be architected to accommodate this goal (e.g. the threadpool or FS event monitoring) this is done. 
+    This cannot be done for individual sockets, but for cases where libuv can be architected to accommodate this goal (e.g. the threadpool done queue, FS event monitoring, and async handles) this is done. 
 
 2. <omitted>
 

@@ -65,6 +65,11 @@ static void uv__cancelled(struct uv__work* w) {
   abort();
 }
 
+/* Final step to clean up the async handle allocated for a struct uv__work. */
+static void uv__work_async_close (uv_handle_t *async) {
+  mylog(LOG_THREADPOOL, 9, "uv__work_async_close: Nothing to do (async %p)\n", async);
+}
+
 static void post(QUEUE* q) {
   mylog(LOG_THREADPOOL, 9, "post: posting work item q %p\n", q);
   uv_mutex_lock(&mutex);
@@ -194,13 +199,13 @@ static void worker(void* arg) {
     scheduler_thread_yield(SCHEDULE_POINT_TP_GOT_WORK, &spd_got_work);
 
     /* Do work. */
-    mylog(LOG_THREADPOOL, 9, "worker: Doing work item %i\n", work_item_number);
+    mylog(LOG_THREADPOOL, 9, "worker: Doing work item %i w %p\n", work_item_number, w);
 #if UNIFIED_CALLBACK
     invoke_callback_wrap((any_func) w->work, UV__WORK_WORK, (long int) w);
 #else
     w->work(w);
 #endif
-    mylog(LOG_THREADPOOL, 9, "worker: Done doing work item %i\n", work_item_number);
+    mylog(LOG_THREADPOOL, 9, "worker: Done doing work item %i w %p\n", work_item_number, w);
 
     /* Yield to the scheduler before and after adding the "done" item. 
      * This allows the scheduler to perturb the order in which "done" items are queued.
@@ -210,12 +215,11 @@ static void worker(void* arg) {
     spd_before_put_done.work_item_num = work_item_number;
     scheduler_thread_yield(SCHEDULE_POINT_TP_BEFORE_PUT_DONE, &spd_before_put_done);
 
-    uv_mutex_lock(&w->loop->wq_mutex);
     w->work = NULL;  /* Signal uv_cancel() that the work req is done
                         executing. */
-    QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
-    uv_async_send(&w->loop->wq_async);
-    uv_mutex_unlock(&w->loop->wq_mutex);
+    /* Signal the looper that this item is done. */
+    mylog(LOG_THREADPOOL, 9, "worker: Signaling that work item %i w %p is done\n", work_item_number, w);
+    uv_async_send((uv_async_t *) w->async);
 
     spd_after_put_done_init(&spd_after_put_done);
     spd_after_put_done.work_item = w;
@@ -303,6 +307,23 @@ static void init_once(void) {
   initialized = 1;
 }
 
+void uv__work_done_individual(uv_async_t *handle) {
+  struct uv__work *w = NULL;
+  int err = 0;
+
+  w = container_of(handle, struct uv__work, async);
+  mylog(LOG_THREADPOOL, 1, "uv__work_done_individual: handle %p w %p\n", handle, w);
+
+  err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
+#ifdef UNIFIED_CALLBACK
+  invoke_callback_wrap((any_func) w->done, UV__WORK_DONE, (long int) w, (long int) err);
+#else
+  w->done(w, err);
+#endif
+
+  /* We're done with handle. */
+  uv_close((uv_handle_t *) handle, uv__work_async_close);
+}
 
 void uv__work_submit(uv_loop_t* loop,
                      struct uv__work* w,
@@ -312,7 +333,9 @@ void uv__work_submit(uv_loop_t* loop,
   w->loop = loop;
   w->work = work;
   w->done = done;
+  uv_async_init(loop, (uv_async_t *) &w->async, uv__work_done_individual);
 
+  mylog(LOG_THREADPOOL, 1, "uv__work_submit: post'ing w %p (async %p)\n", w, &w->async);
   post(&w->wq);
 }
 
@@ -322,6 +345,7 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
   uv_mutex_lock(&mutex);
   uv_mutex_lock(&w->loop->wq_mutex);
 
+  /* Is it still on the wq? */
   can_cancel = !QUEUE_EMPTY(&w->wq) && w->work != NULL;
   if (can_cancel)
     QUEUE_REMOVE(&w->wq);
@@ -333,11 +357,8 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
     return UV_EBUSY;
 
   w->work = uv__cancelled;
-  uv_mutex_lock(&loop->wq_mutex);
-  QUEUE_INSERT_TAIL(&loop->wq, &w->wq);
-  uv_async_send(&loop->wq_async);
-  mylog(LOG_THREADPOOL, 1, "uv__work_cancel: signal'd a cancelled 'done' item (w %p)\n", w);
-  uv_mutex_unlock(&loop->wq_mutex);
+  uv_async_send((uv_async_t *) w->async);
+  mylog(LOG_THREADPOOL, 1, "uv__work_cancel: signal'd a cancelled 'work' item (w %p)\n", w);
 
   return 0;
 }

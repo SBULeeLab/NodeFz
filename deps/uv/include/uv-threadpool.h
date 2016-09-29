@@ -34,6 +34,12 @@ struct uv__work {
   void (*done)(struct uv__work *w, int status);
   struct uv_loop_s* loop;
   void* wq[2];
+  /* (JD) Pointer to uv_async_t for signaling "done". Handled entirely by threadpool.c. 
+   *  TODO This is a terrible hack.
+   *  We can't just declare a uv_async_t because of circular dependencies, and we can't use a void * because we need container_of to work. 
+   *  I'm sure there's a better way to do this, but it probably involves poking at header files in time-consuming ways.
+   */
+  char async[1024]; 
 };
 
 #endif /* UV_THREADPOOL_H_ */

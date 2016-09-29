@@ -2140,6 +2140,7 @@ Wed 28 Sep 2016
 4. I reviewed libuv_src_notes to identify places where a single fd wraps up multiple events at the libuv architectural level (as opposed to at the Node.js level, like timers were):
     - TP done queue
     - FS events
+    - async handles
 
 5. TCP server: Does a single fd store up multiple pending connections (an fd with a "sub-queue", just like the "done queue" fd)? If so, could deferring and so on be problematic in terms of space exploration?
 
@@ -2158,8 +2159,22 @@ Wed 28 Sep 2016
 
   So, our fuzzing scheme may result in a "surprising" number of consecutive UV_CONNECTION_CB invocations, but I don't anticipate those to be the source of bugs.
 
+6. Begin work on a per-item "done fd" for the unified epoll queue (inputs + done queue).
+   This development is being done on a separate branch in case it breaks things.
+
+   So far, I've:
+    - added a uv_async_t to uv__work (OK OK I added a 1KB buffer that I'm treaing as a uv_async_t, sue me)
+    - changed worker to uv_async_send the uv_async_t in the work item rather than uv_async_send'ing the loop's wq
+    - made a simple "handle the done CB for this work item" method for the uv_async_cb
+   However, since async handles are implemented with a single fd, the result is that we now have *less* control over when done items get executed.
+   Before, we could pick from the done queue in any order.
+   Now, when we execute the "async wrapper fd" in uv__io_poll, we execute every pending done item, (I think) in the order in which the associated work was uv__work_submit'd.
+
+   Next step: Re-implement uv_async_t less efficiently; monitor an fd per uv_async_t.
+   Then we'll have each done item as a separate entry in the epoll events, and as a bonus we'll also address any other uv_async_t along the way.
+
 TODO
-  - per-item "done fd" for unified epoll queue; remove the done queue
+  - Re-implement uv_async_t less efficiently; monitor an fd per uv_async_t
   - How does nextTick look at the libuv level?
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
