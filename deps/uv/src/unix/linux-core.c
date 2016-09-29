@@ -425,9 +425,9 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       if (pe->events != 0) {
 #ifdef UNIFIED_CALLBACK
         w->iocb_events = pe->events;
-        mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: w %p\n", w);
+        mylog(LOG_MAIN, 7, "uv__io_poll: Next work item: fd %i w %p fd %i\n", fd, w);
         invoke_callback_wrap((any_func) w->cb, UV__IO_CB, (long) loop, (long) w, (long) w->iocb_events);
-        mylog(LOG_MAIN, 7, "uv__io_poll: Done with work item\n");
+        mylog(LOG_MAIN, 7, "uv__io_poll: Done with work item fd %i w %p\n", fd, w);
 #else
         w->cb(loop, w, pe->events);
 #endif

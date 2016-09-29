@@ -558,7 +558,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
   stream = container_of(w, uv_stream_t, io_watcher);
 
-  ENTRY_EXIT_LOG((LOG_UV_STREAM, 9, "uv__server_io: begin: loop %p w %p events %i stream %p\n", loop, w, events, stream));
+  ENTRY_EXIT_LOG((LOG_UV_STREAM, 9, "uv__server_io: begin: loop %p w %p events %i stream %p fd %i\n", loop, w, events, stream, stream->io_watcher.fd));
 
   assert(events == UV__POLLIN);
   assert(stream->accepted_fd == -1);
@@ -603,7 +603,7 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     UV_DEC_BACKLOG(w)
     stream->accepted_fd = err;
 #if UNIFIED_CALLBACK
-    mylog(LOG_UV_STREAM, 7, "uv__server_io: stream %p accepted new connection (accepted_fd %i)\n", stream, stream->accepted_fd);
+    mylog(LOG_UV_STREAM, 7, "uv__server_io: stream %p (fd %i) accepted new connection (accepted_fd %i)\n", stream, stream->io_watcher.fd, stream->accepted_fd);
     invoke_callback_wrap((any_func) stream->connection_cb, UV_CONNECTION_CB, (long) stream, (long) 0);
 #else
     stream->connection_cb(stream, 0);

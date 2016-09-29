@@ -2113,7 +2113,7 @@ Wed 28 Sep 2016
    In these tests, a "surprising" ordering of client HTTP request arrivals can yield an uncaught ECONNREFUSED exception, crashing the application.
 
    $ rm -rf /tmp/http_closed_system_hard; mkdir /tmp/http_closed_system_hard; ./online/install.sh -i tests/no_races/complex/http_closed_system_hard.js  -d /tmp/http_closed_system_hard
-   $ rm core; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_DEG_FREEDOM=5 UV_SCHEDULER_MAX_DELAY=1000 UV_SCHEDULER_EPOLL_THRESHOLD=1000 UV_SCHEDULER_EPOLL_DEFER_PERC=0 node-devel /tmp/http_closed_system_hard/http_closed_system_hard/http_closed_system_hard.js >/tmp/o_$i 2>/tmp/err_$i; echo "iter $i: rc $?"; done
+   $ rm core; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=5 UV_SCHEDULER_TP_MAX_DELAY=1000 UV_SCHEDULER_TP_EPOLL_THRESHOLD=1000 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=-1 UV_SCHEDULER_IOPOLL_DEFER_PERC=0 node-devel /tmp/http_closed_system_hard/http_closed_system_hard/http_closed_system_hard.js >/tmp/o_$i 2>/tmp/err_$i; echo "iter $i: rc $?"; done
 
     This yields one of:
       - rc 0      Successful excution
@@ -2124,15 +2124,42 @@ Wed 28 Sep 2016
     $ grep -c ECONNREFUSED /tmp/err_* | grep -v ':0' | wc -l
     20
 
+    On my laptop, we get
+
+    $ grep ECONN /tmp/err_* | wc -l
+    4
+
+    , which difference we might want to investigate further.
+
     With "vanilla node", we see this race 0% of the time.
 
     $ rm core; for i in `seq 1 100`; do UV_THREADPOOL_SIZE=5 node /tmp/http_closed_system_hard/http_closed_system_hard/http_closed_system_hard.js >/tmp/o_$i 2>/tmp/err_$i; echo "iter $i: rc $?"; done
     $ grep -c ECONNREFUSED /tmp/err_* | grep -v ':0' | wc -l
     0
 
+4. I reviewed libuv_src_notes to identify places where a single fd wraps up multiple events at the libuv architectural level (as opposed to at the Node.js level, like timers were):
+    - TP done queue
+    - FS events
+
+5. TCP server: Does a single fd store up multiple pending connections (an fd with a "sub-queue", just like the "done queue" fd)? If so, could deferring and so on be problematic in terms of space exploration?
+
+  A TCP server is an instance of a uv_tcp_t which "is a" uv_stream_t. The fd for a server-type stream is monitored in uv__server_io. 
+  In uv__server_io, uv__accept is called repeatedly to accept incoming connections to the server's socket.
+  For each accepted connection, the UV_CONNECTION_CB associated with the uv_stream_t is invoked so that the user has the option to call uv_accept to 
+  complete the connection at the user level.
+    (man 2 accept: "It extracts the first connection request on the queue of pending connections for the listening socket, sockfd, creates a new connected socket, and returns a new file descriptor referring to that socket.")
+
+  This means that if there are $k multiple pending connections to a socket, the socket's fd will be ready in epoll, and $k UV_CONNECTION_CBs will be called.
+  However, each connection will then get its own fd via uv_accept, and each fd will then be monitored individually by epoll.
+
+  At the Node.js level, a UV_CONNECTION_CB corresponds to the emission of a 'listening' event: "Emitted when the server has been bound after calling server.listen." (https://nodejs.org/api/net.html#net_event_listening).
+  So, the longer we defer a "server" fd, the more UV_CONNECTION_CBs might be invoked in a row when we finally invoke it in uv__io_poll.
+  However, the 'data' event ("Emitted when data is received") will be emitted corresponding to the per-connection fd being invoked in uv__io_poll.
+
+  So, our fuzzing scheme may result in a "surprising" number of consecutive UV_CONNECTION_CB invocations, but I don't anticipate those to be the source of bugs.
+
 TODO
   - per-item "done fd" for unified epoll queue; remove the done queue
-  - TCP server: does a single fd store up multiple pending connections (an fd with a "sub-queue", just like the "done queue" fd)? If so, deferring and so on could be problematic.
   - How does nextTick look at the libuv level?
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
