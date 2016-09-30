@@ -954,3 +954,10 @@ The order in which children of the INITIAL_STACK are registered:
   Last (and much later in the exec schedule) is the EXIT marker.
 In rescheduling, we need to get the relative child number correct for all non-marker children.
 For markers we don't check the registration ID, just the type, because they are unique.
+
+-----------------
+
+Async: Changing uv_async_t to have a per-async fd in the watcher queue, rather than a wrapper fd.
+  - Eliminate loop->async_watcher
+  - Add async fds directly to epoll list (via calls to uv__io_init, uv__io_start, uv__async_close)
+  - 

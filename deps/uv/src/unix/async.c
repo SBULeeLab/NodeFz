@@ -55,6 +55,7 @@ any_func uv_uv__async_event_ptr (void)
 int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   int err;
 
+  /* If not yet started, loop->async_watcher will monitor for any uv_async_send's, and invoke uv__async_event if this happens. */
   err = uv__async_start(loop, &loop->async_watcher, uv__async_event);
   if (err)
     return err;
@@ -78,8 +79,9 @@ int uv_async_send(uv_async_t* handle) {
   if (ACCESS_ONCE(int, handle->pending) != 0)
     return 0;
 
-  /* JD: Mark this handle as pending. Write a byte to loop->async_watcher's wfd so that it will be discovered by epoll. */
+  /* Mark this handle as pending. */
   if (cmpxchgi(&handle->pending, 0, 1) == 0)
+    /* Write a byte to async_watcher so that epoll will see the event. */
     uv__async_send(&handle->loop->async_watcher);
 
   return 0;
@@ -91,7 +93,8 @@ void uv__async_close(uv_async_t* handle) {
   uv__handle_stop(handle);
 }
 
-
+/* Called from uv__async_io.
+ * Goes through the list of async handles and invokes the CB for any that are pending. */
 static void uv__async_event(uv_loop_t* loop,
                             struct uv__async* w,
                             unsigned int nevents) {
@@ -118,8 +121,11 @@ static void uv__async_event(uv_loop_t* loop,
   }
 }
 
+/* This is the IO function for loop->async_watcher.
+ * It empties its pipe and then invokes wa->cb, which is uv__async_event.
+ */
 static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
-  struct uv__async* wa;
+  struct uv__async* wa = NULL;
   char buf[1024];
   unsigned n;
   ssize_t r;
@@ -162,6 +168,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   }
 #endif
 
+  assert(wa != NULL);
 #if UNIFIED_CALLBACK
   invoke_callback_wrap((any_func) wa->cb, UV__ASYNC_CB, (long) loop, (long) wa, (long) n);
 #else
@@ -211,7 +218,12 @@ void uv__async_init(struct uv__async* wa) {
   wa->wfd = -1;
 }
 
-
+/* wa is the loop->async_watcher. 
+ * If not already started, uv__io_start it (adding it to the list of fds being monitored by the loop).
+ * When any uv_async_send is called (-> uv__async_send), a byte will be written to the 
+ * handle being send'd as well as to the loop->async_watcher, causing uv__io_poll to call loop->async_watcher's CB (uv__async_io).
+ * wa's cb = cb == uv__async_event, which is invoked in uv__async_io and which loops over the async handles looking for those that are pending.
+ */
 int uv__async_start(uv_loop_t* loop, struct uv__async* wa, uv__async_cb cb) {
   int pipefd[2];
   int err;
@@ -260,7 +272,7 @@ int uv__async_start(uv_loop_t* loop, struct uv__async* wa, uv__async_cb cb) {
   return 0;
 }
 
-
+/* Called with wa as loop->async_watcher. Stops async monitoring. */
 void uv__async_stop(uv_loop_t* loop, struct uv__async* wa) {
   if (wa->io_watcher.fd == -1)
     return;
