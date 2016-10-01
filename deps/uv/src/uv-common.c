@@ -1025,6 +1025,7 @@ void initialize_record_and_replay (void)
 
   mylog_set_verbosity(LOG_UV_STREAM, 9);
   mylog_set_verbosity(LOG_UV_IO, 9);
+  mylog_set_verbosity(LOG_UV_ASYNC, 9);
 
 #ifdef JD_UT
   mylog(LOG_MAIN, 1, "initialize_record_and_replay: Running unit tests\n");
@@ -1076,10 +1077,17 @@ void initialize_record_and_replay (void)
  *
  *                                 TP_FREEDOM                                   Schedule order is fuzzed through explicitly flipping the order of TP "work" and "done" events
  *                                  Parameters
- *                                     UV_SCHEDULER_TP_DEG_FREEDOM              TP: The number of TP threads to simulate
+ *                                     UV_SCHEDULER_TP_DEG_FREEDOM              TP: The number of TP threads to simulate.
+ *                                                                              "1" means to simulate 1 thread; TP work will not be re-ordered.
+ *                                                                              "2" means to simulate 2 threads; the TP thread will always do one of the first two pending events.
+ *                                                                              -1 means "select at random from the entire list", and is essentially a dynamically-sized TP.
  *                                     UV_SCHEDULER_TP_MAX_DELAY                TP: Max delay in us while waiting for queue to fill
  *                                     UV_SCHEDULER_TP_EPOLL_THRESHOLD          TP: Max time looper can be in epoll while TP waits for work queue to fill
- *                                     UV_SCHEDULER_IOPOLL_DEG_FREEDOM          Looper (io_poll): Legal "shuffle distance" of the epoll events
+ *                                     UV_SCHEDULER_IOPOLL_DEG_FREEDOM          Looper (io_poll): Legal "shuffle distance" of the epoll events.
+ *                                                                              The "shuffle distance" is the size of the chunks into which we break the epoll events.
+ *                                                                              "1" means that items will not be shuffled.
+ *                                                                              "2" means that we'll break up the epoll events into pairs and may shuffle each pair.
+ *                                                                              "-1" means "shuffle everything".
  *                                     UV_SCHEDULER_IOPOLL_DEFER_PERC           Looper (io_poll): Percentage of epoll events to defer each loop
  *                                     UV_THREADPOOL_SIZE                       Must be 1
  *

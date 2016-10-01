@@ -76,7 +76,7 @@ scheduler_tp_freedom_init (scheduler_mode_t mode, void *args, schedulerImpl_t *s
   tpFreedom_implDetails.mode = mode;
   tpFreedom_implDetails.args = *(scheduler_tp_freedom_args_t *) args;
 
-  assert(0 <= tpFreedom_implDetails.args.tp_degrees_of_freedom);
+  assert(tpFreedom_implDetails.args.tp_degrees_of_freedom == -1 || 1 <= tpFreedom_implDetails.args.tp_degrees_of_freedom);
   assert(0 <= tpFreedom_implDetails.args.iopoll_defer_perc && tpFreedom_implDetails.args.iopoll_defer_perc <= 100);
 
   return;
@@ -156,6 +156,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     int *indexP = NULL; /* Points to "index" field of the pointDetails object. */
     int wq_len = 0;
     int wq_ix = 0;
+    int deg_freedom = tpFreedom_implDetails.args.tp_degrees_of_freedom;
 
     if (point == SCHEDULE_POINT_TP_GETTING_WORK)
     {
@@ -173,6 +174,11 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
 
     wq_len = scheduler_tp_freedom__queue_len(wq);
     assert(0 < wq_len);
+
+    /* -1 means "pick any item". */
+    if (deg_freedom == -1)
+      deg_freedom = wq_len;
+
     wq_ix = rand_int(MIN(wq_len, tpFreedom_implDetails.args.tp_degrees_of_freedom));
     mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: Chose wq_ix %i (item %i/%i) (%s)\n", wq_ix, wq_ix+1, wq_len, schedule_point_to_string(point));
 
