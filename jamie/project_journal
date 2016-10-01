@@ -2173,8 +2173,113 @@ Wed 28 Sep 2016
    Next step: Re-implement uv_async_t less efficiently; monitor an fd per uv_async_t.
    Then we'll have each done item as a separate entry in the epoll events, and as a bonus we'll also address any other uv_async_t along the way.
 
+--------------------------------
+
+Thur 29 Sep 2016
+
+Nada
+
+--------------------------------
+
+Fri 30 Sep 2016
+
+1. The idea of "compressing" multiple fds under a single "wrapper" fd is multiplexing, though it might have other names too. 
+   https://en.wikipedia.org/wiki/Multiplexing
+
+2. I've de-multiplexed async handles. There is now one fd per async handle; each handle is monitored by the loop.
+   Combined with 71da069d50, which gave each "work" item a uv_async_t, each "done" item from the threadpool is now monitored by the loop.
+   This means that the TP_FREEDOM scheduler's UV_SCHEDULER_IOPOLL_DEFER_PERC and UV_SCHEDULER_IOPOLL_DEG_FREEDOM parameters influence the "done order"
+   of TP items.
+
+  Some experiments on fs-manyIO:
+  
+  1. Giving only IOPOLL_DEG_FREEDOM (no TP freedom), the race manifests itself 27% of the time, while 73% of the time it does not.
+
+  $ rm -rf /tmp/fs-manyIO; mkdir /tmp/fs-manyIO; ./online/install.sh -i tests/module_races/fs/fs-manyIO.js -d /tmp/fs-manyIO
+  $ for i in `seq 1 100`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=1 UV_SCHEDULER_TP_MAX_DELAY=0 UV_SCHEDULER_TP_EPOLL_THRESHOLD=0 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=10 UV_SCHEDULER_IOPOLL_DEFER_PERC=25 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; done
+  $ grep -c '<BEFORE>' /tmp/o_* | grep -v :0 | wc -l
+    27
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+    73
+
+  These parameters don't give particularly stable results, since other runs yield manifestation rates of 43% and 12%.
+
+  $ for i in `seq 1 100`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=1 UV_SCHEDULER_TP_MAX_DELAY=0 UV_SCHEDULER_TP_EPOLL_THRESHOLD=0 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=10 UV_SCHEDULER_IOPOLL_DEFER_PERC=25 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; done
+  $ grep -c '<BEFORE>' /tmp/o_* | grep -v :0 | wc -l
+  43
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+  57
+
+  $ for i in `seq 1 100`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=1 UV_SCHEDULER_TP_MAX_DELAY=0 UV_SCHEDULER_TP_EPOLL_THRESHOLD=0 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=10 UV_SCHEDULER_IOPOLL_DEFER_PERC=25 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; done
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+    88
+  $ grep -c '<BEFORE>' /tmp/o_* | grep -v :0 | wc -l
+    12
+
+  The manifestations appear in "runs", so I anticipate that the variation is due to the RNG seed (which is based on the current time in seconds).
+  I introduced a 1-second sleep between runs to ensure that invocations would get a different seed.
+  Here, I get more reasonable-looking results (not runs of failures and successes, but rather failures sprinkled amongst the successes).
+  In 2 separate trials of 200 iterations each, I observe manifestation rates of 24% and 19%.
+  
+  $ for i in `seq 1 200`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=1 UV_SCHEDULER_TP_MAX_DELAY=0 UV_SCHEDULER_TP_EPOLL_THRESHOLD=0 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=10 UV_SCHEDULER_IOPOLL_DEFER_PERC=25 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; sleep 1; done
+  $ grep -c '<BEFORE>' /tmp/o_* | grep -v :0 | wc -l
+    48
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+    152
+
+  $ for i in `seq 1 200`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=1 UV_SCHEDULER_TP_MAX_DELAY=0 UV_SCHEDULER_TP_EPOLL_THRESHOLD=0 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=10 UV_SCHEDULER_IOPOLL_DEFER_PERC=25 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; sleep 1; done
+  $ grep -c '<BEFORE>' /tmp/o_* | grep -v :0 | wc -l
+    38
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+    162
+
+  -----
+
+  2. Giving only TP freedom and eliminating IOPOLL freedom, the effectiveness decreases to 11% race manifestation, 89% failure. 
+
+  $ for i in `seq 1 100`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=5 UV_SCHEDULER_TP_MAX_DELAY=1000 UV_SCHEDULER_TP_EPOLL_THRESHOLD=1000 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=1 UV_SCHEDULER_IOPOLL_DEFER_PERC=0 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; done
+  $ grep -c '<BEFORE>' /tmp/o_* | grep -v :0 | wc -l
+  11
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+  89
+
+  -----
+
+  3. Like 2, but further reducing the delays the TP allows before proceeding with work, the fuzzer is completely ineffective: 0% race manifestation.
+
+  $ for i in `seq 1 100`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=5 UV_SCHEDULER_TP_MAX_DELAY=100 UV_SCHEDULER_TP_EPOLL_THRESHOLD=100 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=1 UV_SCHEDULER_IOPOLL_DEFER_PERC=0 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; done
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+    100
+
+  Vanilla node still finds the race 0% of the time.
+
+  $ rm -rf /tmp/fs-manyIO; mkdir /tmp/fs-manyIO; ./online/install.sh -i tests/module_races/fs/fs-manyIO.js -d /tmp/fs-manyIO
+  $ for i in `seq 1 100`; do rm /tmp/o_$i /tmp/err_$i; UV_THREADPOOL_SIZE=10 node /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; done
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+    100
+
+  -----
+
+  4. Combining the degrees of freedom for both TP and IOPOLL and using the timing technique from 1 yields a manifestation rate of 26%. This is a modest boost (4%) compared to 1, unclear if it's statistically significant.
+
+  $ rm /tmp/o_* /tmp/err_*; for i in `seq 1 200`; do UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=5 UV_SCHEDULER_TP_MAX_DELAY=1000 UV_SCHEDULER_TP_EPOLL_THRESHOLD=1000 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=10 UV_SCHEDULER_IOPOLL_DEFER_PERC=25 node-devel /tmp/fs-manyIO/fs-manyIO/fs-manyIO.js > /tmp/o_$i 2>/tmp/err_$i; echo "run $i rc $?"; sleep 1; done
+  $ grep -c '<BEFORE>' /tmp/o_* | grep -v :0 | wc -l
+  53
+  $ grep -c '<BEFOREAFTER>' /tmp/o_* | grep -v :0 | wc -l
+  146
+
+--------------------------------
+
+Fri 30 Sep 2016
+
+1. Finish up async de-multiplexing.
+
+2. Potential other sources of multiplexing (uv-unix.h: members of uv_loop_s):
+    uv__io_t signal_io_watcher;
+    uv_signal_t child_watcher;
+
+
 TODO
-  - Re-implement uv_async_t less efficiently; monitor an fd per uv_async_t
   - How does nextTick look at the libuv level?
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases

@@ -34,108 +34,104 @@
 #include <string.h>
 #include <unistd.h>
 
-static void uv__async_event(uv_loop_t* loop,
-                            struct uv__async* w,
-                            unsigned int nevents);
+/* Returns a nonblocking read-write'able fd.
+ * It's either from eventfd or from pipe. 
+ */
 static int uv__async_eventfd(void);
+
+/* Handler passed to uv__io_start. 
+ * w is part of a uv_async_t. 
+ */
 static void uv__async_io(uv_loop_t* loop,
                          uv__io_t* w,
                          unsigned int events);
+
+/* Begin monitoring for uv_async_send's on handle. */
+static int uv__async_start(uv_loop_t* loop, uv_async_t *handle);
 
 any_func uv_uv__async_io_ptr (void)
 {
   return (any_func) uv__async_io;
 }
 
-any_func uv_uv__async_event_ptr (void)
-{
-  return (any_func) uv__async_event;
-}
-
 int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   int err;
 
-  /* If not yet started, loop->async_watcher will monitor for any uv_async_send's, and invoke uv__async_event if this happens. */
-  err = uv__async_start(loop, &loop->async_watcher, uv__async_event);
-  if (err)
-    return err;
+  mylog(LOG_UV_ASYNC, 1, "uv_async_init: initializing handle %p\n", handle);
+  memset(handle, 0, sizeof(*handle));
 
   uv__handle_init(loop, (uv_handle_t*)handle, UV_ASYNC);
   handle->async_cb = async_cb;
   handle->pending = 0;
+  handle->io_watcher.fd = -1;
 
   uv__register_callback(handle, (any_func) handle->async_cb, UV_ASYNC_CB);
 
-  QUEUE_INSERT_TAIL(&loop->async_handles, &handle->queue);
-  uv__handle_start(handle);
+  err = uv__async_start(loop, handle);
 
-  return 0;
+  return err;
 }
 
 
 int uv_async_send(uv_async_t* handle) {
-  /* Do a cheap read first. */
-  /* JD: If already pending, coalesce. */
+
+  assert(0 <= handle->io_watcher.fd);
+  mylog(LOG_UV_ASYNC, 1, "uv_async_send: handle %p\n", handle);
+
+  /* If already pending, coalesce. */
   if (ACCESS_ONCE(int, handle->pending) != 0)
     return 0;
 
-  /* Mark this handle as pending. */
+  /* Mark this handle as pending in a thread-safe manner. */
   if (cmpxchgi(&handle->pending, 0, 1) == 0)
-    /* Write a byte to async_watcher so that epoll will see the event. */
-    uv__async_send(&handle->loop->async_watcher);
+  {
+    /* Write a byte to io_watcher's fd so that epoll will see the event. 
+     * Since fd might be an eventfd, write an 8-byte integer. 
+     * This is mostly harmless if it's a pipe instead. */
+    static const uint64_t val = 1;
+    const void *buf = &val;
+    ssize_t len = sizeof(val);
+    int r;
+
+    mylog(LOG_UV_ASYNC, 1, "uv_async_send: handle %p is now pending, and writing to fd %i\n", handle, handle->io_watcher.fd);
+    do
+      r = write(handle->io_watcher.fd, buf, len);
+    while (r == -1 && errno == EINTR);
+
+    if (r == len)
+      return 0;
+
+    if (r == -1)
+      if (errno == EAGAIN || errno == EWOULDBLOCK)
+        return -1;
+
+    abort();
+  }
 
   return 0;
 }
 
 
 void uv__async_close(uv_async_t* handle) {
-  QUEUE_REMOVE(&handle->queue);
+  uv__io_stop(handle->loop, &handle->io_watcher, UV__POLLIN);
+  uv__close(handle->io_watcher.fd);
   uv__handle_stop(handle);
 }
 
-/* Called from uv__async_io.
- * Goes through the list of async handles and invokes the CB for any that are pending. */
-static void uv__async_event(uv_loop_t* loop,
-                            struct uv__async* w,
-                            unsigned int nevents) {
-  QUEUE* q;
-  uv_async_t* h;
-
-  QUEUE_FOREACH(q, &loop->async_handles) {
-    h = QUEUE_DATA(q, uv_async_t, queue);
-
-    /* Skip non-pending handles and handles with no CB. */
-    if (cmpxchgi(&h->pending, 1, 0) == 0)
-      continue;
-    if (h->async_cb == NULL)
-      continue;
-
-#if defined(UNIFIED_CALLBACK)
-    /* TODO One of these handles is for the threadpool.
-     * In REPLAY mode, we should only invoke it if we are to run a UV__WORK_DONE next.
-     */
-    invoke_callback_wrap ((any_func) h->async_cb, UV_ASYNC_CB, (long) h);
-#else
-    h->async_cb(h);
-#endif
-  }
-}
-
-/* This is the IO function for loop->async_watcher.
- * It empties its pipe and then invokes wa->cb, which is uv__async_event.
+/* This is the IO function for uv_async_t's after they've been uv_async_send'd.
+ * It empties its fd (eventfd or pipe), then invokes the handle's async_cb.
  */
 static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
-  struct uv__async* wa = NULL;
+  uv_async_t *h = NULL;
   char buf[1024];
-  unsigned n;
   ssize_t r;
 
-  n = 0;
+  h = container_of(w, uv_async_t, io_watcher);
+  mylog(LOG_UV_ASYNC, 1, "uv__async_io: IO on handle %p (fd %i)\n", h, h->io_watcher.fd);
+
+  /* Empty the fd. */
   for (;;) {
     r = read(w->fd, buf, sizeof(buf));
-
-    if (r > 0)
-      n += r;
 
     if (r == sizeof(buf))
       continue;
@@ -152,30 +148,17 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     abort();
   }
 
-  wa = container_of(w, struct uv__async, io_watcher);
-
-#if defined(__linux__)
-  if (wa->wfd == -1) {
-    uint64_t val;
-    assert(n == sizeof(val));
-    memcpy(&val, buf, sizeof(val));  /* Avoid alignment issues. */
-#if UNIFIED_CALLBACK
-    invoke_callback_wrap((any_func) wa->cb, UV__ASYNC_CB, (long) loop, (long) wa, (long) val);
+  /* Invoke the uv_async_cb. */
+#if defined(UNIFIED_CALLBACK)
+  invoke_callback_wrap ((any_func) h->async_cb, UV_ASYNC_CB, (long) h);
 #else
-    wa->cb(loop, wa, val);
-#endif
-    return;
-  }
+  h->async_cb(h);
 #endif
 
-  assert(wa != NULL);
-#if UNIFIED_CALLBACK
-  invoke_callback_wrap((any_func) wa->cb, UV__ASYNC_CB, (long) loop, (long) wa, (long) n);
-#else
-  wa->cb(loop, wa, n);
-#endif
+  return;
 }
 
+#if 0
 /* TODO Do I want to add 'whodunnit' dependency edges? Would need to include all send'ers, not just the first one. 
    The current dependency edges indicate a list of "X must go before me" nodes.
    In contrast, async edges would indicate "one of these Xes must go before me" nodes. */
@@ -191,27 +174,28 @@ void uv__async_send(struct uv__async* wa) {
 
 #if defined(__linux__)
   if (fd == -1) {
-    static const uint64_t val = 1;
-    buf = &val;
-    len = sizeof(val);
-    fd = wa->io_watcher.fd;  /* eventfd */
-  }
-#endif
-
-  do
-    r = write(fd, buf, len);
-  while (r == -1 && errno == EINTR);
-
-  if (r == len)
-    return;
-
-  if (r == -1)
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+      static const uint64_t val = 1;
+      buf = &val;
+      len = sizeof(val);
+      fd = wa->io_watcher.fd;  /* eventfd */
+    }
+  #endif
+  
+    do
+      r = write(fd, buf, len);
+    while (r == -1 && errno == EINTR);
+  
+    if (r == len)
       return;
+  
+    if (r == -1)
+      if (errno == EAGAIN || errno == EWOULDBLOCK)
+        return;
+  
+    abort();
+  }
 
-  abort();
-}
-
+#endif
 
 void uv__async_init(struct uv__async* wa) {
   wa->io_watcher.fd = -1;
@@ -224,13 +208,12 @@ void uv__async_init(struct uv__async* wa) {
  * handle being send'd as well as to the loop->async_watcher, causing uv__io_poll to call loop->async_watcher's CB (uv__async_io).
  * wa's cb = cb == uv__async_event, which is invoked in uv__async_io and which loops over the async handles looking for those that are pending.
  */
-int uv__async_start(uv_loop_t* loop, struct uv__async* wa, uv__async_cb cb) {
+static int uv__async_start(uv_loop_t* loop, uv_async_t *handle) {
   int pipefd[2];
   int err;
 
-  if (wa->io_watcher.fd != -1)
-    return 0;
-
+  /* Obtain a nonblocking read-write fd for handle->io_watcher. */
+  assert(handle->io_watcher.fd == -1);
   err = uv__async_eventfd();
   if (err >= 0) {
     pipefd[0] = err;
@@ -241,7 +224,7 @@ int uv__async_start(uv_loop_t* loop, struct uv__async* wa, uv__async_cb cb) {
 #if defined(__linux__)
     /* Save a file descriptor by opening one of the pipe descriptors as
      * read/write through the procfs.  That file descriptor can then
-     * function as both ends of the pipe.
+     * function as both ends of the pipe, and we can close the other fd.
      */
     if (err == 0) {
       char buf[32];
@@ -262,12 +245,12 @@ int uv__async_start(uv_loop_t* loop, struct uv__async* wa, uv__async_cb cb) {
   if (err < 0)
     return err;
 
-  /* This sets wa->io_watcher.fd == pipefd[0], so on subsequent calls to uv__async_start
-      we return immediately until uv__async_stop is called on wa. */
-  uv__io_init(&wa->io_watcher, uv__async_io, pipefd[0]);
-  uv__io_start(loop, &wa->io_watcher, UV__POLLIN);
-  wa->wfd = pipefd[1];
-  wa->cb = cb;
+  /* Start monitoring the fd. */
+  uv__io_init(&handle->io_watcher, uv__async_io, pipefd[0]);
+  uv__io_start(loop, &handle->io_watcher, UV__POLLIN);
+
+  assert(handle->io_watcher.fd == pipefd[0]);
+  mylog(LOG_UV_ASYNC, 1, "uv__async_start: handle %p fd %i\n", handle, handle->io_watcher.fd);
 
   return 0;
 }
@@ -287,7 +270,6 @@ void uv__async_stop(uv_loop_t* loop, struct uv__async* wa) {
   uv__close(wa->io_watcher.fd);
   wa->io_watcher.fd = -1;
 }
-
 
 static int uv__async_eventfd() {
 #if defined(__linux__)

@@ -220,7 +220,6 @@ typedef struct {
   unsigned int nfds;                                                          \
   void* wq[2];                                                                \
   uv_mutex_t wq_mutex;                                                        \
-  uv_async_t wq_async;                                                        \
   uv_rwlock_t cloexec_lock;                                                   \
   uv_handle_t* closing_handles;                                               \
   void* process_handles[2];                                                   \
@@ -228,7 +227,6 @@ typedef struct {
   void* check_handles[2];                                                     \
   void* idle_handles[2];                                                      \
   void* async_handles[2];                                                     \
-  struct uv__async async_watcher;                                             \
   struct {                                                                    \
     void* min;                                                                \
     unsigned int nelts;                                                       \
@@ -315,7 +313,8 @@ typedef struct {
 #define UV_ASYNC_PRIVATE_FIELDS                                               \
   uv_async_cb async_cb;                                                       \
   void* queue[2];                                                             \
-  int pending;                                                                \
+  int pending; /* For uv_async_send coalescing. */                            \
+  uv__io_t io_watcher;
 
 #define UV_TIMER_PRIVATE_FIELDS                                               \
   uv_timer_cb timer_cb;                                                       \

@@ -1054,7 +1054,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     ENTRY_EXIT_LOG((LOG_UV_IO, 9, "uv__io_start: returning\n"));
 }
 
-
+/* Stop listening on w for events. */
 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(0 == (events & ~(UV__POLLIN | UV__POLLOUT)));
   assert(0 != events);

@@ -24,10 +24,12 @@ char *log_class_strings[LOG_CLASS_MAX - LOG_CLASS_MIN] = {
   "MAP",
   "TREE",
   "UV_STREAM",
-  "UV_IO"
+  "UV_IO",
+  "UV_ASYNC"
 };
 
 int verbosity_levels[LOG_CLASS_MAX] = {
+  0,
   0,
   0,
   0,

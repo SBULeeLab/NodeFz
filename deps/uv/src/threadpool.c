@@ -307,12 +307,12 @@ static void init_once(void) {
   initialized = 1;
 }
 
-void uv__work_done_individual(uv_async_t *handle) {
+void uv__work_done(uv_async_t *handle) {
   struct uv__work *w = NULL;
   int err = 0;
 
   w = container_of(handle, struct uv__work, async);
-  mylog(LOG_THREADPOOL, 1, "uv__work_done_individual: handle %p w %p\n", handle, w);
+  mylog(LOG_THREADPOOL, 1, "uv__work_done: handle %p w %p\n", handle, w);
 
   err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
 #ifdef UNIFIED_CALLBACK
@@ -333,7 +333,7 @@ void uv__work_submit(uv_loop_t* loop,
   w->loop = loop;
   w->work = work;
   w->done = done;
-  uv_async_init(loop, (uv_async_t *) &w->async, uv__work_done_individual);
+  uv_async_init(loop, (uv_async_t *) &w->async, uv__work_done);
 
   mylog(LOG_THREADPOOL, 1, "uv__work_submit: post'ing w %p (async %p)\n", w, &w->async);
   post(&w->wq);
@@ -361,106 +361,6 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
   mylog(LOG_THREADPOOL, 1, "uv__work_cancel: signal'd a cancelled 'work' item (w %p)\n", w);
 
   return 0;
-}
-
-
-void uv__work_done(uv_async_t* handle) {
-  struct uv__work* w;
-  uv_loop_t* loop;
-  QUEUE* q;
-  QUEUE wq;
-  int err;
-  enum callback_type next_lcbn_type = CALLBACK_TYPE_ANY;
-  int replay_mode = (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY);
-  int done = 0;
-
-  /* Scheduler supplies. */
-  spd_getting_done_t spd_getting_done;
-
-  loop = container_of(handle, uv_loop_t, wq_async);
-
-  /* In REPLAY mode, spin until the next CB is a non-AFTER_WORK looper CB. 
-   * The next non-threadpool CB might be us, and if we don't spin, returning introduces an unexpected UV_ASYNC_CB into the schedule.
-   */
-  do
-  {
-    mylog(LOG_THREADPOOL, 5, "uv__work_done: Checking the done queue\n");
-    QUEUE_INIT(&wq);
-
-    uv_mutex_lock(&loop->wq_mutex);
-    if (!QUEUE_EMPTY(&loop->wq)) {
-      mylog(LOG_THREADPOOL, 9, "uv__work_done: There are done items in the done queue\n");
-      q = QUEUE_HEAD(&loop->wq);
-      QUEUE_SPLIT(&loop->wq, q, &wq);
-    }
-    else
-      mylog(LOG_THREADPOOL, 9, "uv__work_done: The done queue is empty\n");
-    uv_mutex_unlock(&loop->wq_mutex);
-
-    while (!QUEUE_EMPTY(&wq)) {
-
-      /* Get advice from scheduler about which done item to grab. 
-       * In the case of a TP with "degrees of freedom" to simulate more threads,
-       * we may be advised to use an index other than 0.
-       */
-      spd_getting_done_init(&spd_getting_done);
-      spd_getting_done.wq = &wq;
-      scheduler_thread_yield(SCHEDULE_POINT_LOOPER_GETTING_DONE, &spd_getting_done);
-
-      mylog(LOG_THREADPOOL, 7, "uv__work_done: getting item at index %i\n", spd_getting_done.index);
-      q = QUEUE_INDEX(&wq, spd_getting_done.index);
-
-      QUEUE_REMOVE(q);
-
-      w = container_of(q, struct uv__work, wq);
-      err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
-#ifdef UNIFIED_CALLBACK
-      invoke_callback_wrap((any_func) w->done, UV__WORK_DONE, (long int) w, (long int) err);
-#else
-      w->done(w, err);
-#endif
-
-      if (replay_mode)
-      {
-        /* We might wish to defer the remaining done items.
-         * This is legal because it simulates a delayed placement of done items into the wq.
-         */
-        next_lcbn_type = scheduler_next_lcbn_type();
-        done = !(next_lcbn_type == UV_AFTER_WORK_CB || is_threadpool_cb(next_lcbn_type));
-        if (done)
-          break;
-      }
-    }
-
-    if (replay_mode)
-    {
-      next_lcbn_type = scheduler_next_lcbn_type();
-      done = !(next_lcbn_type == UV_AFTER_WORK_CB || is_threadpool_cb(next_lcbn_type));
-    }
-    else
-      done = 1;
-  } while (!done);
-
-  mylog(LOG_THREADPOOL, 5, "uv__work_done: out of loop\n");
-
-  if (replay_mode)
-  {
-    /* Unshift any deferred done items onto wq. */
-    int len = 0;
-    uv_mutex_lock(&loop->wq_mutex);
-    QUEUE_LEN(len, q, &wq);
-    mylog(LOG_THREADPOOL, 3, "uv__work_done: Replacing the %i deferred 'done' items\n", len);
-    while (!QUEUE_EMPTY(&wq)) {
-      q = QUEUE_HEAD(&wq);
-      QUEUE_REMOVE(q);
-      QUEUE_INIT(q);
-      QUEUE_INSERT_HEAD(&loop->wq, q);
-    }
-    uv_mutex_unlock(&loop->wq_mutex);
-
-    uv_async_send(&loop->wq_async); /* Pending done items! */
-  }
-
 }
 
 static void uv__queue_work(struct uv__work* w) {

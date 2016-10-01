@@ -1129,7 +1129,6 @@ UV_EXTERN any_func uv_uv__fs_done_ptr (void);
 UV_EXTERN any_func uv_uv__stream_io_ptr (void);
 UV_EXTERN any_func uv_uv__udp_io_ptr (void);
 UV_EXTERN any_func uv_uv__async_io_ptr (void);
-UV_EXTERN any_func uv_uv__async_event_ptr (void);
 UV_EXTERN any_func uv_uv__server_io_ptr (void);
 UV_EXTERN any_func uv_uv__signal_event_ptr (void);
 UV_EXTERN any_func uv_uv__getaddrinfo_work_ptr (void);
