@@ -135,7 +135,6 @@ void mylog_init (void)
 
   if (initialized)
     return;
-  initialized = 1;
 
   output_stream = stderr;
 
@@ -148,6 +147,8 @@ void mylog_init (void)
   /* Print log header. */
   fprintf(output_stream, "%-10s %-3s %-32s %-7s %-20s %-10s\n", "LOG CLASS", "VOL", "TIME", "PID", "TID", "MESSAGE");
   fflush(output_stream);
+
+  initialized = 1;
 }
 
 void mylog_set_verbosity (enum log_class log_class, int verbosity)

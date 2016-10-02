@@ -130,7 +130,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       looper_epoll_diff_us = timespec_us(&looper_epoll_diff);
     }
 
-    if (tpFreedom_implDetails.args.tp_degrees_of_freedom <= queue_len)
+    if (0 < tpFreedom_implDetails.args.tp_degrees_of_freedom && tpFreedom_implDetails.args.tp_degrees_of_freedom <= queue_len)
     {
       mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (tp_degrees_of_freedom %i, queue_len %i) (%s)\n", tpFreedom_implDetails.args.tp_degrees_of_freedom, queue_len, schedule_point_to_string(point));
       spd_wants_work->should_get_work = 1;
@@ -179,7 +179,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     if (deg_freedom == -1)
       deg_freedom = wq_len;
 
-    wq_ix = rand_int(MIN(wq_len, tpFreedom_implDetails.args.tp_degrees_of_freedom));
+    wq_ix = rand_int(MIN(wq_len, deg_freedom));
     mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: Chose wq_ix %i (item %i/%i) (%s)\n", wq_ix, wq_ix+1, wq_len, schedule_point_to_string(point));
 
     *indexP = wq_ix;

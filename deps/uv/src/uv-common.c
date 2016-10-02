@@ -1081,6 +1081,7 @@ void initialize_record_and_replay (void)
  *                                                                              "1" means to simulate 1 thread; TP work will not be re-ordered.
  *                                                                              "2" means to simulate 2 threads; the TP thread will always do one of the first two pending events.
  *                                                                              -1 means "select at random from the entire list", and is essentially a dynamically-sized TP.
+ *                                                                              If you give -1, we'll wait for the TP delay you specify to let the queue become maximally full.
  *                                     UV_SCHEDULER_TP_MAX_DELAY                TP: Max delay in us while waiting for queue to fill
  *                                     UV_SCHEDULER_TP_EPOLL_THRESHOLD          TP: Max time looper can be in epoll while TP waits for work queue to fill
  *                                     UV_SCHEDULER_IOPOLL_DEG_FREEDOM          Looper (io_poll): Legal "shuffle distance" of the epoll events.

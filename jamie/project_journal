@@ -2270,14 +2270,29 @@ Fri 30 Sep 2016
 
 --------------------------------
 
-Fri 30 Sep 2016
+Sat 01 Oct 2016
 
-1. Finish up async de-multiplexing.
+1. Finish up async de-multiplexing and make a commit
 
 2. Potential other sources of multiplexing (uv-unix.h: members of uv_loop_s):
     uv__io_t signal_io_watcher;
     uv_signal_t child_watcher;
 
+3. Begin working on testing npm modules.
+
+  ~/Documents/research/nodefuzzer_modules_to_test/node_modules
+
+  Issues so far:
+    - "npm install" doesn't seem to be installing dependencies correctly, so "npm test" often fails with missing dependencies
+      > e.g. mocha, babel-register
+      > This issue was because we weren't using the '--dev' flag with npm install
+      > See notes in node_test_suite_journal.txt
+
+--------------------------------
+
+Sun 02 Oct 2016
+
+1. Continue working on node test suite testing. Currently working on mkdirp.
 
 TODO
   - How does nextTick look at the libuv level?
