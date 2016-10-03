@@ -1,0 +1,103 @@
+Installing stuff:
+	npm -g was installing to noderacer2
+	I'm not sure why, since 'env | grep noderacer2' doesn't show anything up
+
+	"node" was in /usr/local/bin and was a symlink to 
+
+	jamie@smellythingMint /usr/local/bin $ ls -lh node
+	lrwxrwxrwx 1 root root   60 Jul 26 22:23 node -> /home/jamie/Documents/research/noderacer2/bin/node_5_0_0_pre
+
+	I unlinked it and set it to /usr/bin/nodejs instead.
+	This seems to have fixed the problem.
+
+	More fundamentally, I'm going to want to be able to switch from "vanilla node" to "my node" after installation completes.
+
+	Maybe a useful resource:
+		http://stackabuse.com/the-ultimate-guide-to-configuring-npm/
+
+Installing so that "npm test" will work:
+	npm install --dev X
+		This will install the "devDependencies".
+		It will also take *way* longer than "npm install X".
+
+	The internet reports that my version of npm is out of date.
+	"npm install -g npm" brings it from 2.x to 3.10.8, which does seem noticeably faster.
+
+	This new version of node swaps out --dev for "--only=dev":
+		npm install--only=dev mkdirp
+
+Testing stuff:
+	Well, "npm install --only=dev mkdirp" still didn't install tap and mock-fs correctly, but after installing them by hand I can run "npm test" successfully.
+	Update:
+		npm install mkdirp
+		cd mkdirp
+		NODE_ENV=development npm install
+			> This makes use of the module's package.json file to identify dependencies
+
+Switching between node versions:
+	sudo /home/jamie/bin/changeNode
+	Automatically switches /usr/local/bin/node between "vanilla node" and "devel node".
+
+------------------------------
+
+Alright, now I'm actually ready to do some testing.
+
+rm /tmp/err; UV_SCHEDULER_TYPE=VANILLA npm test 2>/tmp/err
+rm /tmp/err; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=5 UV_SCHEDULER_TP_MAX_DELAY=100 UV_SCHEDULER_TP_EPOLL_THRESHOLD=100 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=-1 UV_SCHEDULER_IOPOLL_DEFER_PERC=10 npm test 2>/tmp/err
+
+mkdirp:
+	- 2 tests fail. The failing tests are those that make use of mockfs, and the failure is because the devel version of node (5.0.0-pre) is unsupported by mock-fs.
+	  To change node version, see src/node_version.h. However, I tried every version supported by mock-fs and it didn't like any of them.
+
+I'm a bit confused about the current implementation and how it handles test/race.js (or more particularly, a variation on test/race.js in which the two dirs are different).
+Next step: Try test/race.js on the original index.js.
+
+jamie@smellythingMint ~/Documents/research/nodefuzzer_modules_to_test/node_modules/mkdirp $ ls index.js*
+index.js  index.js.LATEST  index.js.OLD
+
+Troublingly, "npm test" (== "tap test/*.js") hangs on my version of node (even under VANILLA) and completes fine on the other version.
+I suspect an issue with my async rewrite.
+
+git checkout 56fe41a851f768cf6e0a9c2c663d9fa05c38d963
+	UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_DEG_FREEDOM=1 UV_SCHEDULER_MAX_DELAY=0 UV_SCHEDULER_EPOLL_THRESHOLD=0 UV_THREADPOOL_SIZE=1 tap test/opts_fs.js
+	UV_SCHEDULER_TYPE=VANILLA tap test/opts_fs.js
+
+git checkout fea4f5fb968399394abbedfcda32688c11b8dfba
+	UV_SCHEDULER_MIN_DELAY=1 UV_SCHEDULER_MAX_DELAY=1 tap test/opts_fs.js
+
+
+------------------------------
+
+Findings:
+	- The mkdirp test suite at the time of the bug was too simple to detect it under any scheduling. No concurrent requests at all.
+	- The subsequent test/race.js test is sufficient to find the bug about 100% of the time using vanilla node. Essentially, the bug happens every time using a non-trivial test case.
+	- Using my scheduler, the bug will actually happen *less* often. Specifically, the case is like this:
+		mkdirp(a)
+		mkdirp(b)
+	
+	Using the vanilla node, neither a nor b gets created.
+  	Using the TP_FREEDOM scheduler, one of {a, b} gets created, and the other fails.
+	This is mildly interesting, I suppose, but not a useful finding.
+
+	An application that ran mkdirp requests as the result of user input or after TP work, however, could easily have ended up with a more infrequent bug.
+
+	If developers add a test case along with a bugfix, they've presumably confirmed that the test case targets the bug effectively enough that the bug will have a close-to-100% manifestation rate.
+	So if we want to demonstrate the usefulness of our fuzzer, we need to test on the applications that intermittently produce the bug, not the test programs that detect it consistently.
+	This can be viewed as simulating the "function/system test"-type test cases that might hit race conditions non-deterministically, rather than the "unit test"-type test cases that can hit a race condition ~100% of the time.
+	I feel that the "unit test"-type test cases are actually dangerous, since they depend on the timing of the implementation and may not test the right thing as the implementation evolves.
+
+	To that end, I've developed a test program that mimics the *application* described in the bug report (https://github.com/substack/node-mkdirp/issues/2).
+	The test program runs racing mkdirp requests separated by timers. This simulates racing mkdirps run as a result of some kind of external input.
+
+	The application is supposed to print "Success" twice in each run. It might print Sucess 0 or 1 times instead.
+	The vanilla node can detect the race about 23/500 or 5% of the time.
+	The TP_FREEDOM scheduler can detect the race about 141/500 or 28% of the time.
+
+	$ rm /tmp/o; for i in `seq 1 500`; do rm -rf /tmp/bar; node examples/pow_race_order.js >> /tmp/o; done; grep -c Success /tmp/o
+	977
+	$ sudo /home/jamie/bin/changeNode
+	$ rm /tmp/o; for i in `seq 1 500`; do rm -rf /tmp/bar; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=5 UV_SCHEDULER_TP_MAX_DELAY=1000 UV_SCHEDULER_TP_EPOLL_THRESHOLD=1000 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=5 UV_SCHEDULER_IOPOLL_DEFER_PERC=50 node examples/pow_race_order.js >> /tmp/o 2>/tmp/err; done; grep -c Success /tmp/o
+	859
+
+	This demonstrates that a simple "system test"-style test case might have missed the bug using vanilla node, but would more likely have turned up the bug using TP_FREEDOM node.
+

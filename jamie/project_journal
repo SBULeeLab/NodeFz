@@ -2294,14 +2294,54 @@ Sun 02 Oct 2016
 
 1. Continue working on node test suite testing. Currently working on mkdirp.
 
+--------------------------------
+
+Mon 03 Oct 2016
+
+1. Explore the mkdirp race more carefully.
+   Conclusion: Unless a module has randomized or "system test" type tests, its tests are unlikely to be helpful to us.
+   The mkdirp triggerRace.js hits the race almost every time even on vanilla node, because it's targeted at the race.
+   A developer presumably wouldn't check in a test that couldn't reliably trigger the race, so using TP_FREEDOM
+   might actually *decrease* the incidence of the race because we introduce randomness.
+
+   Instead, I opted to write an application modeled after the bug report.
+   In this case the bug doesn't manifest itself regularly under vanilla, but TP_FREEDOM can cause it to appear.
+   Unfortunately, bug reports typically only include "minimal" recreate scenarios, due to the difficulty of reproducing
+   non-deterministic bugs on vanilla node.
+   
+   This means that demonstrating the usefulness of our system could require developing a non-trivial supply of test drivers.
+   This might be unpleasantly labor-intensive, and will diminish how readily we can show the impact of our approach.
+
+   HOWEVER from mkdirp I learned how to install modules and run their tests, so perhaps I'll get a few more complex ones and see if anything turns up
+   before throwing in the towel.
+
+2. I tried to install and run the tests of a bunch of file system-themed modules.
+   See npm_module_install_and_test_results, but basically: 14 file system-themed modules, 1 successful installation+test suite, that suite hangs on my version of node.
+   Some development installations failed with ELIFECYCLE, presumably because my "vanilla" version of node is a bit old.
+
+   The module with passing tests had 6K downloads in the past month.
+   Most of the modules without tests had minimal downloads in the past month (high of 150). 
+   Of the modules with "npm test" failing with syntax errors, one of the modules without tests had 250 downloads this month, and the other had 144K downloads this month.
+
+   Summary:
+      - The most popular module's "npm test" failed.
+      - 1/14 had plain installation fail (libuv-fs)
+      - 3/14 had ELIFECYCLE on devel installation (file-system-css, file-system-cache, file-system-lint)
+      - 6/14 had no tests (cordova-zip-file-system, extended-fs, fs-io, sync-fs, promise-fs, fs-secure)
+      - 3/14 had "npm test" fail with syntax or dependency(?) errors (fs-rpc, file-system-store, fs-promise)
+      - 1/14 had devel installation and "npm test" succeed (file-system)
+
+  > Need to look into this hang, I'm guessing it's the same one as on 'npm test' for mkdirp (which hangs at the end of the "tap" run).
+
 TODO
+  - Fix "npm test" hang: mocha (file-system), tap (mkdirp)
   - How does nextTick look at the libuv level?
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
   - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
   - Attempt to recreate those race conditions
 
------------
 
+-----------
 
 STEPS:
 - An interesting comparison: "random testing" inspired by the empirical study. At the JS level, insert rand_sleep into any asynchronous method. See how much variation in the schedule arises.

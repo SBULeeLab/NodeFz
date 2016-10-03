@@ -1,0 +1,69 @@
+Installation attempts:
+
+---------------------------------------------------
+Applications with races
+---------------------------------------------------
+
+kue				errors on installing devel version
+
+---------------------------------------------------
+File system applications
+---------------------------------------------------
+
+Modules chosen from https://www.npmjs.com/search?q=file+system
+
+Module					npm link						Result
+		
+file-system-css			https://www.npmjs.com/package/file-system-css		ELIFECYCLE on installing devel version (while trying to run test, can't find ../src/cache -- this is true for other ELIFECYCLE errors too I think)
+											30 downloads this month.
+
+file-system-cache		https://www.npmjs.com/package/file-system-cache		ELIFECYCLE on installing devel version
+											83 downloads this month.
+
+file-system-store		https://www.npmjs.com/package/file-system-store		Installation and devel installation succeeded
+											"npm test" fails with "Unexpected token".
+											59 downloads this month.
+
+file-system			https://www.npmjs.com/package/file-system		Installation and devel installation succeeded
+											"npm test" passed.
+											Switching to my version of node, "npm test" hangs. "npm test" uses mocha.
+											I'm guessing this has the same root cause as the hang for tap on the mkdirp module.
+											6K downloads this month.
+
+file-system-lint		https://www.npmjs.com/package/file-system-lint		ELIFECYCLE on installing devel version
+											80 downloads this month.
+
+cordova-zip-file-system		https://www.npmjs.com/package/cordova-zip-file-system	Installation and devel installation succeeded.
+											No tests
+											32 downloads this month.
+
+extended-fs			https://www.npmjs.com/package/extended-fs		Installation and devel installation succeeded.
+											No tests
+											150 downloads this month.
+
+fs-rpc				https://www.npmjs.com/package/fs-rpc			Installation and devel installation succeeded.
+											"npm test" fails with "SyntaxError: Unexpected token *"
+											250 downloads this month.
+
+fs-io				https://www.npmjs.com/package/fs-io			Installation and devel installation succeeded.
+											No tests
+											21 downloads this month.
+
+sync-fs				https://www.npmjs.com/package/sync-fs			Installation and devel installation succeeded.
+											No tests
+											13 downloads this month.
+
+fs-promise			https://www.npmjs.com/package/fs-promise		Installation and devel installation succeeded.
+											"npm test" failed with "Error: Expecting global.Promise got es6-promise"
+											144K downloads this month.
+
+promise-fs			https://www.npmjs.com/package/promise-fs		Installation and devel installation succeeded.
+											No tests
+											49 downloads this month.
+
+libuv-fs			https://www.npmjs.com/package/libuv-fs			Installation failed. Tried to compile C++ code and ran into compilation errors.
+											15 downloads this month.
+
+fs-secure			https://www.npmjs.com/package/fs-secure			Installation and devel installation succeeded.
+											No tests
+											85 downloads this month.
