@@ -67,3 +67,11 @@ libuv-fs			https://www.npmjs.com/package/libuv-fs			Installation failed. Tried t
 fs-secure			https://www.npmjs.com/package/fs-secure			Installation and devel installation succeeded.
 											No tests
 											85 downloads this month.
+
+---------------------------------------------------
+Misc. popular applications
+---------------------------------------------------
+
+forever       https://www.npmjs.com/package/forever       Installaton and devel installation succeeded.
+                                                          One test failed, a la https://github.com/foreverjs/forever/issues/846
+                                                          Would be interesting to know whether it fails consistently or not.
