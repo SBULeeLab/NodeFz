@@ -2335,11 +2335,10 @@ Mon 03 Oct 2016
 
 TODO
   - Fix "npm test" hang: mocha (file-system), tap (mkdirp)
+    > Try with various versions of node to see when the hang was introduced, starting with 'git checkout master' so we actually know whether it ever worked
+  - Look through Arun's recreate scenarios. How easy would it be to convert them to be a function of user input timing, so that they mimic a "system test" type test and don't occur "all the time" using vanilla node?
   - How does nextTick look at the libuv level?
   - Schedule recording (it's in CBTree) for visualization and so on. Should be safe now that there's invoke_callback mutex.
-  - Identify the race conditions tied to the TP (rather than user input) in Arun's cases
-  - Attempt to recreate those race conditions
-
 
 -----------
 
