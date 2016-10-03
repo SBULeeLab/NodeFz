@@ -394,7 +394,15 @@ int scheduler__lock_depth (void);
 
 void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedule_file, void *args)
 {
+  struct timespec now;
+  long now_us = 0;
+
   assert(!scheduler_initialized);
+
+  assert(clock_gettime(CLOCK_MONOTONIC_RAW, &now) == 0);
+  now_us = timespec_us(&now);
+  mylog(LOG_SCHEDULER, 1, "scheduler_init: seeding RNG with %lu\n", now_us);
+  srand(now_us);
 
   /* Shared amongst all scheduler implementations. */
   scheduler.magic = SCHEDULER_MAGIC;

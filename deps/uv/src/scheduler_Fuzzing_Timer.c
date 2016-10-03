@@ -5,7 +5,6 @@
 
 #include <unistd.h> /* usleep, unlink */
 #include <string.h> /* memcpy */
-#include <stdlib.h> /* srand */
 #include <time.h>   /* time */
 #include <assert.h>
 
@@ -42,8 +41,6 @@ scheduler_fuzzing_timer_init (scheduler_mode_t mode, void *args, schedulerImpl_t
   assert(args != NULL);
   assert(schedulerImpl != NULL);
   assert(schedulerImpl != NULL);
-
-  srand(time(NULL));
 
   /* Populate schedulerImpl. */
   schedulerImpl->register_lcbn = scheduler_fuzzing_timer_register_lcbn;

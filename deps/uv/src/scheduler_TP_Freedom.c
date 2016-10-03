@@ -60,8 +60,6 @@ scheduler_tp_freedom_init (scheduler_mode_t mode, void *args, schedulerImpl_t *s
   tpSize = getenv("UV_THREADPOOL_SIZE");
   assert(tpSize != NULL && atoi(tpSize) == 1);
 
-  srand(time(NULL));
-
   /* Populate schedulerImpl. */
   schedulerImpl->register_lcbn = scheduler_tp_freedom_register_lcbn;
   schedulerImpl->next_lcbn_type = scheduler_tp_freedom_next_lcbn_type;
