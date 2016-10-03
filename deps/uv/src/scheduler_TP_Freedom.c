@@ -119,15 +119,27 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     struct timespec now, wait_diff, looper_epoll_diff;
     long wait_diff_us = 0, looper_epoll_diff_us = 0;
 
-    assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
-
-    timespec_sub(&now, &spd_wants_work->start_time, &wait_diff);
-    wait_diff_us = timespec_us(&wait_diff);
+    assert(clock_gettime(CLOCK_MONOTONIC_RAW, &now) == 0);
+  
+    /* TODO Weirdly I'm seeing cases where now is before start_time. Not sure how this happens, but ignoring it for now. */
+    if (timespec_cmp(&now, &spd_wants_work->start_time) == 1)
+    {
+      timespec_sub(&now, &spd_wants_work->start_time, &wait_diff);
+      wait_diff_us = timespec_us(&wait_diff);
+    }
+    else
+      wait_diff_us = 0;
 
     if (tpFreedom_implDetails.looper_in_epoll)
     {
-      timespec_sub(&now, &tpFreedom_implDetails.looper_epoll_start_time, &looper_epoll_diff);
-      looper_epoll_diff_us = timespec_us(&looper_epoll_diff);
+      /* TODO Weirdly I'm seeing cases where now is before looper_epoll_start_time. Not sure how this happens, but ignoring it for now. */
+      if (timespec_cmp(&now, &tpFreedom_implDetails.looper_epoll_start_time) == 1)
+      {
+        timespec_sub(&now, &tpFreedom_implDetails.looper_epoll_start_time, &looper_epoll_diff);
+        looper_epoll_diff_us = timespec_us(&looper_epoll_diff);
+      }
+      else
+        looper_epoll_diff_us = 0;
     }
 
     if (0 < tpFreedom_implDetails.args.tp_degrees_of_freedom && tpFreedom_implDetails.args.tp_degrees_of_freedom <= queue_len)
@@ -188,7 +200,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
   {
     assert(!tpFreedom_implDetails.looper_in_epoll);
     tpFreedom_implDetails.looper_in_epoll = 1;
-    assert(clock_gettime(CLOCK_MONOTONIC, &tpFreedom_implDetails.looper_epoll_start_time) == 0);
+    assert(clock_gettime(CLOCK_MONOTONIC_RAW, &tpFreedom_implDetails.looper_epoll_start_time) == 0);
   }
   else if (point == SCHEDULE_POINT_LOOPER_AFTER_EPOLL)
   {

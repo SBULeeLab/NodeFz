@@ -132,7 +132,7 @@ static void worker(void* arg) {
 
     memset(&spd_wants_work, 0, sizeof spd_wants_work);
     spd_wants_work_init(&spd_wants_work);
-    assert(clock_gettime(CLOCK_MONOTONIC, &spd_wants_work.start_time) == 0);
+    assert(clock_gettime(CLOCK_MONOTONIC_RAW, &spd_wants_work.start_time) == 0);
     spd_wants_work.wq = &wq;
 
    GET_WORK: /* worker holds no locks. */
@@ -143,7 +143,7 @@ static void worker(void* arg) {
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
       /* Reset the spd_wants_work clock. */
-      assert(clock_gettime(CLOCK_MONOTONIC, &spd_wants_work.start_time) == 0);
+      assert(clock_gettime(CLOCK_MONOTONIC_RAW, &spd_wants_work.start_time) == 0);
     }
 
     /* Now we know there is at least one work item in the queue. 

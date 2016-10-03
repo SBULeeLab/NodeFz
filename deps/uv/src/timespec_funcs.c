@@ -33,3 +33,21 @@ long timespec_us (const struct timespec *ts)
   /* Convert to ns, then to us. */
   return ((long) ts->tv_sec*1000000000 + (long) ts->tv_nsec)/1000;
 }
+
+int timespec_cmp (const struct timespec *a, const struct timespec *b)
+{
+  long ts_a = timespec_us(a);
+  long ts_b = timespec_us(b);
+  int cmp = -5;
+
+  if (ts_a < ts_b)
+    cmp = -1;
+  else if (ts_a == ts_b)
+    cmp = 0;
+  else if (ts_a > ts_b)
+    cmp = 1;
+  else
+    assert(!"timespec_cmp: Error, how did I get here?");
+
+  return cmp;
+}
