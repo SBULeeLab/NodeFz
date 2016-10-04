@@ -1,0 +1,784 @@
+Tue Oct  4 13:04:56 2016 I have modules <file-system-css file-system-cache file-system-store file-system file-system-lint cordova-zip-file-system extended-fs fs-rpc fs-io sync-fs fs-promise promise-fs libuv-fs fs-secure forever> installDir </tmp/test_npm_module_1475600696_installDir>
+Tue Oct  4 13:04:56 2016 main::changeDir: changing dir from /home/jamie3/Desktop/noderacer2/bin to /tmp/test_npm_module_1475600696_installDir
+Tue Oct  4 13:04:56 2016 main::main: Testing module file-system-css
+Tue Oct  4 13:04:56 2016 main::testModule: Testing file-system-css
+  CMD: npm install file-system-css 2>&1
+Tue Oct  4 13:04:59 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/file-system-css
+  CMD: npm install --only=dev 2>&1
+Tue Oct  4 13:05:15 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css to /tmp/test_npm_module_1475600696_installDir
+	file-system-css: result DEVEL INSTALL FAILED; Couldn't install devel version of module file-system-css. 'npm install --only=dev' failed with rc 1 out npm WARN deprecated minimatch@2.0.10: Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue
+npm WARN deprecated lodash.assign@4.2.0: This package is deprecated. Use Object.assign.
+npm WARN deprecated to-iso-string@0.0.2: to-iso-string has been deprecated, use @segment/to-iso-string instead.
+npm WARN deprecated jade@0.26.3: Jade has been renamed to pug, please install the latest version of pug instead of jade
+npm WARN deprecated minimatch@0.3.0: Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue
+
+> file-system-css@1.0.17 prepublish /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css
+> npm test && npm run lint && npm run build
+
+
+> file-system-css@1.0.17 test /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css
+> ./node_modules/mocha/bin/mocha --recursive --compilers js:babel-register
+
+module.js:338
+    throw err;
+    ^
+
+Error: Cannot find module '../src/cache'
+    at Function.Module._resolveFilename (module.js:336:15)
+    at Function.Module._load (module.js:286:25)
+    at Module.require (module.js:365:17)
+    at require (module.js:384:17)
+    at Object.<anonymous> (_init.js:1:1)
+    at Module._compile (module.js:434:26)
+    at loader (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css/node_modules/babel-register/lib/node.js:158:5)
+    at Object.require.extensions.(anonymous function) [as .js] (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css/node_modules/babel-register/lib/node.js:168:7)
+    at Module.load (module.js:355:32)
+    at Function.Module._load (module.js:310:12)
+    at Module.require (module.js:365:17)
+    at require (module.js:384:17)
+    at /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css/node_modules/mocha/lib/mocha.js:220:27
+    at Array.forEach (native)
+    at Mocha.loadFiles (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css/node_modules/mocha/lib/mocha.js:217:14)
+    at Mocha.run (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css/node_modules/mocha/lib/mocha.js:469:10)
+    at Object.<anonymous> (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css/node_modules/mocha/bin/_mocha:404:18)
+    at Module._compile (module.js:434:26)
+    at Object.Module._extensions..js (module.js:452:10)
+    at Module.load (module.js:355:32)
+    at Function.Module._load (module.js:310:12)
+    at Function.Module.runMain (module.js:475:10)
+    at startup (node.js:117:18)
+    at node.js:951:3
+npm ERR! Test failed.  See above for more details.
+
+npm WARN optional SKIPPING OPTIONAL DEPENDENCY: fsevents@^1.0.0 (node_modules/babel-cli/node_modules/chokidar/node_modules/fsevents):
+npm WARN notsup SKIPPING OPTIONAL DEPENDENCY: Unsupported platform for fsevents@1.0.14: wanted {"os":"darwin","arch":"any"} (current: {"os":"linux","arch":"x64"})
+npm WARN You are using a pre-release version of node and things may not work as expected
+npm ERR! Linux 3.13.0-86-generic
+npm ERR! argv "/tmp/node-devel.MASTER" "/usr/local/bin/npm" "install" "--only=dev"
+npm ERR! node v5.0.0-pre
+npm ERR! npm  v3.10.8
+npm ERR! code ELIFECYCLE
+npm ERR! file-system-css@1.0.17 prepublish: `npm test && npm run lint && npm run build`
+npm ERR! Exit status 1
+npm ERR! 
+npm ERR! Failed at the file-system-css@1.0.17 prepublish script 'npm test && npm run lint && npm run build'.
+npm ERR! Make sure you have the latest version of node.js and npm installed.
+npm ERR! If you do, this is most likely a problem with the file-system-css package,
+npm ERR! not with npm itself.
+npm ERR! Tell the author that this fails on your system:
+npm ERR!     npm test && npm run lint && npm run build
+npm ERR! You can get information on how to open an issue for this project with:
+npm ERR!     npm bugs file-system-css
+npm ERR! Or if that isn't available, you can get their info via:
+npm ERR!     npm owner ls file-system-css
+npm ERR! There is likely additional logging output above.
+
+npm ERR! Please include the following file with any support request:
+npm ERR!     /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-css/npm-debug.log
+
+Tue Oct  4 13:05:15 2016 main::main: Testing module file-system-cache
+Tue Oct  4 13:05:15 2016 main::testModule: Testing file-system-cache
+  CMD: npm install file-system-cache 2>&1
+Tue Oct  4 13:05:17 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/file-system-cache
+  CMD: npm install --only=dev 2>&1
+Tue Oct  4 13:05:33 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache to /tmp/test_npm_module_1475600696_installDir
+	file-system-cache: result DEVEL INSTALL FAILED; Couldn't install devel version of module file-system-cache. 'npm install --only=dev' failed with rc 1 out npm WARN deprecated minimatch@2.0.10: Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue
+npm WARN deprecated lodash.assign@4.2.0: This package is deprecated. Use Object.assign.
+npm WARN deprecated to-iso-string@0.0.2: to-iso-string has been deprecated, use @segment/to-iso-string instead.
+npm WARN deprecated jade@0.26.3: Jade has been renamed to pug, please install the latest version of pug instead of jade
+npm WARN deprecated minimatch@0.3.0: Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue
+
+> file-system-cache@1.0.5 prepublish /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache
+> npm test && npm run lint && npm run build
+
+
+> file-system-cache@1.0.5 test /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache
+> ./node_modules/mocha/bin/mocha --recursive --compilers js:babel-register
+
+module.js:338
+    throw err;
+    ^
+
+Error: Cannot find module '../src/cache'
+    at Function.Module._resolveFilename (module.js:336:15)
+    at Function.Module._load (module.js:286:25)
+    at Module.require (module.js:365:17)
+    at require (module.js:384:17)
+    at Object.<anonymous> (cache-clear.test.js:5:1)
+    at Module._compile (module.js:434:26)
+    at loader (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache/node_modules/babel-register/lib/node.js:158:5)
+    at Object.require.extensions.(anonymous function) [as .js] (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache/node_modules/babel-register/lib/node.js:168:7)
+    at Module.load (module.js:355:32)
+    at Function.Module._load (module.js:310:12)
+    at Module.require (module.js:365:17)
+    at require (module.js:384:17)
+    at /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache/node_modules/mocha/lib/mocha.js:220:27
+    at Array.forEach (native)
+    at Mocha.loadFiles (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache/node_modules/mocha/lib/mocha.js:217:14)
+    at Mocha.run (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache/node_modules/mocha/lib/mocha.js:469:10)
+    at Object.<anonymous> (/tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache/node_modules/mocha/bin/_mocha:404:18)
+    at Module._compile (module.js:434:26)
+    at Object.Module._extensions..js (module.js:452:10)
+    at Module.load (module.js:355:32)
+    at Function.Module._load (module.js:310:12)
+    at Function.Module.runMain (module.js:475:10)
+    at startup (node.js:117:18)
+    at node.js:951:3
+npm ERR! Test failed.  See above for more details.
+
+npm WARN optional SKIPPING OPTIONAL DEPENDENCY: fsevents@^1.0.0 (node_modules/chokidar/node_modules/fsevents):
+npm WARN notsup SKIPPING OPTIONAL DEPENDENCY: Unsupported platform for fsevents@1.0.14: wanted {"os":"darwin","arch":"any"} (current: {"os":"linux","arch":"x64"})
+npm WARN You are using a pre-release version of node and things may not work as expected
+npm ERR! Linux 3.13.0-86-generic
+npm ERR! argv "/tmp/node-devel.MASTER" "/usr/local/bin/npm" "install" "--only=dev"
+npm ERR! node v5.0.0-pre
+npm ERR! npm  v3.10.8
+npm ERR! code ELIFECYCLE
+npm ERR! file-system-cache@1.0.5 prepublish: `npm test && npm run lint && npm run build`
+npm ERR! Exit status 1
+npm ERR! 
+npm ERR! Failed at the file-system-cache@1.0.5 prepublish script 'npm test && npm run lint && npm run build'.
+npm ERR! Make sure you have the latest version of node.js and npm installed.
+npm ERR! If you do, this is most likely a problem with the file-system-cache package,
+npm ERR! not with npm itself.
+npm ERR! Tell the author that this fails on your system:
+npm ERR!     npm test && npm run lint && npm run build
+npm ERR! You can get information on how to open an issue for this project with:
+npm ERR!     npm bugs file-system-cache
+npm ERR! Or if that isn't available, you can get their info via:
+npm ERR!     npm owner ls file-system-cache
+npm ERR! There is likely additional logging output above.
+
+npm ERR! Please include the following file with any support request:
+npm ERR!     /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-cache/npm-debug.log
+
+Tue Oct  4 13:05:33 2016 main::main: Testing module file-system-store
+Tue Oct  4 13:05:33 2016 main::testModule: Testing file-system-store
+  CMD: npm install file-system-store 2>&1
+Tue Oct  4 13:05:38 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/file-system-store
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:06:01 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-store to /tmp/test_npm_module_1475600696_installDir
+	file-system-store: result TEST FAILED; Module test failed. 'npm test' failed with rc 1 out 
+> file-system-store@1.0.2 test /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-store
+> grunt run_test
+
+Running "simplemocha:all" (simplemocha) task
+
+
+  FileSystemStore
+    #Constructor
+      ✓ should have the dependencies ready
+      ✓ should be able to instantiate a new store
+    #Collections
+      ✓ should not have collections at first
+      #Create
+        ✓ should be able to create a collection
+      #Update
+        - should have the dependencies ready
+      #Delete
+        - should have the dependencies ready
+    #Documents
+      #Create
+        ✓ should be able to create a document
+      #Read
+        1) should be able to read a document
+      #Update
+        2) should be able to update a document
+      #Delete
+        3) should be able to delete a document
+    #Backups
+      #Create
+        - should have the dependencies ready
+      #Read
+        - should have the dependencies ready
+      #Update
+        - should have the dependencies ready
+      #Delete
+        - should have the dependencies ready
+    #Others
+      - should have the dependencies ready
+
+
+  5 passing (28ms)
+  7 pending
+  3 failing
+
+  1) FileSystemStore #Documents #Read should be able to read a document:
+     AssertionError: expected [ Array(1) ] to have a length of 2 but got 1
+    at Context.<anonymous> (test/1_Base.js:186:38)
+  
+
+  2) FileSystemStore #Documents #Update should be able to update a document:
+     AssertionError: expected [] to have a length of 1 but got 0
+    at Context.<anonymous> (test/1_Base.js:219:38)
+  
+
+  3) FileSystemStore #Documents #Delete should be able to delete a document:
+     AssertionError: expected [] to have a length of 1 but got 0
+    at Context.<anonymous> (test/1_Base.js:245:38)
+  
+
+
+
+Warning: Task "simplemocha:all" failed. Use --force to continue.
+
+Aborted due to warnings.
+npm ERR! Test failed.  See above for more details.
+
+Tue Oct  4 13:06:01 2016 main::main: Testing module file-system
+Tue Oct  4 13:06:01 2016 main::testModule: Testing file-system
+  CMD: npm install file-system 2>&1
+Tue Oct  4 13:06:05 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/file-system
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:06:08 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/file-system to /tmp/test_npm_module_1475600696_installDir
+	file-system: result SUCCESS; Successfully installed and tested. Test output: 
+> file-system@2.2.1 test /tmp/test_npm_module_1475600696_installDir/node_modules/file-system
+> mocha test
+
+
+
+  copy
+    ✓ copySync files with filter
+    ✓ copySync replace filepath
+    ✓ copySync with noProcess
+
+  copy file
+    copy file async
+      ✓ only copy
+      ✓ copy image
+    copy file sync
+      ✓ only copy
+      ✓ copy with process
+      ✓ copy image
+
+  filter params
+    ✓ match css files in current dir
+    ✓ match all css files
+    ✓ match all css files in specific folder
+    ✓ specific file * name
+    ✓ exclude all css files in specific folder
+
+  extend fs
+    ✓ node fs object
+    ✓ node origin methods
+
+  mkdir
+    ✓ one level Directory
+    ✓ multiple level Directory
+    ✓ file mode
+    ✓ callback
+
+  recurse
+    ✓ recurse files
+    ✓ recurseSync files
+    ✓ recurseSync filter files
+    ✓ copySync files
+    ✓ copySync empty folder
+    ✓ copySync process content
+
+
+  25 passing (33ms)
+
+
+Tue Oct  4 13:06:08 2016 main::main: Testing module file-system-lint
+Tue Oct  4 13:06:08 2016 main::testModule: Testing file-system-lint
+  CMD: npm install file-system-lint 2>&1
+Tue Oct  4 13:06:15 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/file-system-lint
+  CMD: npm install --only=dev 2>&1
+Tue Oct  4 13:06:39 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-lint to /tmp/test_npm_module_1475600696_installDir
+	file-system-lint: result DEVEL INSTALL FAILED; Couldn't install devel version of module file-system-lint. 'npm install --only=dev' failed with rc 1 out npm WARN deprecated remark-lint-config-itgalaxy@1.0.2: Move to https://github.com/itgalaxy/remark-preset-lint-itgalaxy
+
+> file-system-lint@0.1.3 prepublish /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-lint
+> npm run build
+
+
+> file-system-lint@0.1.3 prebuild /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-lint
+> rimraf dist
+
+
+> file-system-lint@0.1.3 build /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-lint
+> babel src --out-dir dist
+
+src doesn't exist
+
+npm ERR! Linux 3.13.0-86-generic
+npm ERR! argv "/tmp/node-devel.MASTER" "/usr/local/bin/npm" "run" "build"
+npm ERR! node v5.0.0-pre
+npm ERR! npm  v3.10.8
+npm ERR! code ELIFECYCLE
+npm ERR! file-system-lint@0.1.3 build: `babel src --out-dir dist`
+npm ERR! Exit status 2
+npm ERR! 
+npm ERR! Failed at the file-system-lint@0.1.3 build script 'babel src --out-dir dist'.
+npm ERR! Make sure you have the latest version of node.js and npm installed.
+npm ERR! If you do, this is most likely a problem with the file-system-lint package,
+npm ERR! not with npm itself.
+npm ERR! Tell the author that this fails on your system:
+npm ERR!     babel src --out-dir dist
+npm ERR! You can get information on how to open an issue for this project with:
+npm ERR!     npm bugs file-system-lint
+npm ERR! Or if that isn't available, you can get their info via:
+npm ERR!     npm owner ls file-system-lint
+npm ERR! There is likely additional logging output above.
+
+npm ERR! Please include the following file with any support request:
+npm ERR!     /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-lint/npm-debug.log
+
+npm WARN optional SKIPPING OPTIONAL DEPENDENCY: fsevents@^1.0.0 (node_modules/chokidar/node_modules/fsevents):
+npm WARN notsup SKIPPING OPTIONAL DEPENDENCY: Unsupported platform for fsevents@1.0.14: wanted {"os":"darwin","arch":"any"} (current: {"os":"linux","arch":"x64"})
+npm WARN You are using a pre-release version of node and things may not work as expected
+npm ERR! Linux 3.13.0-86-generic
+npm ERR! argv "/tmp/node-devel.MASTER" "/usr/local/bin/npm" "install" "--only=dev"
+npm ERR! node v5.0.0-pre
+npm ERR! npm  v3.10.8
+npm ERR! code ELIFECYCLE
+npm ERR! file-system-lint@0.1.3 prepublish: `npm run build`
+npm ERR! Exit status 1
+npm ERR! 
+npm ERR! Failed at the file-system-lint@0.1.3 prepublish script 'npm run build'.
+npm ERR! Make sure you have the latest version of node.js and npm installed.
+npm ERR! If you do, this is most likely a problem with the file-system-lint package,
+npm ERR! not with npm itself.
+npm ERR! Tell the author that this fails on your system:
+npm ERR!     npm run build
+npm ERR! You can get information on how to open an issue for this project with:
+npm ERR!     npm bugs file-system-lint
+npm ERR! Or if that isn't available, you can get their info via:
+npm ERR!     npm owner ls file-system-lint
+npm ERR! There is likely additional logging output above.
+
+npm ERR! Please include the following file with any support request:
+npm ERR!     /tmp/test_npm_module_1475600696_installDir/node_modules/file-system-lint/npm-debug.log
+
+Tue Oct  4 13:06:39 2016 main::main: Testing module cordova-zip-file-system
+Tue Oct  4 13:06:39 2016 main::testModule: Testing cordova-zip-file-system
+  CMD: npm install cordova-zip-file-system 2>&1
+Tue Oct  4 13:06:45 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/cordova-zip-file-system
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:06:46 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/cordova-zip-file-system to /tmp/test_npm_module_1475600696_installDir
+	cordova-zip-file-system: result TEST FAILED; Module test failed. 'npm test' failed with rc 1 out 
+> cordova-zip-file-system@0.0.2 test /tmp/test_npm_module_1475600696_installDir/node_modules/cordova-zip-file-system
+> echo "Error: no test specified" && exit 1
+
+Error: no test specified
+npm ERR! Test failed.  See above for more details.
+
+Tue Oct  4 13:06:46 2016 main::main: Testing module extended-fs
+Tue Oct  4 13:06:46 2016 main::testModule: Testing extended-fs
+  CMD: npm install extended-fs 2>&1
+Tue Oct  4 13:06:52 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/extended-fs
+  CMD: npm install --only=dev 2>&1
+Tue Oct  4 13:06:54 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/extended-fs to /tmp/test_npm_module_1475600696_installDir
+	extended-fs: result DEVEL INSTALL FAILED; Couldn't install devel version of module extended-fs. 'npm install --only=dev' failed with rc 1 out 
+> buffertools@2.1.4 install /tmp/test_npm_module_1475600696_installDir/node_modules/extended-fs/node_modules/buffertools
+> node-gyp rebuild
+
+gyp ERR! configure error 
+gyp ERR! stack Error: "pre" versions of node cannot be installed, use the --nodedir flag instead
+gyp ERR! stack     at install (/lib/node_modules/npm/node_modules/node-gyp/lib/install.js:66:16)
+gyp ERR! stack     at Object.self.commands.(anonymous function) [as install] (/lib/node_modules/npm/node_modules/node-gyp/lib/node-gyp.js:66:37)
+gyp ERR! stack     at getNodeDir (/lib/node_modules/npm/node_modules/node-gyp/lib/configure.js:75:20)
+gyp ERR! stack     at /lib/node_modules/npm/node_modules/node-gyp/lib/configure.js:42:7
+gyp ERR! stack     at /lib/node_modules/npm/node_modules/node-gyp/lib/configure.js:441:9
+gyp ERR! stack     at ChildProcess.exithandler (child_process.js:194:7)
+gyp ERR! stack     at emitTwo (events.js:87:13)
+gyp ERR! stack     at ChildProcess.emit (events.js:172:7)
+gyp ERR! stack     at maybeClose (internal/child_process.js:817:16)
+gyp ERR! stack     at Socket.<anonymous> (internal/child_process.js:319:11)
+gyp ERR! System Linux 3.13.0-86-generic
+gyp ERR! command "/tmp/node-devel.MASTER" "/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js" "rebuild"
+gyp ERR! cwd /tmp/test_npm_module_1475600696_installDir/node_modules/extended-fs/node_modules/buffertools
+gyp ERR! node -v v5.0.0-pre
+gyp ERR! node-gyp -v v3.4.0
+gyp ERR! not ok 
+extended-fs@0.3.3 /tmp/test_npm_module_1475600696_installDir/node_modules/extended-fs
+└─┬ mocha@3.1.0 
+  ├── browser-stdout@1.3.0 
+  ├─┬ commander@2.9.0 
+  │ └── graceful-readlink@1.0.1 
+  ├─┬ debug@2.2.0 
+  │ └── ms@0.7.1 
+  ├── diff@1.4.0 
+  ├── escape-string-regexp@1.0.5 
+  ├─┬ glob@7.0.5 
+  │ ├── fs.realpath@1.0.0 
+  │ ├─┬ inflight@1.0.5 
+  │ │ └── wrappy@1.0.2 
+  │ ├── inherits@2.0.3 
+  │ ├─┬ minimatch@3.0.3 
+  │ │ └─┬ brace-expansion@1.1.6 
+  │ │   ├── balanced-match@0.4.2 
+  │ │   └── concat-map@0.0.1 
+  │ ├── once@1.4.0 
+  │ └── path-is-absolute@1.0.1 
+  ├── growl@1.9.2 
+  ├── json3@3.3.2 
+  ├─┬ lodash.create@3.1.1 
+  │ ├─┬ lodash._baseassign@3.2.0 
+  │ │ ├── lodash._basecopy@3.0.1 
+  │ │ └─┬ lodash.keys@3.1.2 
+  │ │   ├── lodash._getnative@3.9.1 
+  │ │   ├── lodash.isarguments@3.1.0 
+  │ │   └── lodash.isarray@3.0.4 
+  │ ├── lodash._basecreate@3.0.3 
+  │ └── lodash._isiterateecall@3.0.9 
+  ├─┬ mkdirp@0.5.1 
+  │ └── minimist@0.0.8 
+  └─┬ supports-color@3.1.2 
+    └── has-flag@1.0.0 
+
+npm WARN extended-fs@0.3.3 license should be a valid SPDX license expression
+npm WARN You are using a pre-release version of node and things may not work as expected
+npm ERR! Linux 3.13.0-86-generic
+npm ERR! argv "/tmp/node-devel.MASTER" "/usr/local/bin/npm" "install" "--only=dev"
+npm ERR! node v5.0.0-pre
+npm ERR! npm  v3.10.8
+npm ERR! code ELIFECYCLE
+
+npm ERR! buffertools@2.1.4 install: `node-gyp rebuild`
+npm ERR! Exit status 1
+npm ERR! 
+npm ERR! Failed at the buffertools@2.1.4 install script 'node-gyp rebuild'.
+npm ERR! Make sure you have the latest version of node.js and npm installed.
+npm ERR! If you do, this is most likely a problem with the buffertools package,
+npm ERR! not with npm itself.
+npm ERR! Tell the author that this fails on your system:
+npm ERR!     node-gyp rebuild
+npm ERR! You can get information on how to open an issue for this project with:
+npm ERR!     npm bugs buffertools
+npm ERR! Or if that isn't available, you can get their info via:
+npm ERR!     npm owner ls buffertools
+npm ERR! There is likely additional logging output above.
+
+npm ERR! Please include the following file with any support request:
+npm ERR!     /tmp/test_npm_module_1475600696_installDir/node_modules/extended-fs/npm-debug.log
+
+Tue Oct  4 13:06:54 2016 main::main: Testing module fs-rpc
+Tue Oct  4 13:06:54 2016 main::testModule: Testing fs-rpc
+  CMD: npm install fs-rpc 2>&1
+Tue Oct  4 13:06:59 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/fs-rpc
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:07:01 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/fs-rpc to /tmp/test_npm_module_1475600696_installDir
+	fs-rpc: result SUCCESS; Successfully installed and tested. Test output: 
+> fs-rpc@6.0.2 test /tmp/test_npm_module_1475600696_installDir/node_modules/fs-rpc
+> mocha
+
+
+
+  fs-rpc module
+    ✓ should have loaded module
+    FSRPC.Client
+      Client.stringify remote procedure call
+        ✓ should have a stringify function
+        ✓ should generate correct rpc-string
+      static Client.parse
+        ✓ should have a parse function
+        ✓ should parse rpc results
+    FSRPC.Server
+      FSRPC.Server instance
+        ✓ should have a constructor
+      FSRPC.Server static functions
+        Server.parse rpc-strings
+          ✓ should parse rpc-strings
+        Server.validate validation
+          ✓ should have validate function
+          ✓ should return an error if function name rpc.fn is not set in config
+          ✓ should return null for function names set in config
+          ✓ should validate argument data types
+        Server.execute
+          ✓ should have execution function
+          ✓ should return error on executing undefined function
+          ✓ should execute rpc on rpcFS
+        Server.stringify
+          ✓ should stringify exec results
+      use as an express middleware
+        ✓ should handle request
+
+
+  16 passing (19ms)
+
+
+Tue Oct  4 13:07:01 2016 main::main: Testing module fs-io
+Tue Oct  4 13:07:01 2016 main::testModule: Testing fs-io
+  CMD: npm install fs-io 2>&1
+Tue Oct  4 13:07:07 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/fs-io
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:07:08 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/fs-io to /tmp/test_npm_module_1475600696_installDir
+	fs-io: result TEST FAILED; Module test failed. 'npm test' failed with rc 1 out 
+> fs-io@1.0.0 test /tmp/test_npm_module_1475600696_installDir/node_modules/fs-io
+> echo "Error: no test specified" && exit 1
+
+Error: no test specified
+npm ERR! Test failed.  See above for more details.
+
+Tue Oct  4 13:07:08 2016 main::main: Testing module sync-fs
+Tue Oct  4 13:07:08 2016 main::testModule: Testing sync-fs
+  CMD: npm install sync-fs 2>&1
+Tue Oct  4 13:07:14 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/sync-fs
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:07:15 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/sync-fs to /tmp/test_npm_module_1475600696_installDir
+	sync-fs: result SUCCESS; Successfully installed and tested. Test output: 
+> sync-fs@1.0.1 test /tmp/test_npm_module_1475600696_installDir/node_modules/sync-fs
+> echo 'Error: no test specified'
+
+Error: no test specified
+
+Tue Oct  4 13:07:15 2016 main::main: Testing module fs-promise
+Tue Oct  4 13:07:15 2016 main::testModule: Testing fs-promise
+  CMD: npm install fs-promise 2>&1
+Tue Oct  4 13:07:21 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/fs-promise
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:07:23 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/fs-promise to /tmp/test_npm_module_1475600696_installDir
+	fs-promise: result SUCCESS; Successfully installed and tested. Test output: 
+> fs-promise@0.5.0 test /tmp/test_npm_module_1475600696_installDir/node_modules/fs-promise
+> mocha
+
+
+
+  basic
+    ✓ should create files and readdir
+    ✓ should pass through Sync as value
+    ✓ should copy with pipe read/write stream
+    ✓ should pass third argument from write #7
+    ✓ should create files and walk #9
+
+  fs
+    ✓ .stat()
+    ✓ .statSync()
+    ✓ .exists()
+    ✓ .existsSync()
+    callback support
+      ✓ .stat()
+      ✓ .exists()
+
+
+  11 passing (32ms)
+
+
+Tue Oct  4 13:07:23 2016 main::main: Testing module promise-fs
+Tue Oct  4 13:07:23 2016 main::testModule: Testing promise-fs
+  CMD: npm install promise-fs 2>&1
+Tue Oct  4 13:07:29 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/promise-fs
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:07:30 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/promise-fs to /tmp/test_npm_module_1475600696_installDir
+	promise-fs: result SUCCESS; Successfully installed and tested. Test output: 
+> promise-fs@1.1.0 test /tmp/test_npm_module_1475600696_installDir/node_modules/promise-fs
+> echo 'Error: no test specified'
+
+Error: no test specified
+
+Tue Oct  4 13:07:30 2016 main::main: Testing module libuv-fs
+Tue Oct  4 13:07:30 2016 main::testModule: Testing libuv-fs
+  CMD: npm install libuv-fs 2>&1
+	libuv-fs: result INSTALL FAILED; COuldn't install module libuv-fs. 'npm install libuv-fs' failed with rc 1 out npm WARN deprecated jade@0.26.3: Jade has been renamed to pug, please install the latest version of pug instead of jade
+npm WARN deprecated graceful-fs@1.2.3: graceful-fs v3.0.0 and before will fail on node releases >= v7.0. Please update to graceful-fs@^4.0.0 as soon as possible. Use 'npm ls graceful-fs' to find it in the tree.
+npm WARN deprecated minimatch@0.2.14: Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue
+npm WARN deprecated minimatch@0.4.0: Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue
+npm WARN deprecated minimatch@0.3.0: Please update to minimatch 3.0.2 or higher to avoid a RegExp DoS issue
+
+> libuv-fs@0.0.1 install /tmp/test_npm_module_1475600696_installDir/node_modules/libuv-fs
+> node-gyp rebuild
+
+gyp ERR! configure error 
+gyp ERR! stack Error: "pre" versions of node cannot be installed, use the --nodedir flag instead
+gyp ERR! stack     at install (/lib/node_modules/npm/node_modules/node-gyp/lib/install.js:66:16)
+gyp ERR! stack     at Object.self.commands.(anonymous function) [as install] (/lib/node_modules/npm/node_modules/node-gyp/lib/node-gyp.js:66:37)
+gyp ERR! stack     at getNodeDir (/lib/node_modules/npm/node_modules/node-gyp/lib/configure.js:75:20)
+gyp ERR! stack     at /lib/node_modules/npm/node_modules/node-gyp/lib/configure.js:42:7
+gyp ERR! stack     at /lib/node_modules/npm/node_modules/node-gyp/lib/configure.js:441:9
+gyp ERR! stack     at ChildProcess.exithandler (child_process.js:194:7)
+gyp ERR! stack     at emitTwo (events.js:87:13)
+gyp ERR! stack     at ChildProcess.emit (events.js:172:7)
+gyp ERR! stack     at maybeClose (internal/child_process.js:817:16)
+gyp ERR! stack     at Socket.<anonymous> (internal/child_process.js:319:11)
+gyp ERR! System Linux 3.13.0-86-generic
+gyp ERR! command "/tmp/node-devel.MASTER" "/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js" "rebuild"
+gyp ERR! cwd /tmp/test_npm_module_1475600696_installDir/node_modules/libuv-fs
+gyp ERR! node -v v5.0.0-pre
+gyp ERR! node-gyp -v v3.4.0
+gyp ERR! not ok 
+npm WARN optional SKIPPING OPTIONAL DEPENDENCY: fsevents@^1.0.0 (node_modules/chokidar/node_modules/fsevents):
+npm WARN notsup SKIPPING OPTIONAL DEPENDENCY: Unsupported platform for fsevents@1.0.14: wanted {"os":"darwin","arch":"any"} (current: {"os":"linux","arch":"x64"})
+npm WARN enoent ENOENT: no such file or directory, open '/tmp/test_npm_module_1475600696_installDir/package.json'
+npm WARN test_npm_module_1475600696_installDir No description
+npm WARN test_npm_module_1475600696_installDir No repository field.
+npm WARN test_npm_module_1475600696_installDir No README data
+npm WARN test_npm_module_1475600696_installDir No license field.
+npm WARN You are using a pre-release version of node and things may not work as expected
+npm ERR! Linux 3.13.0-86-generic
+npm ERR! argv "/tmp/node-devel.MASTER" "/usr/local/bin/npm" "install" "libuv-fs"
+npm ERR! node v5.0.0-pre
+npm ERR! npm  v3.10.8
+npm ERR! code ELIFECYCLE
+
+npm ERR! libuv-fs@0.0.1 install: `node-gyp rebuild`
+npm ERR! Exit status 1
+npm ERR! 
+npm ERR! Failed at the libuv-fs@0.0.1 install script 'node-gyp rebuild'.
+npm ERR! Make sure you have the latest version of node.js and npm installed.
+npm ERR! If you do, this is most likely a problem with the libuv-fs package,
+npm ERR! not with npm itself.
+npm ERR! Tell the author that this fails on your system:
+npm ERR!     node-gyp rebuild
+npm ERR! You can get information on how to open an issue for this project with:
+npm ERR!     npm bugs libuv-fs
+npm ERR! Or if that isn't available, you can get their info via:
+npm ERR!     npm owner ls libuv-fs
+npm ERR! There is likely additional logging output above.
+
+npm ERR! Please include the following file with any support request:
+npm ERR!     /tmp/test_npm_module_1475600696_installDir/npm-debug.log
+
+Tue Oct  4 13:07:39 2016 main::main: Testing module fs-secure
+Tue Oct  4 13:07:39 2016 main::testModule: Testing fs-secure
+  CMD: npm install fs-secure 2>&1
+Tue Oct  4 13:07:45 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/fs-secure
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:07:47 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/fs-secure to /tmp/test_npm_module_1475600696_installDir
+	fs-secure: result TEST FAILED; Module test failed. 'npm test' failed with rc 1 out 
+> fs-secure@0.0.7 test /tmp/test_npm_module_1475600696_installDir/node_modules/fs-secure
+> echo "Error: no test specified" && exit 1
+
+Error: no test specified
+npm ERR! Test failed.  See above for more details.
+
+Tue Oct  4 13:07:47 2016 main::main: Testing module forever
+Tue Oct  4 13:07:47 2016 main::testModule: Testing forever
+  CMD: npm install forever 2>&1
+Tue Oct  4 13:07:54 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir to node_modules/forever
+  CMD: npm install --only=dev 2>&1
+  CMD: npm test 2>&1
+Tue Oct  4 13:08:22 2016 main::changeDir: changing dir from /tmp/test_npm_module_1475600696_installDir/node_modules/forever to /tmp/test_npm_module_1475600696_installDir
+	forever: result TEST FAILED; Module test failed. 'npm test' failed with rc 1 out 
+> forever@0.15.2 test /tmp/test_npm_module_1475600696_installDir/node_modules/forever
+> vows test/**/*-test.js --spec -i
+
+ 
+  ♢ forever/core/startDaemon 
+  
+  When using forever the startDaemon() method with customized configuration
+    ✓ should respond with 1 process
+    ✓ and logs/pids/socks are all piping into the customized root
+  When the tests are over stop all forever processes
+    ✓ should stop the correct number of procs
+ 
+  ♢ forever/core/start-stop-json-array 
+  
+[33mwarn[39m:    --minUptime not set. Defaulting to: 1000ms
+[33mwarn[39m:    --spinSleepTime not set. Your script will exit if it does not stay up for at least 1000ms
+[32minfo[39m:    Forever processing file: [90mserver.js[39m
+[32minfo[39m:    Forever processing file: [90mserver.js[39m
+  When using forever to start process using JSON configuration file containing an array
+    ✗ the startup should works fine 
+        » expected 2, 
+  	got	 4 (==) // start-stop-json-array-test.js:32
+  When the script is running request to both ports
+    ✗ should respond correctly 
+        » expected null, got { 
+      stack: 'Error: connect ECONNREFUSED 127.0.0.1:8080\n    at Object.exports._errnoException (util.js:837:11)\n    at exports._exceptionWithHostPort (util.js:860:20)\n    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1060:14)', 
+      message: 'connect ECONNREFUSED 127.0.0.1:8080', 
+      code: 'ECONNREFUSED', 
+      errno: 'ECONNREFUSED', 
+      syscall: 'connect', 
+      address: '127.0.0.1', 
+      port: 8080 
+  } // start-stop-json-array-test.js:46
+[32minfo[39m:    No forever processes running
+[32minfo[39m:    Forever stopped processes:
+[90mdata[39m:    [37m   [39m [37muid[39m     [90mcommand[39m                [90mscript[39m                          [37mforever[39m [37mpid[39m   [37mid[39m [35mlogfile[39m                           [33muptime[39m  
+[90mdata[39m:    [0] server1 [90m/tmp/node-devel.MASTER[39m [90mtest/fixtures/server.js[39m         23933   23943    [35m/home/jamie3/.forever/server1.log[39m [31mSTOPPED[39m 
+[90mdata[39m:    [1] server2 [90m/tmp/node-devel.MASTER[39m [90mtest/fixtures/server.js -p 8081[39m 23938   23944    [35m/home/jamie3/.forever/server2.log[39m [31mSTOPPED[39m 
+[90mdata[39m:    [2] server1 [90m/tmp/node-devel.MASTER[39m [90mtest/fixtures/server.js[39m         24561   24571    [35m/home/jamie3/.forever/server1.log[39m [31mSTOPPED[39m 
+[90mdata[39m:    [3] server2 [90m/tmp/node-devel.MASTER[39m [90mtest/fixtures/server.js -p 8081[39m 24566   24576    [35m/home/jamie3/.forever/server2.log[39m [31mSTOPPED[39m 
+  When the script is running try to stopall
+    ✓ the shut down should works fine
+ 
+  ♢ forever/core/start-stop-json-obj 
+  
+[33mwarn[39m:    --minUptime not set. Defaulting to: 1000ms
+[33mwarn[39m:    --spinSleepTime not set. Your script will exit if it does not stay up for at least 1000ms
+[32minfo[39m:    Forever processing file: [90mserver.js[39m
+  When using forever to start process using JSON configuration file containing an object
+    ✓ the startup should works fine
+[31merror[39m:   Forever cannot find process with id: server
+  When the script is running try to stop by uid
+    ✓ the shut down should works fine
+ 
+  ♢ forever/core/start-stop-relative 
+  
+[33mwarn[39m:    --minUptime not set. Defaulting to: 1000ms
+[33mwarn[39m:    --spinSleepTime not set. Your script will exit if it does not stay up for at least 1000ms
+[32minfo[39m:    Forever processing file: [90m./test/fixtures/log-on-interval.js[39m
+  When using forever to run script with relative script path
+    ✓ the startup should works fine
+[32minfo[39m:    Forever stopped process:
+[37m   [39m [37muid[39m  [90mcommand[39m                [90mscript[39m                           [37mforever[39m [37mpid[39m   [37mid[39m [35mlogfile[39m                        [33muptime[39m      
+[0] uj5U [90m/tmp/node-devel.MASTER[39m [90mtest/fixtures/log-on-interval.js[39m 24637   24642    [35m/home/jamie3/.forever/uj5U.log[39m [33m0:0:0:1.848[39m 
+  When the script is running try to stop with relative script path
+    ✓ the shut down should works fine
+ 
+  ♢ forever/core/stopall-peaceful 
+  
+  When using forever to run script with 100% exit
+    ✓ the script should be marked as STOPPED
+  When the script is running try to stop all
+    ✓ the shut down should works fine
+ 
+  ♢ forever/core/stopbypid-peaceful 
+  
+[33mwarn[39m:    --minUptime not set. Defaulting to: 1000ms
+[33mwarn[39m:    --spinSleepTime not set. Your script will exit if it does not stay up for at least 1000ms
+[32minfo[39m:    Forever processing file: [90m./test/fixtures/log-on-interval.js[39m
+  When using forever to run script with 100% exit
+    ✓ the script should be running
+[32minfo[39m:    Forever stopped process:
+[37m   [39m [37muid[39m  [90mcommand[39m                [90mscript[39m                           [37mforever[39m [37mpid[39m   [37mid[39m [35mlogfile[39m                        [33muptime[39m      
+[0] UGig [90m/tmp/node-devel.MASTER[39m [90mtest/fixtures/log-on-interval.js[39m 24704   24709    [35m/home/jamie3/.forever/UGig.log[39m [33m0:0:0:1.853[39m 
+  When the script is running try to stop by pid
+    ✓ the shut down should works fine
+ 
+  ♢ forever/core/tail 
+  
+  When using forever the tail() method
+    ✓ should respond with logs for the script
+  When the tests are over stop all forever processes
+    ✓ should stop the correct number of procs
+ 
+  ♢ forever/workers/multiple 
+  
+  When using forever and spawning two processes using the same script
+    ✓ should respond with no error
+  When using forever and spawning two processes using the same script requests against the first child
+    ✓ should respond with i know nodejitsu
+    ✓ stop the child process
+  When using forever and spawning two processes using the same script requests against the second child
+    ✓ should respond with i know nodejitsu
+    ✓ stop the child process
+  Once the stop attempt has been made
+    ✓ the processes should be dead
+ 
+  ♢ forever/worker/simple 
+  
+  When using forever worker and starting it and pinging it worker should connect and respond to pings
+    ✓ with pong
+  When using forever worker and starting it and pinging it worker should connect and when quickly sending data and disconnecting
+    ✓ it should not crash the worker
+  When using forever worker and starting it and pinging it worker should connect and when queried for data
+    ✓ it should respond with data
+  When using forever worker and starting it and pinging it worker should connect and when asked to kill the process
+    ✓ it should kill the process
+(node) util.print is deprecated. Use console.log instead.
+
+✗ Broken » 24 honored ∙ 2 broken (21.955s) 
+  
+npm ERR! Test failed.  See above for more details.
+
