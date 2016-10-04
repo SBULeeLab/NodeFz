@@ -2333,6 +2333,61 @@ Mon 03 Oct 2016
 
   > Need to look into this hang, I'm guessing it's the same one as on 'npm test' for mkdirp (which hangs at the end of the "tap" run).
 
+--------------------------------
+
+Tue 04 Oct 2016
+
+1. Improve fuzz_benchmarks naming conventions.
+
+2. Add a fancier changeNode into noderacer2/bin.
+
+3. Add a test_npm_module script into noderacer2/bin.
+   This script goes through the specified modules and tries to:
+     - install
+     - devel install
+     - npm test
+   each of them. It prints its findings, including a result code and the failing or successful command + output.
+
+   I ran it using node-devel compiled on the master (i.e. original clone point) branch.
+   This version of node has the same "version string" (node -v) as our node-devel's from MultiSched_NoDoneQueue,
+   so any dependency issues will be the same as those when using our version of node.
+
+   $ readlink /usr/bin/node
+     /home/jamie3/Desktop/noderacer2/node_versions/node-devel.master
+   $ cat /tmp/modules
+     file-system-css
+     file-system-cache
+     file-system-store
+     file-system
+     file-system-lint
+     cordova-zip-file-system
+     extended-fs
+     fs-rpc
+     fs-io
+     sync-fs
+     fs-promise
+     promise-fs
+     libuv-fs
+     fs-secure
+     forever
+   $ time ./test_npm_module --moduleFile /tmp/modules >/tmp/out
+     real 3m25.596s
+     user 2m45.504s
+     sys  0m12.350s
+   $ for res in "INSTALL FAILED" "DEVEL INSTALL FAILED" "TEST FAILED" "SUCCESS"; do echo $res; grep -c "result $res" /tmp/out; done
+     INSTALL FAILED
+     1
+     DEVEL INSTALL FAILED
+     4
+     TEST FAILED
+     5
+     SUCCESS
+     5
+
+  Next step is to compare using our version of node, but to do that we need to fix the sometime "npm test" hang.
+
+4. 
+
 TODO
   - Fix "npm test" hang: mocha (file-system), tap (mkdirp)
     > Try with various versions of node to see when the hang was introduced, starting with 'git checkout master' so we actually know whether it ever worked
