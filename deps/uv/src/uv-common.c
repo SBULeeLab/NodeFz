@@ -959,6 +959,7 @@ struct map *pthread_to_tid;
 
 /* Returns the CBN associated with the initial stack.
    Not thread safe the first time it is called. */
+int init_stack_lcbn_initialized = 0;
 static lcbn_t * get_init_stack_lcbn (void)
 {
   static lcbn_t *init_stack_lcbn = NULL;
@@ -971,6 +972,7 @@ static lcbn_t * get_init_stack_lcbn (void)
     init_stack_lcbn->global_exec_id = lcbn_next_exec_id();
     init_stack_lcbn->global_reg_id = lcbn_next_reg_id();
     scheduler_register_lcbn(init_stack_lcbn);
+    init_stack_lcbn_initialized = 1;
   }
 
   assert(lcbn_looks_valid(init_stack_lcbn));
@@ -1401,6 +1403,7 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
   lcbn_t *lcbn_cur = NULL, *lcbn_new = NULL;
 
   mylog(LOG_MAIN, 5, "uv__register_callback: context %p cb_type %s\n", context, callback_type_to_string(cb_type));
+  assert(init_stack_lcbn_initialized);
 
   /* Identify the context of the callback. */
   assert(context);
