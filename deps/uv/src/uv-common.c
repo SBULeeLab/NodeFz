@@ -1400,6 +1400,8 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
   enum callback_context cb_context;
   lcbn_t *lcbn_cur = NULL, *lcbn_new = NULL;
 
+  mylog(LOG_MAIN, 5, "uv__register_callback: context %p cb_type %s\n", context, callback_type_to_string(cb_type));
+
   /* Identify the context of the callback. */
   assert(context);
   cb_context = callback_type_to_context(cb_type);
@@ -1463,7 +1465,7 @@ void uv__mark_init_stack_begin (void)
   lcbn_current_set(init_stack_lcbn);
   lcbn_mark_begin(init_stack_lcbn);
 
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_begin: inital stack has begun\n"));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_begin: initial stack has begun\n"));
 }
 
 /* Note that we've finished the initial application stack. 
