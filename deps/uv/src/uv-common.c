@@ -1246,9 +1246,7 @@ void invoke_callback (callback_info_t *cbi)
   void *context = NULL;
   enum callback_context cb_context;
   lcbn_t *lcbn_orig = NULL, /* The LCBN executing at the time of this call (i.e. this call is a nested CB). */
-         *lcbn_cur = NULL,  /* The LCBN executed by this call. */
-         *lcbn_par = NULL;  /* The LCBN that registered lcbn_cur. */
-  tree_node_t *tree_par = NULL;
+         *lcbn_cur = NULL;  /* The LCBN executed by this call. */
   int is_logical_cb = 0; /* 1 if it's a UV_*CB, 0 if it's a UV__*CB. */
   int is_user_cb = 0;    /* if (is_logical_cb): 1 if it's a user UV_*CB, else 0. Only 0 if it's the UV_ASYNC_CB associated with the TP's done items. */
   /* if (is_user_cb), then is_logical_cb, too. */
@@ -1311,10 +1309,6 @@ void invoke_callback (callback_info_t *cbi)
     lcbn_cur = lcbn_get(cb_type_to_lcbn, cbi->type);
     assert(lcbn_looks_valid(lcbn_cur));
     assert(lcbn_cur->cb_type == cbi->type);
-    tree_par = tree_get_parent(&lcbn_cur->tree_node);
-    assert(tree_par);
-    lcbn_par = tree_entry(tree_par, lcbn_t, tree_node);
-    assert(lcbn_looks_valid(lcbn_par));
 
     /* Embed any extra info. */
     if (lcbn_cur->cb_type == UV_READ_CB)
@@ -1331,8 +1325,8 @@ void invoke_callback (callback_info_t *cbi)
     /* Execution parent (if nested). */
     lcbn_orig = lcbn_current_get();
 
-    mylog(LOG_MAIN, 3, "invoke_callback: Working with lcbn %p (type %s) context %p parent %p (type %s) lcbn_orig %p; is_user_cb %i\n",
-      lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_par, callback_type_to_string(lcbn_par->cb_type), lcbn_orig, is_user_cb);
+    mylog(LOG_MAIN, 3, "invoke_callback: Working with lcbn %p (type %s) context %p lcbn_orig %p; is_user_cb %i\n",
+      lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_orig, is_user_cb);
 
     lcbn_cur->info = cbi;
     lcbn_cur->executing_thread = pthread_self_internal();
@@ -1422,7 +1416,32 @@ static void mark_global_start (void)
    If CONTEXT is a uv_req_t *, it must have been uv_req_init'd already. 
 
    TODO We call lcbn_next_reg_id without mutex. If threadpool 'work' items register new CBs,
-     we're in trouble. */
+     we're in trouble. 
+     
+   TODO We assumed that every CB was registered by another CB.
+        However, mongoose-2992/fuzz_test/triggerRace.js produces the following call stack
+
+       (gdb) bt
+       #0  0x00007f9d9b36fcc9 in __GI_raise (sig=sig@entry=6) at ../nptl/sysdeps/unix/sysv/linux/raise.c:56
+       #1  0x00007f9d9b3730d8 in __GI_abort () at abort.c:89
+       #2  0x00007f9d9b368b86 in __assert_fail_base (fmt=0x7f9d9b4b9830 "%s%s%s:%u: %s%sAssertion `%s' failed.\n%n", assertion=assertion@entry=0x1906dff "lcbn_cur", 
+              file=file@entry=0x1906058 "../deps/uv/src/uv-common.c", line=line@entry=1430, function=function@entry=0x1907180 <__PRETTY_FUNCTION__.9659> "uv__register_callback") at assert.c:92
+       #3  0x00007f9d9b368c32 in __GI___assert_fail (assertion=0x1906dff "lcbn_cur", file=0x1906058 "../deps/uv/src/uv-common.c", line=1430, 
+                  function=0x1907180 <__PRETTY_FUNCTION__.9659> "uv__register_callback") at assert.c:101
+       #4  0x000000000159d9ae in uv__register_callback (context=0x3ba72d0, cb=0x15a7db0 <uv__getaddrinfo_work_wrapper>, cb_type=UV_GETADDRINFO_WORK_CB) at ../deps/uv/src/uv-common.c:1430
+       #5  0x00000000015a8309 in uv_getaddrinfo (loop=0x1e39500 <default_loop_struct>, req=0x3ba72d0, cb=0x14e9c35 <node::cares_wrap::AfterGetAddrInfo(uv_getaddrinfo_s*, int, addrinfo*)>, 
+                      hostname=0x7ffca46dfee0 "localhost", service=0x0, hints=0x7ffca46dfea0) at ../deps/uv/src/unix/getaddrinfo.c:224
+       #6  0x00000000014ea737 in node::cares_wrap::GetAddrInfo (args=...) at ../src/cares_wrap.cc:1086
+       #7  0x0000000000d8c867 in v8::internal::FunctionCallbackArguments::Call (this=0x7ffca46e0480, f=0x14ea3de <node::cares_wrap::GetAddrInfo(v8::FunctionCallbackInfo<v8::Value> const&)>)
+                          at ../deps/v8/src/arguments.cc:33
+       #8  0x0000000000ddae2d in v8::internal::HandleApiCallHelper<false> (isolate=0x3ab8520, args=...) at ../deps/v8/src/builtins.cc:1092
+       #9  0x0000000000dd56b8 in v8::internal::Builtin_Impl_HandleApiCall (args=..., isolate=0x3ab8520) at ../deps/v8/src/builtins.cc:1115
+       #10 0x0000000000dd562c in v8::internal::Builtin_HandleApiCall (args_length=6, args_object=0x7ffca46e0608, isolate=0x3ab8520) at ../deps/v8/src/builtins.cc:1111
+
+       This suggests that my understanding of how Node.js/v8 make use of libuv is incomplete.
+       As a result, we no longer track LCBN registration relationships, and our record-replay approach won't work
+       without a correction to our understanding.
+*/
 void uv__register_callback (void *context, any_func cb, enum callback_type cb_type)
 {
   uv_handle_t *context_handle = NULL;
@@ -1453,16 +1472,10 @@ void uv__register_callback (void *context, any_func cb, enum callback_type cb_ty
     assert(!"uv__register_callback: Error, unexpected cb_context");
   assert(cb_type_to_lcbn && map_looks_valid(cb_type_to_lcbn)); 
 
-  /* Identify the origin of the callback. */
-  lcbn_cur = lcbn_current_get();
-  /* TODO -- happens during 'npm install' after 'end of loop' is printed by Node. During exit I guess. */
-  assert(lcbn_cur); /* All callbacks are registered by application or library code. */
-
   /* Create a new LCBN. */
   lcbn_new = lcbn_create(context, cb, cb_type);
   /* Register it in its context. */
   lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
-  lcbn_add_child(lcbn_cur, lcbn_new);
 
   /* Add to metadata structures. */
   lcbn_new->global_reg_id = lcbn_next_reg_id();
