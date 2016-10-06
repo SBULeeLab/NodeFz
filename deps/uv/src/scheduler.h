@@ -162,8 +162,9 @@ enum schedule_point_e
  
   /* Timer schedule points. */
   SCHEDULE_POINT_TIMER_RUN, /* Timer: I'm in uv__run_timers considering the next timer. */
+  SCHEDULE_POINT_TIMER_NEXT_TIMEOUT, /* Timer: I'm in uv__next_timeout being asked how long until the next timer goes off. */
 
-  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TIMER_RUN
+  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TIMER_NEXT_TIMEOUT
 };
 typedef enum schedule_point_e schedule_point_t;
 
@@ -286,7 +287,7 @@ int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done);
 struct spd_timer_run_s
 {
   int magic;
-  uv_timer_t *timer; /* INPUT: The timer under consideration. */
+  uv_timer_t *timer; /* INPUT: The next-scheduled timer. */
   uint64_t now; /* INPUT: Current loop->time. */
   int run; /* OUTPUT: Set to 1 if we should run the timer, else 0. */
 };
@@ -295,6 +296,19 @@ typedef struct spd_timer_run_s spd_timer_run_t;
 void spd_timer_run_init (spd_timer_run_t *spd_timer_run);
 /* Returns non-zero if valid. */
 int spd_timer_run_is_valid (spd_timer_run_t *spd_timer_run);
+
+struct spd_timer_next_timeout_s
+{
+  int magic;
+  uv_timer_t *timer; /* INPUT: The next-scheduled timer. */
+  uint64_t now; /* INPUT: Current loop->time. */
+  uint64_t time_until_timer; /* OUTPUT: How long until timer "will" go off, relative to loop->time? Not an ironclad prediction, just a recommendation to uv__io_poll. */
+};
+typedef struct spd_timer_next_timeout_s spd_timer_next_timeout_t;
+
+void spd_timer_next_timeout_init (spd_timer_next_timeout_t *spd_timer_next_timeout);
+/* Returns non-zero if valid. */
+int spd_timer_next_timeout_is_valid (spd_timer_next_timeout_t *spd_timer_next_timeout);
 
 
 /* Returns non-zero if the {point, pointDetails} combination is valid. */

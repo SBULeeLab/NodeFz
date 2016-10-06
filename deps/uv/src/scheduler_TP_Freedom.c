@@ -259,10 +259,13 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     {
       /* If it's not ready yet, check if we should run it early. */
       int might_go_early_choice = rand_int(1000); /* tenths of a percent */
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s might_go_early_choice %i early_exec_tperc %i\n", schedule_point_to_string(point), might_go_early_choice, tpFreedom_implDetails.args.timer_early_exec_tperc);
       if (might_go_early_choice < tpFreedom_implDetails.args.timer_early_exec_tperc)
       {
         /* We might run early. Check how early the timer would be. */
         int go_early = 0;
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s might go early\n", schedule_point_to_string(point));
+
         if (tpFreedom_implDetails.args.timer_max_early_multiple == -1)
         {
           go_early = 1; /* Don't care about how early it is. */
@@ -283,11 +286,33 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
           spd_timer_run->run = 0;
       }
       else
+      {
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s won't go early\n", schedule_point_to_string(point));
         spd_timer_run->run = 0;
+      }
     }
 
     mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s run %i\n", schedule_point_to_string(point), spd_timer_run->run);
     assert(spd_timer_run->run == 0 || spd_timer_run->run == 1);
+  }
+  else if (point == SCHEDULE_POINT_TIMER_NEXT_TIMEOUT)
+  {
+    spd_timer_next_timeout_t *spd_timer_next_timeout = (spd_timer_next_timeout_t *) pointDetails;
+
+    uint64_t time_since_registration = spd_timer_next_timeout->now - spd_timer_next_timeout->timer->start_time;
+    uint64_t earliest_time_for_timeout = 0;
+
+    if (tpFreedom_implDetails.args.timer_max_early_multiple == -1)
+      /* If there's flexibility on how early to make it, just say it's already due and we'll let probability take care of it. */
+      earliest_time_for_timeout = spd_timer_next_timeout->now - 1;
+    else
+      earliest_time_for_timeout = MIN(spd_timer_next_timeout->timer->timeout, spd_timer_next_timeout->timer->start_time + time_since_registration * tpFreedom_implDetails.args.timer_max_early_multiple);
+
+    if (earliest_time_for_timeout < spd_timer_next_timeout->now)
+      spd_timer_next_timeout->time_until_timer = 0; 
+    else
+      spd_timer_next_timeout->time_until_timer = earliest_time_for_timeout - spd_timer_next_timeout->now;
+    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s time_until_timer %llu (requested timeout %llu time_since_registration %llu earliest_time_for_timeout %llu now %llu)\n", schedule_point_to_string(point), spd_timer_next_timeout->time_until_timer, spd_timer_next_timeout->timer->timeout, time_since_registration, earliest_time_for_timeout, spd_timer_next_timeout->now);
   }
 
 }

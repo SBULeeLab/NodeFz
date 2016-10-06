@@ -301,12 +301,15 @@ int uv_backend_fd(const uv_loop_t* loop) {
 
 
 int uv_backend_timeout(const uv_loop_t* loop) {
+  /* Trying to stop. */
   if (loop->stop_flag != 0)
     return 0;
 
+  /* No pending handles or requests, so nothing to wait for. */
   if (!uv__has_active_handles(loop) && !uv__has_active_reqs(loop))
     return 0;
 
+  /* Various reasons to keep spinning the loop. */
   if (!QUEUE_EMPTY(&loop->idle_handles))
     return 0;
 
@@ -316,6 +319,7 @@ int uv_backend_timeout(const uv_loop_t* loop) {
   if (loop->closing_handles)
     return 0;
 
+  /* Don't starve timers. */
   return uv__next_timeout(loop);
 }
 

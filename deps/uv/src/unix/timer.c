@@ -94,6 +94,7 @@ int uv_timer_start(uv_timer_t* handle,
   clamped_timeout = handle->loop->time + timeout;
   if (clamped_timeout < timeout) /* Overflow? */
     clamped_timeout = (uint64_t) -1;
+  mylog(LOG_TIMER, 7, "uv_timer_start: loop->time %llu handle %p timeout after %llu timeout loop time %llu\n", handle->loop->time, handle, timeout, clamped_timeout);
 
   handle->timer_cb = cb;
   handle->timeout = clamped_timeout;
@@ -161,28 +162,25 @@ uint64_t uv_timer_get_repeat(const uv_timer_t* handle) {
 int uv__next_timeout(const uv_loop_t* loop) {
   const struct heap_node* heap_node;
   const uv_timer_t* handle;
-  uint64_t diff;
+  spd_timer_next_timeout_t spd_timer_next_timeout;
 
   heap_node = heap_min((const struct heap*) &loop->timer_heap);
   if (heap_node == NULL)
     return -1; /* block indefinitely */
 
   handle = container_of(heap_node, const uv_timer_t, heap_node);
-  if (handle->timeout <= loop->time)
-    return 0;
 
-  diff = handle->timeout - loop->time;
-  if (diff > INT_MAX)
-  {
-    /* JD: TODO. If scheduler delays execution of a timer,
-      handle->timeout will be less than the current loop time.
-      This means that we may wait "forever" instead of going back 
-      to uv__run_timers. */
-    assert(!"uv__next_timeout: you should change this");
-    diff = INT_MAX;
-  }
+  spd_timer_next_timeout_init(&spd_timer_next_timeout);
+  spd_timer_next_timeout.timer = (uv_timer_t * /* I promise not to modify it */) handle;
+  spd_timer_next_timeout.now = loop->time;
+  scheduler_thread_yield(SCHEDULE_POINT_TIMER_NEXT_TIMEOUT, &spd_timer_next_timeout);
 
-  return diff;
+  /* We have to return an int, so cap if needed. */
+  if (INT_MAX < spd_timer_next_timeout.time_until_timer)
+    spd_timer_next_timeout.time_until_timer = INT_MAX;
+
+  mylog(LOG_TIMER, 7, "uv__next_timeout: time_until_timer %llu\n", spd_timer_next_timeout.time_until_timer);
+  return spd_timer_next_timeout.time_until_timer;
 }
 
 void uv__run_timers(uv_loop_t* loop) {
@@ -194,9 +192,23 @@ void uv__run_timers(uv_loop_t* loop) {
   for (;;) {
     heap_node = heap_min((struct heap*) &loop->timer_heap);
     if (heap_node == NULL)
+    {
+      mylog(LOG_TIMER, 7, "uv__run_timers: No timers left\n");
       break;
+    }
 
     handle = container_of(heap_node, uv_timer_t, heap_node);
+
+    /* A timer registered in this loop tick is a timer added by one of the timers we just invoked.
+     * Node.js states that the minimum timeout is 1 (https://nodejs.org/api/timers.html#timers_settimeout_callback_delay_arg),
+     *   so this is otherwise impossible.
+     * Therefore, don't invoke timers that were added by just-invoked timers, since this violates Node's rules.
+     */
+    if (handle->start_time == loop->time)
+    {
+      mylog(LOG_TIMER, 7, "uv__run_timers: The next timer %p was registered during this loop, so we definitely can't execute it\n", handle);
+      break;
+    }
 
     /* Ask the scheduler whether we should run this timer. */
     spd_timer_run_init(&spd_timer_run);
@@ -206,7 +218,7 @@ void uv__run_timers(uv_loop_t* loop) {
     scheduler_thread_yield(SCHEDULE_POINT_TIMER_RUN, &spd_timer_run);
     assert(spd_timer_run.run == 0 || spd_timer_run.run == 1);
 
-    mylog(LOG_TIMER, 7, "uv__run_timers: time is %llu, timer has timeout %llu, run %i\n", handle->loop->time, handle->timeout, spd_timer_run.run);
+    mylog(LOG_TIMER, 7, "uv__run_timers: timer %p, time is %llu, timer has timeout %llu, run %i\n", handle, handle->loop->time, handle->timeout, spd_timer_run.run);
     if (spd_timer_run.run)
     {
       uv_timer_stop(handle);

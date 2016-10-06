@@ -103,6 +103,7 @@ char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] =
 
     /* Timer. */ 
     "TIMER_RUN",
+    "TIMER_NEXT_TIMEOUT"
   };
 
 const char * schedule_point_to_string (schedule_point_t point)
@@ -126,6 +127,7 @@ static int SPD_TP_BEFORE_PUT_DONE_MAGIC = 59175099;
 static int SPD_TP_AFTER_PUT_DONE_MAGIC = 99281732;
 static int SPD_LOOPER_GETTING_DONE_MAGIC = 10229334;
 static int SPD_TIMER_RUN_MAGIC = 87874545;
+static int SPD_TIMER_NEXT_TIMEOUT_MAGIC = 85563324;
 
 void spd_before_exec_cb_init (spd_before_exec_cb_t *spd_before_exec_cb)
 {
@@ -293,6 +295,24 @@ int spd_timer_run_is_valid (spd_timer_run_t *spd_timer_run)
           spd_timer_run->timer != NULL);
 }
 
+void spd_timer_next_timeout_init (spd_timer_next_timeout_t *spd_timer_next_timeout)
+{
+  assert(spd_timer_next_timeout != NULL);
+  memset(spd_timer_next_timeout, 0, sizeof *spd_timer_next_timeout);
+  spd_timer_next_timeout->magic = SPD_TIMER_NEXT_TIMEOUT_MAGIC;
+  spd_timer_next_timeout->timer = NULL;
+  spd_timer_next_timeout->now = 0;
+  spd_timer_next_timeout->time_until_timer = 0;
+}
+
+int spd_timer_next_timeout_is_valid (spd_timer_next_timeout_t *spd_timer_next_timeout)
+{
+  return (spd_timer_next_timeout != NULL &&
+          spd_timer_next_timeout->magic == SPD_TIMER_NEXT_TIMEOUT_MAGIC &&
+          spd_timer_next_timeout->timer != NULL &&
+          0 < spd_timer_next_timeout->now);
+}
+
 int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
 {
   spd_before_exec_cb_t *spd_before_exec_cb = NULL;
@@ -307,6 +327,7 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
   spd_after_put_done_t *spd_after_put_done = NULL;
   spd_getting_done_t *spd_getting_done = NULL;
   spd_timer_run_t *spd_timer_run = NULL;
+  spd_timer_next_timeout_t *spd_timer_next_timeout = NULL;
 
   int is_valid = 0;
 
@@ -362,6 +383,10 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
     case SCHEDULE_POINT_TIMER_RUN:
       spd_timer_run = (spd_timer_run_t *) pointDetails;
       is_valid = spd_timer_run_is_valid(spd_timer_run);
+      break;
+    case SCHEDULE_POINT_TIMER_NEXT_TIMEOUT:
+      spd_timer_next_timeout = (spd_timer_next_timeout_t *) pointDetails;
+      is_valid = spd_timer_next_timeout_is_valid(spd_timer_next_timeout);
       break;
     default:
       assert(!"schedule_point_looks_valid: Error, unexpected point");
