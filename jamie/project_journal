@@ -2419,7 +2419,15 @@ Thur 06 Oct 2016
 
 1. Finish agent-keepalive testing. Misc. improvements to timer fuzzing scheme.
 
+2. Began work on socket.io-client
+
+  This command works using "vanilla node" and "devel node - master" when test/disconnect.js has only 1 of the 4 tests uncommented.
+  Not sure what the story is there.
+    (16:49:39) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO $ ./node_modules/.bin/mocha --reporter=spec test/disconnect.js 
+  Anyway, next step is to try it with "VANILLA/TP_FREEDOM devel node" and debug the mocha hang if it re-appears.
+
 TODO
+  - socket-io.client -- see notes from Thur 06 Oct
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
     agent-keepalive didn't need the "delay", but perhaps other modules will.
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 
