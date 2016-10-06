@@ -97,6 +97,7 @@ int uv_timer_start(uv_timer_t* handle,
 
   handle->timer_cb = cb;
   handle->timeout = clamped_timeout;
+  handle->start_time = handle->loop->time;
   handle->repeat = repeat;
 
   /* start_id is the second index to be compared in uv__timer_cmp() */
@@ -188,23 +189,37 @@ void uv__run_timers(uv_loop_t* loop) {
   struct heap_node* heap_node;
   uv_timer_t* handle;
 
+  spd_timer_run_t spd_timer_run;
+
   for (;;) {
     heap_node = heap_min((struct heap*) &loop->timer_heap);
     if (heap_node == NULL)
       break;
 
     handle = container_of(heap_node, uv_timer_t, heap_node);
-    if (handle->timeout > loop->time)
+
+    /* Ask the scheduler whether we should run this timer. */
+    spd_timer_run_init(&spd_timer_run);
+    spd_timer_run.timer = handle;
+    spd_timer_run.now = handle->loop->time;
+    spd_timer_run.run = -1;
+    scheduler_thread_yield(SCHEDULE_POINT_TIMER_RUN, &spd_timer_run);
+    assert(spd_timer_run.run == 0 || spd_timer_run.run == 1);
+
+    mylog(LOG_TIMER, 7, "uv__run_timers: time is %llu, timer has timeout %llu, run %i\n", handle->loop->time, handle->timeout, spd_timer_run.run);
+    if (spd_timer_run.run)
+    {
+      uv_timer_stop(handle);
+      uv_timer_again(handle);
+
+     #if UNIFIED_CALLBACK
+      invoke_callback_wrap((any_func) handle->timer_cb, UV_TIMER_CB, (long) handle);
+     #else
+      handle->timer_cb(handle);
+     #endif
+    }
+    else
       break;
-
-    uv_timer_stop(handle);
-    uv_timer_again(handle);
-
-#if UNIFIED_CALLBACK
-    invoke_callback_wrap((any_func) handle->timer_cb, UV_TIMER_CB, (long) handle);
-#else
-    handle->timer_cb(handle);
-#endif
   }
 }
 

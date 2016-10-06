@@ -259,7 +259,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
       }
     }
 
-    mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing (timeout %i)\n", timeout);
+    mylog(LOG_MAIN, 5, "uv__io_poll: epoll'ing (timeout %i ms)\n", timeout);
 
     /* Tell scheduler we're about to epoll. */
     spd_before_epoll_init(&spd_before_epoll);

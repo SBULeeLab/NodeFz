@@ -234,6 +234,61 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       }
     }
   }
+  else if (point == SCHEDULE_POINT_TIMER_RUN)
+  {
+    spd_timer_run_t *spd_timer_run = (spd_timer_run_t *) pointDetails;
+
+    int is_ready = (spd_timer_run->timer->timeout < spd_timer_run->now);
+
+    if (is_ready)
+    {
+      /* Check if we should delay it. */
+      int go_late_choice = rand_int(1000); /* tenths of a percent */
+      if (go_late_choice < tpFreedom_implDetails.args.timer_late_exec_tperc)
+      {
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer ready, but going late\n", schedule_point_to_string(point));
+        spd_timer_run->run = 0;
+      }
+      else
+      {
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer ready, going as normal\n", schedule_point_to_string(point));
+        spd_timer_run->run = 1;
+      }
+    }
+    else
+    {
+      /* If it's not ready yet, check if we should run it early. */
+      int might_go_early_choice = rand_int(1000); /* tenths of a percent */
+      if (might_go_early_choice < tpFreedom_implDetails.args.timer_early_exec_tperc)
+      {
+        /* We might run early. Check how early the timer would be. */
+        int go_early = 0;
+        if (tpFreedom_implDetails.args.timer_max_early_multiple == -1)
+        {
+          go_early = 1; /* Don't care about how early it is. */
+          mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer not ready, but going early (timer_max_early_multiple %i)\n", schedule_point_to_string(point), tpFreedom_implDetails.args.timer_max_early_multiple);
+        }
+        else
+        {
+          uint64_t time_since_registration = spd_timer_run->now - spd_timer_run->timer->start_time;
+          uint64_t total_timer_time = spd_timer_run->timer->timeout - spd_timer_run->timer->start_time;
+          if (total_timer_time < time_since_registration * tpFreedom_implDetails.args.timer_max_early_multiple)
+            go_early = 1; /* Close enough. */
+          mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s go_early %i (total_timer_time %llu time_since_registration %llu timer_max_early_multiple %i)\n", schedule_point_to_string(point), go_early, total_timer_time, time_since_registration, tpFreedom_implDetails.args.timer_max_early_multiple);
+        }
+
+        if (go_early)
+          spd_timer_run->run = 1;
+        else
+          spd_timer_run->run = 0;
+      }
+      else
+        spd_timer_run->run = 0;
+    }
+
+    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s run %i\n", schedule_point_to_string(point), spd_timer_run->run);
+    assert(spd_timer_run->run == 0 || spd_timer_run->run == 1);
+  }
 
 }
 

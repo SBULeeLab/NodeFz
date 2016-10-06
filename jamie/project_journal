@@ -2394,8 +2394,25 @@ Tue 04 Oct 2016
    My notesheet from 10/4 has information about the node-logger, agent-keepalive, socket.io-client, and pep-steelskin bugs.
    
 
+3. Explore node-logger-1 race. Notes in the fuzzer section.
+
+  Summary: fuzz tester does a good job.
+
+4. Begin work on agent-keepalive. This one is trickier because it depends on a user operation "just happening" to interact with a timer whose length is somewhat hidden.
+   To support my attempts on agent-keepalive, I've added timer fuzzing. This has proved more effective and relies less on "lucky timings".
+
+   $ UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=5 UV_SCHEDULER_TP_MAX_DELAY=1000 UV_SCHEDULER_TP_EPOLL_THRESHOLD=1000 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=-1 UV_SCHEDULER_IOPOLL_DEFER_PERC=25 UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC=500 UV_SCHEDULER_TIMER_MAX_EARLY_MULTIPLE=-1 UV_SCHEDULER_TIMER_LATE_EXEC_TPERC=250 node-devel triggerRace.js 5000 2>/tmp/err
+    > This hits ECONNRESET with more regularity than without timer fuzzing
+
+   HOWEVER: I think it's still a bit awkward because core.c and linux-core.c make use of the "nearest timer" to determine how long to epoll.
+            If we're fuzzing timers, we don't actually want to do that.
+
 TODO
-  - Explore test cases from DY for Wednesday afternoon meeting
+  - Extend timer fuzzing scheme to choosing how long to epoll for. An easy solution is to have a maximum epoll time of 100 if we might run a timer early.
+  - More test cases!!!
+  - finish agentkeepalive
+  - clean up README for node-logger, mongoose, too much copy-paste
+
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 
 
       package.json:

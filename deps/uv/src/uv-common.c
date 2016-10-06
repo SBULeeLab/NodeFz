@@ -1084,14 +1084,24 @@ void initialize_record_and_replay (void)
  *                                                                              "2" means to simulate 2 threads; the TP thread will always do one of the first two pending events.
  *                                                                              -1 means "select at random from the entire list", and is essentially a dynamically-sized TP.
  *                                                                              If you give -1, we'll wait for the TP delay you specify to let the queue become maximally full.
- *                                     UV_SCHEDULER_TP_MAX_DELAY                TP: Max delay in us while waiting for queue to fill
- *                                     UV_SCHEDULER_TP_EPOLL_THRESHOLD          TP: Max time looper can be in epoll while TP waits for work queue to fill
+ *                                     UV_SCHEDULER_TP_MAX_DELAY                TP: Max delay while waiting for queue to fill. usec.
+ *                                     UV_SCHEDULER_TP_EPOLL_THRESHOLD          TP: Max time looper can be in epoll while TP waits for work queue to fill. usec.
  *                                     UV_SCHEDULER_IOPOLL_DEG_FREEDOM          Looper (io_poll): Legal "shuffle distance" of the epoll events.
  *                                                                              The "shuffle distance" is the size of the chunks into which we break the epoll events.
  *                                                                              "1" means that items will not be shuffled.
  *                                                                              "2" means that we'll break up the epoll events into pairs and may shuffle each pair.
  *                                                                              "-1" means "shuffle everything".
  *                                     UV_SCHEDULER_IOPOLL_DEFER_PERC           Looper (io_poll): Percentage of epoll events to defer each loop
+ *                                     [UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC]    Probability of executing a timer early. Give in tenths of a percent (so 1 = 0.1%, 10 = 1%, 1000 = 100%).
+ *                                                                              Default is 0: never execute timers early.
+ *                                     [UV_SCHEDULER_TIMER_MAX_EARLY_MULTIPLE]  Goes with UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC. We'll only execute a timer early once we're "close enough"
+ *                                                                              to its actual timeout. This is expressed as the ratio of the full time to how long since it was registered
+ *                                                                              (so 4 means "execute it up to 4x early [100 sec -> can be executed once 25 sec have passed]).
+ *                                                                              -1 means that there's no limit on how early we might execute a timer.
+ *                                                                              Default is 2: "execute it up to 2x early".
+ *                                     [UV_SCHEDULER_TIMER_LATE_EXEC_TPERC]     Probability of executing a timer late. Give in tenths of a percent (so 1 = 0.1%, 10 = 1%, 1000 = 100%).
+ *                                                                              This means we'll probabilistically break out of timer execution and proceed through the event loop.
+ *                                                                              Default is 0: never execute timers late.
  *                                     UV_THREADPOOL_SIZE                       Must be 1
  *
  *     UV_SCHEDULER_MODE           Choose from: RECORD[, REPLAY]                Defaults to RECORD
@@ -1145,7 +1155,11 @@ static void initialize_scheduler (void)
   {
     char *scheduler_tp_deg_freedomP = NULL, *scheduler_tp_max_delayP = NULL, *scheduler_tp_epoll_thresholdP = NULL,
          *scheduler_iopoll_deg_freedomP = NULL, *scheduler_iopoll_defer_percP = NULL,
+         *scheduler_timer_early_exec_tpercP = NULL, *scheduler_timer_max_early_multipleP = NULL, *scheduler_timer_late_exec_tpercP = NULL, 
          *tp_sizeP = NULL;
+
+    /* Defaults. */
+    int scheduler_timer_early_exec_tperc = 0, scheduler_timer_max_early_multiple = 2, scheduler_timer_late_exec_tperc = 0;
 
     scheduler_type = SCHEDULER_TYPE_TP_FREEDOM;
 
@@ -1169,6 +1183,18 @@ static void initialize_scheduler (void)
     if (scheduler_iopoll_defer_percP == NULL)
       assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_IOPOLL_DEFER_PERC");
 
+    scheduler_timer_early_exec_tpercP = getenv("UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC");
+    if (scheduler_timer_early_exec_tpercP != NULL)
+      scheduler_timer_early_exec_tperc = atoi(scheduler_timer_early_exec_tpercP);
+
+    scheduler_timer_max_early_multipleP = getenv("UV_SCHEDULER_TIMER_MAX_EARLY_MULTIPLE");
+    if (scheduler_timer_max_early_multipleP != NULL)
+      scheduler_timer_max_early_multiple = atoi(scheduler_timer_max_early_multipleP );
+
+    scheduler_timer_late_exec_tpercP = getenv("UV_SCHEDULER_TIMER_LATE_EXEC_TPERC");
+    if (scheduler_timer_late_exec_tpercP != NULL)
+      scheduler_timer_late_exec_tperc = atoi(scheduler_timer_late_exec_tpercP);
+
     tp_sizeP = getenv("UV_THREADPOOL_SIZE");
     if (tp_sizeP == NULL || atoi(tp_sizeP) != 1)
       assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_THREADPOOL_SIZE=1");
@@ -1178,6 +1204,9 @@ static void initialize_scheduler (void)
     tp_freedom_args.tp_epoll_threshold = atol(scheduler_tp_epoll_thresholdP);
     tp_freedom_args.iopoll_degrees_of_freedom = atoi(scheduler_iopoll_deg_freedomP);
     tp_freedom_args.iopoll_defer_perc = atoi(scheduler_iopoll_defer_percP);
+    tp_freedom_args.timer_early_exec_tperc = scheduler_timer_early_exec_tperc;
+    tp_freedom_args.timer_max_early_multiple = scheduler_timer_max_early_multiple;
+    tp_freedom_args.timer_late_exec_tperc = scheduler_timer_late_exec_tperc;
     args = &tp_freedom_args;
   }
   else

@@ -24,6 +24,17 @@ struct scheduler_tp_freedom_args_s
   /* In iopoll, what percentage of ready events to defer until the next loop? 
    * A value of 100 will result in no forward progress. */
   int iopoll_defer_perc;
+
+  /* Timer parameters. */
+  /* Probability of executing a timer early. Measured in tenths of a percent. */
+  int timer_early_exec_tperc;
+  /* Limit on how early we might execute a timer, to avoid absurd situations.
+   * Ratio of the full time to how long since it was registered.
+   * -1 means no limit.
+   */
+  int timer_max_early_multiple;
+  /* Probability of executing a timer late. Measured in tenths of a percent. */
+  int timer_late_exec_tperc;
 };
 typedef struct scheduler_tp_freedom_args_s scheduler_tp_freedom_args_t;
 

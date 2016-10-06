@@ -74,6 +74,17 @@
  * scheduler.c: Update scheduler_init for the new type.
  * Create new scheduler_X.[ch] files to define each of the schedulerImpl_* APIs declared below
  *   (simply copy an existing scheduler implementation's skeleton).
+ *
+ * -----------------------------------------
+ *    To add a new schedule point
+ * -----------------------------------------
+ *
+ * scheduler.h: Update schedule_point_t with the new type.
+ *              Declare new spd_ struct.
+ * scheduler.c: Update global arrays and to_string methods.
+ *              Update schedulerImpl_thread_yield for the relevant schedulers.
+ *              If the associated spd_ struct requires output from scheduler, fill in the default
+ *                in the yield for any non-relevant schedulers.
  */
 
 #include "unified-callback-enums.h"
@@ -148,8 +159,11 @@ enum schedule_point_e
 
   SCHEDULE_POINT_TP_BEFORE_PUT_DONE, /* TP: worker, before placing done item in done queue. */
   SCHEDULE_POINT_TP_AFTER_PUT_DONE, /* TP: worker, after placing done item in done queue. */
+ 
+  /* Timer schedule points. */
+  SCHEDULE_POINT_TIMER_RUN, /* Timer: I'm in uv__run_timers considering the next timer. */
 
-  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
+  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TIMER_RUN
 };
 typedef enum schedule_point_e schedule_point_t;
 
@@ -268,6 +282,20 @@ typedef spd_getting_work_t spd_getting_done_t;
 void spd_getting_done_init (spd_getting_done_t *spd_getting_done);
 /* Returns non-zero if valid. */
 int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done);
+
+struct spd_timer_run_s
+{
+  int magic;
+  uv_timer_t *timer; /* INPUT: The timer under consideration. */
+  uint64_t now; /* INPUT: Current loop->time. */
+  int run; /* OUTPUT: Set to 1 if we should run the timer, else 0. */
+};
+typedef struct spd_timer_run_s spd_timer_run_t;
+
+void spd_timer_run_init (spd_timer_run_t *spd_timer_run);
+/* Returns non-zero if valid. */
+int spd_timer_run_is_valid (spd_timer_run_t *spd_timer_run);
+
 
 /* Returns non-zero if the {point, pointDetails} combination is valid. */
 int schedule_point_looks_valid (schedule_point_t point, void *pointDetails);
