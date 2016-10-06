@@ -26,7 +26,13 @@ enum log_class
   LOG_CLASS_MAX
 };
 
-/* Call before any other mylog APIs. */
+/* Call before any other mylog APIs. 
+ * Can safely be called more than once; subsequent calls do nothing.
+ * However, not thread safe.
+ *
+ * After calling this, you can set verbosity with mylog_set[_all]_verbosity.
+ * Then you can use mylog and mylog_buf to log things.
+ */
 void mylog_init (void);
 
 /* Higher values are more verbose. */
