@@ -2426,6 +2426,34 @@ Thur 06 Oct 2016
     (16:49:39) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO $ ./node_modules/.bin/mocha --reporter=spec test/disconnect.js 
   Anyway, next step is to try it with "VANILLA/TP_FREEDOM devel node" and debug the mocha hang if it re-appears.
 
+--------------------------------
+
+Fri 06 Oct 2016
+
+1. Fix racy access to struct uv__work in threadpool.c reported by:
+    (23:08:37) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO/fuzz_test $ rm core; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=VANILLA DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 valgrind node-devel triggerRace.js
+   
+   This allows us to test socket.io-1862's triggerRaces.js using node, though the mocha run still fails weirdly.
+   Nevertheless, progress!
+ 
+ 2. Fix racy access to uv_handle_t after calling its UV_CLOSE_CB (which might delete the handle).
+   Thanks, valgrind!
+
+  TODO WIP:
+
+  - See if mocha works once racyness is cleaned up?
+  - If not, still work on test case exploration.
+
+  Run socket.io triggerRace.js:
+    (23:09:17) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO/fuzz_test $ rm core; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=VANILLA DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 node-devel-debug triggerRace.js 2>/tmp/err
+    (23:10:01) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO/fuzz_test $ UV_SCHEDULER_TYPE=VANILLA DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 node triggerRace.js
+
+  Run triggerRace using "vanilla node":
+    (23:10:16) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO/fuzz_test $ DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 node triggerRace.js 
+
+
+
+
 TODO
   - socket-io.client -- see notes from Thur 06 Oct
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
