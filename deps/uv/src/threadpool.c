@@ -67,7 +67,9 @@ static void uv__cancelled(struct uv__work* w) {
 
 /* Final step to clean up the async handle allocated for a struct uv__work. */
 static void uv__work_async_close (uv_handle_t *async) {
-  mylog(LOG_THREADPOOL, 9, "uv__work_async_close: Nothing to do (async %p)\n", async);
+  uv__work_async_t *uv__work_async = NULL;
+  uv__work_async = container_of(async, uv__work_async_t, async_buf);
+  uv__free(uv__work_async);
 }
 
 static void post(QUEUE* q) {
@@ -219,7 +221,7 @@ static void worker(void* arg) {
                         executing. */
     /* Signal the looper that this item is done. */
     mylog(LOG_THREADPOOL, 9, "worker: Signaling that work item %i w %p is done\n", work_item_number, w);
-    uv_async_send((uv_async_t *) w->async);
+    uv_async_send((uv_async_t *) w->ptr_and_async->async_buf);
 
     spd_after_put_done_init(&spd_after_put_done);
     spd_after_put_done.work_item = w;
@@ -309,9 +311,13 @@ static void init_once(void) {
 
 void uv__work_done(uv_async_t *handle) {
   struct uv__work *w = NULL;
+  uv__work_async_t *uv__work_async = NULL;
   int err = 0;
 
-  w = container_of(handle, struct uv__work, async);
+  assert(handle != NULL && handle->type == UV_ASYNC);
+
+  uv__work_async = container_of(handle, uv__work_async_t, async_buf);
+  w = uv__work_async->uv__work;
   mylog(LOG_THREADPOOL, 1, "uv__work_done: handle %p w %p\n", handle, w);
 
   err = (w->work == uv__cancelled) ? UV_ECANCELED : 0;
@@ -333,9 +339,15 @@ void uv__work_submit(uv_loop_t* loop,
   w->loop = loop;
   w->work = work;
   w->done = done;
-  uv_async_init(loop, (uv_async_t *) &w->async, uv__work_done);
 
-  mylog(LOG_THREADPOOL, 1, "uv__work_submit: post'ing w %p (async %p)\n", w, &w->async);
+  /* Prep the uv__work_async_t inside uv__work. */
+  w->ptr_and_async = (uv__work_async_t *) uv__malloc(sizeof(uv__work_async_t) + sizeof(uv_async_t));
+  w->ptr_and_async->uv__work = w; /* This pointer is safe until we call UV__WORK_DONE in uv__work_done, at which point w may be free'd. */
+
+  mylog(LOG_THREADPOOL, 1, "uv__work_submit: uv_async_init'ing: w %p async %p\n", w, w->ptr_and_async->async_buf);
+  uv_async_init(loop, (uv_async_t *) w->ptr_and_async->async_buf, uv__work_done);
+
+  mylog(LOG_THREADPOOL, 1, "uv__work_submit: post'ing w %p (async %p)\n", w, w->ptr_and_async->async_buf);
   post(&w->wq);
 }
 
@@ -357,7 +369,7 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
     return UV_EBUSY;
 
   w->work = uv__cancelled;
-  uv_async_send((uv_async_t *) w->async);
+  uv_async_send((uv_async_t *) w->ptr_and_async->async_buf);
   mylog(LOG_THREADPOOL, 1, "uv__work_cancel: signal'd a cancelled 'work' item (w %p)\n", w);
 
   return 0;

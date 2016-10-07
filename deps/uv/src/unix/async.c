@@ -69,6 +69,7 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
 
   err = uv__async_start(loop, handle);
 
+  assert(handle->type == UV_ASYNC);
   return err;
 }
 
@@ -113,6 +114,8 @@ int uv_async_send(uv_async_t* handle) {
 
 
 void uv__async_close(uv_async_t* handle) {
+  assert(handle->type == UV_ASYNC);
+
   uv__io_stop(handle->loop, &handle->io_watcher, UV__POLLIN);
   uv__close(handle->io_watcher.fd);
   uv__handle_stop(handle);
@@ -128,6 +131,7 @@ static void uv__async_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
   h = container_of(w, uv_async_t, io_watcher);
   mylog(LOG_UV_ASYNC, 1, "uv__async_io: IO on handle %p (fd %i)\n", h, h->io_watcher.fd);
+  assert(h->type == UV_ASYNC);
 
   /* Empty the fd. */
   for (;;) {

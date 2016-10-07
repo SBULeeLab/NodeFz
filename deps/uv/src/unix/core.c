@@ -97,6 +97,7 @@ uint64_t uv_hrtime(void) {
 
 
 void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
+  assert(handle != NULL);
   assert(!(handle->flags & (UV_CLOSING | UV_CLOSED)));
 
 #ifdef UNIFIED_CALLBACK
@@ -105,6 +106,8 @@ void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
 
   handle->flags |= UV_CLOSING;
   handle->close_cb = close_cb;
+
+  mylog(LOG_MAIN, 1, "uv_close: handle %p\n", handle);
 
   switch (handle->type) {
   case UV_NAMED_PIPE:
@@ -166,7 +169,7 @@ void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
     return;
 
   default:
-    assert(0);
+    assert(!"uv_close: Error, unknown handle type");
   }
 
   uv__make_close_pending(handle);
@@ -222,6 +225,7 @@ int uv__getiovmax(void) {
 
 
 static void uv__finish_close(uv_handle_t* handle) {
+  struct map *handle_map;
   /* Note: while the handle is in the UV_CLOSING state now, it's still possible
    * for it to be active in the sense that uv__is_active() returns true.
    * A good example is when the user calls uv_shutdown(), immediately followed
@@ -263,16 +267,20 @@ static void uv__finish_close(uv_handle_t* handle) {
   uv__handle_unref(handle);
   QUEUE_REMOVE(&handle->handle_queue);
 
+  /* Save this because handle may be delete'd in handle->close_cb. */
+  handle_map = handle->cb_type_to_lcbn;
+
   if (handle->close_cb) {
 #if UNIFIED_CALLBACK
     invoke_callback_wrap ((any_func) handle->close_cb, UV_CLOSE_CB, (long) handle);
-    /* We no longer need to remember the peer, since it was already used
-       in invoke_callback. */
-    handle->peer_info = NULL;
 #else
     handle->close_cb(handle);
 #endif
   }
+
+  /* JD: Extra structures I added to handle. */
+  if (handle_map)
+    map_destroy(handle_map);
 }
 
 static void uv__run_closing_handles(uv_loop_t* loop) {

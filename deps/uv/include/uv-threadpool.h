@@ -29,17 +29,31 @@
 
 #include "../src/unified_callback.h"
 
+struct uv__work;
+
+/* This structure lets us dynamically allocate uv_async_t for asynchronous uv_close,
+ * while still offering an equivalent to container_of via the uv__work pointer.
+ * Allocate enough space for a uv__work_async_t plus a uv_async_t, and use async_buf
+ * as a uv_async_t.
+ */
+struct uv__work_async_s
+{
+  struct uv__work *uv__work; /* The uv__work that allocated us. */
+  /* Pointer to uv_async_t for signaling "done". Handled entirely by threadpool.c.
+   * Must be dynamically allocated because we uv_close(async) after the caller has had the opportunity to
+   * delete the uv_work_t (uv__work) within which any "within-struct" structure would have resided.
+   */
+  char async_buf[1];
+};
+typedef struct uv__work_async_s uv__work_async_t;
+
 struct uv__work {
   void (*work)(struct uv__work *w);
   void (*done)(struct uv__work *w, int status);
   struct uv_loop_s* loop;
   void* wq[2];
-  /* (JD) Pointer to uv_async_t for signaling "done". Handled entirely by threadpool.c. 
-   *  TODO This is a terrible hack.
-   *  We can't just declare a uv_async_t because of circular dependencies, and we can't use a void * because we need container_of to work. 
-   *  I'm sure there's a better way to do this, but it probably involves poking at header files in time-consuming ways.
-   */
-  char async[1024]; 
+  /* This is a pointer to a uv__work_async_t allocated with enough space for a uv_async_t. */
+  uv__work_async_t *ptr_and_async;
 };
 
 #endif /* UV_THREADPOOL_H_ */

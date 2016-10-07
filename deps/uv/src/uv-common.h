@@ -217,7 +217,7 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
     QUEUE_INSERT_TAIL(&(loop_)->handle_queue, &(h)->handle_queue);            \
     uv__handle_platform_init(h);                                              \
     (h)->magic = UV_HANDLE_MAGIC;                                             \
-    (h)->cb_type_to_lcbn = map_create();                                      \
+    (h)->cb_type_to_lcbn = map_create(); /* Destroyed in uv__finish_close */  \
     assert((h)->cb_type_to_lcbn != NULL);                                     \
     (h)->peer_info = NULL;                                                    \
     (h)->self_parent = 0;                                                     \
