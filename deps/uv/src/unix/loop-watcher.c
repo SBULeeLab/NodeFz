@@ -53,25 +53,48 @@
     return 0;                                                                 \
   }                                                                           \
                                                                               \
-  void uv__run_##_name(uv_loop_t* loop) {                                     \
-    uv_##_name##_t* h;                                                        \
-    QUEUE* q;                                                                 \
-                                                                              \
-    ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": begin: loop %p\n", loop)); \
-                                                                              \
-    QUEUE_FOREACH(q, &loop->_name##_handles) {                                \
-      h = QUEUE_DATA(q, uv_##_name##_t, queue);                               \
-      h->_name##_cb(h);                                                       \
-      invoke_callback_wrap((any_func) h->_name##_cb, UV_##_type##_CB, (long) h); \
-    }                                                                         \
-                                                                              \
-    ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": returning\n"));         \
-  }                                                                           \
-                                                                              \
   void uv__##_name##_close(uv_##_name##_t* handle) {                          \
     uv_##_name##_stop(handle);                                                \
   }
 
+/* Define separate versions of uv__run_X to handle CB invocation. */
+#ifdef UNIFIED_CALLBACK
+  #define UV_LOOP_WATCHER_DEFINE_2(_name, _type)                                \
+    void uv__run_##_name(uv_loop_t* loop) {                                     \
+      uv_##_name##_t* h;                                                        \
+      QUEUE* q;                                                                 \
+                                                                                \
+      ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": begin: loop %p\n", loop)); \
+                                                                                \
+      QUEUE_FOREACH(q, &loop->_name##_handles) {                                \
+        h = QUEUE_DATA(q, uv_##_name##_t, queue);                               \
+        invoke_callback_wrap((any_func) h->_name##_cb, UV_##_type##_CB, (long) h); \
+      }                                                                         \
+                                                                                \
+      ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": returning\n"));         \
+    }
+#else
+  #define UV_LOOP_WATCHER_DEFINE_2(_name, _type)                                \
+    void uv__run_##_name(uv_loop_t* loop) {                                     \
+      uv_##_name##_t* h;                                                        \
+      QUEUE* q;                                                                 \
+                                                                                \
+      ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": begin: loop %p\n", loop)); \
+                                                                                \
+      QUEUE_FOREACH(q, &loop->_name##_handles) {                                \
+        h = QUEUE_DATA(q, uv_##_name##_t, queue);                               \
+        h->_name##_cb(h);                                                       \
+      }                                                                         \
+                                                                                \
+      ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__run_" #_name ": returning\n"));         \
+    }
+#endif
+
 UV_LOOP_WATCHER_DEFINE(prepare, PREPARE)
+UV_LOOP_WATCHER_DEFINE_2(prepare, PREPARE)
+
 UV_LOOP_WATCHER_DEFINE(check, CHECK)
+UV_LOOP_WATCHER_DEFINE_2(check, CHECK)
+
 UV_LOOP_WATCHER_DEFINE(idle, IDLE)
+UV_LOOP_WATCHER_DEFINE_2(idle, IDLE)
