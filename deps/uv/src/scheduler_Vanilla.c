@@ -113,7 +113,7 @@ scheduler_vanilla_thread_yield (schedule_point_t point, void *pointDetails)
     case SCHEDULE_POINT_TIMER_NEXT_TIMEOUT:
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
       spd_timer_next_timeout = (spd_timer_next_timeout_t *) pointDetails;
-      if (spd_timer_next_timeout->timer->timeout < spd_timer_run->now)
+      if (spd_timer_next_timeout->timer->timeout < spd_timer_next_timeout->now)
         /* Already expired. */
         spd_timer_next_timeout->time_until_timer = 0;
       else
