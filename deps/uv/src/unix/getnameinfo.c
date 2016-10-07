@@ -92,6 +92,7 @@ static void uv__getnameinfo_done(struct uv__work* w, int status) {
   }
 }
 
+#ifdef UNIFIED_CALLBACK
 static void uv__getnameinfo_done_wrapper (uv_work_t *req, int status)
 {
   uv_getnameinfo_t *name_req;
@@ -101,6 +102,7 @@ static void uv__getnameinfo_done_wrapper (uv_work_t *req, int status)
   /* TODO Re-enable this.
     uv__free(req); */
 }
+#endif
 
 /*
 * Entry point for getnameinfo
@@ -112,7 +114,9 @@ int uv_getnameinfo(uv_loop_t* loop,
                    uv_getnameinfo_cb getnameinfo_cb,
                    const struct sockaddr* addr,
                    int flags) {
+#ifdef UNIFIED_CALLBACK
   uv_work_t *work_req;
+#endif
 
   if (req == NULL || addr == NULL)
     return UV_EINVAL;

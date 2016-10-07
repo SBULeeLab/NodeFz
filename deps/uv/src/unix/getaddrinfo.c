@@ -154,6 +154,7 @@ static void uv__getaddrinfo_done(struct uv__work* w, int status) {
   }
 }
 
+#ifdef UNIFIED_CALLBACK
 static void uv__getaddrinfo_done_wrapper (uv_work_t *req, int status)
 {
   uv_getaddrinfo_t *addr_req;
@@ -163,6 +164,7 @@ static void uv__getaddrinfo_done_wrapper (uv_work_t *req, int status)
   /* TODO Re-enable this.
     uv__free(req); */
 }
+#endif
 
 any_func uv_uv__getaddrinfo_done_ptr (void)
 {
@@ -181,7 +183,10 @@ int uv_getaddrinfo(uv_loop_t* loop,
   size_t hints_len;
   size_t len;
   char* buf;
+
+#ifdef UNIFIED_CALLBACK
   uv_work_t *work_req;
+#endif
 
   if (req == NULL || (hostname == NULL && service == NULL))
     return -EINVAL;

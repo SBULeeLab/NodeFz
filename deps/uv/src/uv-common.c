@@ -1255,6 +1255,9 @@ void invoke_callback (callback_info_t *cbi)
   spd_before_exec_cb_t spd_before_exec_cb;
   spd_after_exec_cb_t spd_after_exec_cb;
 
+#ifndef UNIFIED_CALLBACK
+  assert(!"Error, should not be in invoke_callback");
+#endif
   assert(cbi);
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: Begin: cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type)));
