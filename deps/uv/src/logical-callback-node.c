@@ -195,7 +195,7 @@ int lcbn_looks_valid (lcbn_t *lcbn)
 }
 
 /* Returns a new logical CBN. 
-   id=-1, peer_info is allocated, {orig,true}_client_id=ID_UNKNOWN. 
+   id=-1, {orig,true}_client_id=ID_UNKNOWN. 
    registration time is set.
    All other fields are NULL or 0. */
 lcbn_t * lcbn_create (void *context, any_func cb, enum callback_type cb_type)

@@ -219,7 +219,6 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
     (h)->magic = UV_HANDLE_MAGIC;                                             \
     (h)->cb_type_to_lcbn = map_create(); /* Destroyed in uv__finish_close */  \
     assert((h)->cb_type_to_lcbn != NULL);                                     \
-    (h)->peer_info = NULL;                                                    \
     (h)->self_parent = 0;                                                     \
   }                                                                           \
   while (0);

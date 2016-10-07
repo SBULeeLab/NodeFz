@@ -430,7 +430,6 @@ struct uv_shutdown_s {
   UV_HANDLE_PRIVATE_FIELDS                                                    \
   struct map *cb_type_to_lcbn;                                                \
   int magic;                                                                  \
-  struct sockaddr_storage *peer_info;                                         \
   int self_parent; /* For timer and loop-watcher. */                          \
 
 /* The abstract base class of all handles. */
