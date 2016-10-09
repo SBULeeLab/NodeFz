@@ -1092,15 +1092,26 @@ void initialize_record_and_replay (void)
  *                                                                              "2" means that we'll break up the epoll events into pairs and may shuffle each pair.
  *                                                                              "-1" means "shuffle everything".
  *                                     UV_SCHEDULER_IOPOLL_DEFER_PERC           Looper (io_poll): Percentage of epoll events to defer each loop
+ *                                     [UV_SCHEDULER_TIMER_DEG_FREEDOM]         Timer: Legal "shuffle distance" of the ready timers.
+ *                                                                              See notes about UV_SCHEDULER_IOPOLL_DEG_FREEDOM for clarity.
+ *                                                                              One distinction: this is *not* the maximum distance we will shuffle timers in terms of their registration order.
+ *                                                                              When combined with UV_SCHEDULER_TIMER_*EARLY*, we will shuffle the timers deemed *ready*.
+ *                                                                              As a result, we might execute timers 0 and 99 out of 100 ready timers, and only execute those 2.
+ *                                                                              WARNING WARNING
+ *                                                                                 While shuffling timers is legal per the Node.js documentation for setTimeout and friends, doing so
+ *                                                                                 will break unit test suites in npm. More generally, it's questionable what value this adds.
+ *                                                                                 Only enable it if you know what you're doing.
+ *                                                                              Default is 1 (no shuffling).
  *                                     [UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC]    Probability of executing a timer early. Give in tenths of a percent (so 1 = 0.1%, 10 = 1%, 1000 = 100%).
  *                                                                              Default is 0: never execute timers early.
  *                                     [UV_SCHEDULER_TIMER_MAX_EARLY_MULTIPLE]  Goes with UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC. We'll only execute a timer early once we're "close enough"
  *                                                                              to its actual timeout. This is expressed as the ratio of the full time to how long since it was registered
  *                                                                              (so 4 means "execute it up to 4x early [100 sec -> can be executed once 25 sec have passed]).
  *                                                                              -1 means that there's no limit on how early we might execute a timer.
- *                                                                              Default is 2: "execute it up to 2x early".
+ *                                                                              Default is 1: "execute it up to 1x early" (i.e. never early).
  *                                     [UV_SCHEDULER_TIMER_LATE_EXEC_TPERC]     Probability of executing a timer late. Give in tenths of a percent (so 1 = 0.1%, 10 = 1%, 1000 = 100%).
  *                                                                              This means we'll probabilistically break out of timer execution and proceed through the event loop.
+ *                                                                              We defer every timer after the first deferred one to ensure no additional shuffling beyond UV_SCHEDULER_TIMER_DEG_FREEDOM.
  *                                                                              Default is 0: never execute timers late.
  *                                     UV_THREADPOOL_SIZE                       Must be 1
  *
@@ -1155,11 +1166,11 @@ static void initialize_scheduler (void)
   {
     char *scheduler_tp_deg_freedomP = NULL, *scheduler_tp_max_delayP = NULL, *scheduler_tp_epoll_thresholdP = NULL,
          *scheduler_iopoll_deg_freedomP = NULL, *scheduler_iopoll_defer_percP = NULL,
-         *scheduler_timer_early_exec_tpercP = NULL, *scheduler_timer_max_early_multipleP = NULL, *scheduler_timer_late_exec_tpercP = NULL, 
+         *scheduler_timer_deg_freedomP = NULL, *scheduler_timer_early_exec_tpercP = NULL, *scheduler_timer_max_early_multipleP = NULL, *scheduler_timer_late_exec_tpercP = NULL, 
          *tp_sizeP = NULL;
 
     /* Defaults. */
-    int scheduler_timer_early_exec_tperc = 0, scheduler_timer_max_early_multiple = 2, scheduler_timer_late_exec_tperc = 0;
+    int scheduler_timer_deg_freedom = 0, scheduler_timer_early_exec_tperc = 0, scheduler_timer_max_early_multiple = 1, scheduler_timer_late_exec_tperc = 0;
 
     scheduler_type = SCHEDULER_TYPE_TP_FREEDOM;
 
@@ -1183,6 +1194,10 @@ static void initialize_scheduler (void)
     if (scheduler_iopoll_defer_percP == NULL)
       assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_IOPOLL_DEFER_PERC");
 
+    scheduler_timer_deg_freedomP = getenv("UV_SCHEDULER_TIMER_DEG_FREEDOM");
+    if (scheduler_timer_deg_freedomP != NULL)
+      scheduler_timer_deg_freedom = atoi(scheduler_timer_deg_freedomP);
+
     scheduler_timer_early_exec_tpercP = getenv("UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC");
     if (scheduler_timer_early_exec_tpercP != NULL)
       scheduler_timer_early_exec_tperc = atoi(scheduler_timer_early_exec_tpercP);
@@ -1204,6 +1219,7 @@ static void initialize_scheduler (void)
     tp_freedom_args.tp_epoll_threshold = atol(scheduler_tp_epoll_thresholdP);
     tp_freedom_args.iopoll_degrees_of_freedom = atoi(scheduler_iopoll_deg_freedomP);
     tp_freedom_args.iopoll_defer_perc = atoi(scheduler_iopoll_defer_percP);
+    tp_freedom_args.timer_degrees_of_freedom = scheduler_timer_deg_freedom;
     tp_freedom_args.timer_early_exec_tperc = scheduler_timer_early_exec_tperc;
     tp_freedom_args.timer_max_early_multiple = scheduler_timer_max_early_multiple;
     tp_freedom_args.timer_late_exec_tperc = scheduler_timer_late_exec_tperc;

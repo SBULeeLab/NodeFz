@@ -33,16 +33,16 @@ static struct
  ***********************/
 
 /* Returns non-zero if the scheduler_tp_freedom looks valid (e.g. is initialized properly). */
-int scheduler_tp_freedom__looks_valid (void);
+static int scheduler_tp_freedom__looks_valid (void);
 
 /* Returns the queue len of q. */
-int scheduler_tp_freedom__queue_len (QUEUE *q);
+static int scheduler_tp_freedom__queue_len (QUEUE *q);
 
 /* Shuffle array of nitems events, each of size item_size.
  * Break the array into chunks of size degrees_of_freedom and shuffle each chunk.
  * degrees_of_freedom == -1 means "shuffle everything together".
  */
-void scheduler_tp_freedom__shuffle_events (int degrees_of_freedom, void *events, int nitems, size_t item_size);
+static void scheduler_tp_freedom__shuffle_items (int degrees_of_freedom, void *events, int nitems, size_t item_size);
 
 /***********************
  * Public API definitions
@@ -216,45 +216,34 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
 
     spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events = (spd_iopoll_before_handling_events_t *) pointDetails;
 
-    if (0 < spd_iopoll_before_handling_events->nevents)
+    if (0 < spd_iopoll_before_handling_events->shuffleable_items.nitems)
     {
-      int i = 0, should_defer = 0;
+      unsigned i = 0, should_defer = 0;
 
       /* Shuffle events to permute input order. */
-      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: shuffling %i events with %i degrees of freedom\n", spd_iopoll_before_handling_events->nevents, tpFreedom_implDetails.args.iopoll_degrees_of_freedom);
-      scheduler_tp_freedom__shuffle_events(tpFreedom_implDetails.args.iopoll_degrees_of_freedom, spd_iopoll_before_handling_events->events, spd_iopoll_before_handling_events->nevents, sizeof(struct uv__epoll_event));
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: shuffling %i events with %i degrees of freedom\n", spd_iopoll_before_handling_events->shuffleable_items.nitems, tpFreedom_implDetails.args.iopoll_degrees_of_freedom);
+      scheduler_tp_freedom__shuffle_items(tpFreedom_implDetails.args.iopoll_degrees_of_freedom, spd_iopoll_before_handling_events->shuffleable_items.items, spd_iopoll_before_handling_events->shuffleable_items.nitems, spd_iopoll_before_handling_events->shuffleable_items.item_size);
 
       /* Defer events. */
       mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: deferring %i%% of events\n", tpFreedom_implDetails.args.iopoll_defer_perc);
-      for (i = 0; i < spd_iopoll_before_handling_events->nevents; i++)
+      for (i = 0; i < spd_iopoll_before_handling_events->shuffleable_items.nitems; i++)
       {
         should_defer = (rand_int(100) < tpFreedom_implDetails.args.iopoll_defer_perc);
-        spd_iopoll_before_handling_events->should_handle_event[i] = !should_defer;
-        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: event %i should_handle_event %i\n", i, spd_iopoll_before_handling_events->should_handle_event[i]);
+        spd_iopoll_before_handling_events->shuffleable_items.thoughts[i] = !should_defer;
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: event %i should_handle_event %i\n", i, spd_iopoll_before_handling_events->shuffleable_items.thoughts[i]);
       }
     }
   }
-  else if (point == SCHEDULE_POINT_TIMER_RUN)
+  else if (point == SCHEDULE_POINT_TIMER_READY)
   {
-    spd_timer_run_t *spd_timer_run = (spd_timer_run_t *) pointDetails;
+    spd_timer_ready_t *spd_timer_ready = (spd_timer_ready_t *) pointDetails;
+    int is_ready = -1;
+    spd_timer_ready->ready = -1;
 
-    int is_ready = (spd_timer_run->timer->timeout < spd_timer_run->now);
+    is_ready = (spd_timer_ready->timer->timeout < spd_timer_ready->now);
 
     if (is_ready)
-    {
-      /* Check if we should delay it. */
-      int go_late_choice = rand_int(1000); /* tenths of a percent */
-      if (go_late_choice < tpFreedom_implDetails.args.timer_late_exec_tperc)
-      {
-        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer ready, but going late\n", schedule_point_to_string(point));
-        spd_timer_run->run = 0;
-      }
-      else
-      {
-        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer ready, going as normal\n", schedule_point_to_string(point));
-        spd_timer_run->run = 1;
-      }
-    }
+      spd_timer_ready->ready = 1;
     else
     {
       /* If it's not ready yet, check if we should run it early. */
@@ -264,36 +253,82 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       {
         /* We might run early. Check how early the timer would be. */
         int go_early = 0;
-        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s might go early\n", schedule_point_to_string(point));
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer %p might go early\n", schedule_point_to_string(point), spd_timer_ready->timer);
 
         if (tpFreedom_implDetails.args.timer_max_early_multiple == -1)
         {
           go_early = 1; /* Don't care about how early it is. */
-          mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer not ready, but going early (timer_max_early_multiple %i)\n", schedule_point_to_string(point), tpFreedom_implDetails.args.timer_max_early_multiple);
+          mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer %p not ready, but going early (timer_max_early_multiple %i)\n", spd_timer_ready->timer, schedule_point_to_string(point), tpFreedom_implDetails.args.timer_max_early_multiple);
         }
         else
         {
-          uint64_t time_since_registration = spd_timer_run->now - spd_timer_run->timer->start_time;
-          uint64_t total_timer_time = spd_timer_run->timer->timeout - spd_timer_run->timer->start_time;
+          uint64_t time_since_registration = spd_timer_ready->now - spd_timer_ready->timer->start_time;
+          uint64_t total_timer_time = spd_timer_ready->timer->timeout - spd_timer_ready->timer->start_time;
           if (total_timer_time < time_since_registration * tpFreedom_implDetails.args.timer_max_early_multiple)
             go_early = 1; /* Close enough. */
-          mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s go_early %i (total_timer_time %llu time_since_registration %llu timer_max_early_multiple %i)\n", schedule_point_to_string(point), go_early, total_timer_time, time_since_registration, tpFreedom_implDetails.args.timer_max_early_multiple);
+          mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer %p go_early %i (total_timer_time %llu time_since_registration %llu timer_max_early_multiple %i)\n", schedule_point_to_string(point), spd_timer_ready->timer, go_early, total_timer_time, time_since_registration, tpFreedom_implDetails.args.timer_max_early_multiple);
         }
 
         if (go_early)
-          spd_timer_run->run = 1;
+          spd_timer_ready->ready = 1;
         else
-          spd_timer_run->run = 0;
+          spd_timer_ready->ready = 0;
       }
       else
       {
-        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s won't go early\n", schedule_point_to_string(point));
-        spd_timer_run->run = 0;
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer %p won't go early\n", schedule_point_to_string(point), spd_timer_ready->timer);
+        spd_timer_ready->ready = 0;
       }
     }
 
-    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s run %i\n", schedule_point_to_string(point), spd_timer_run->run);
-    assert(spd_timer_run->run == 0 || spd_timer_run->run == 1);
+    assert(spd_timer_ready->ready == 0 || spd_timer_ready->ready == 1);
+  }
+  else if (point == SCHEDULE_POINT_TIMER_RUN)
+  {
+    spd_timer_run_t *spd_timer_run = (spd_timer_run_t *) pointDetails;
+    unsigned i;
+
+    /* Timers have been declared ready. Shuffle, then decide whether to delay any. 
+     * We delay all timers after the first delayed one to avoid additional shuffling. */
+
+    /* Shuffle. */
+    if (0 < spd_timer_run->shuffleable_items.nitems)
+    {
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Shuffling %i timers with %i degrees of freedom\n", schedule_point_to_string(point), spd_timer_run->shuffleable_items.nitems, tpFreedom_implDetails.args.timer_degrees_of_freedom);
+      scheduler_tp_freedom__shuffle_items(tpFreedom_implDetails.args.timer_degrees_of_freedom, spd_timer_run->shuffleable_items.items, spd_timer_run->shuffleable_items.nitems, spd_timer_run->shuffleable_items.item_size);
+    }
+
+    /* Delay. */
+    for (i = 0; i < spd_timer_run->shuffleable_items.nitems; i++)
+    {
+      uv_timer_t *timer = ((uv_timer_t **) spd_timer_run->shuffleable_items.items)[i];
+      int run = 0, go_late_choice = 0;
+
+      go_late_choice = rand_int(1000); /* tenths of a percent */
+      if (go_late_choice < tpFreedom_implDetails.args.timer_late_exec_tperc)
+      {
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer %p ready, but deferring (and all the rest, too)\n", schedule_point_to_string(point), timer);
+        run = 0;
+      }
+      else
+      {
+        mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Timer %p ready (timeout %llu), going as normal\n", schedule_point_to_string(point), timer, timer->timeout);
+        run = 1;
+      }
+
+      spd_timer_run->shuffleable_items.thoughts[i] = run;
+      if (!run)
+      {
+        /* Delay the rest. */
+        int n_remaining = spd_timer_run->shuffleable_items.nitems - i - 1;
+        if (n_remaining)
+        {
+          mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s Delaying the remaining %i timers\n", schedule_point_to_string(point), n_remaining);
+          memset(spd_timer_run->shuffleable_items.thoughts + i + 1, 0, n_remaining);
+          break;
+        }
+      }
+    }
   }
   else if (point == SCHEDULE_POINT_TIMER_NEXT_TIMEOUT)
   {
@@ -343,13 +378,14 @@ scheduler_tp_freedom_schedule_has_diverged (void)
  * Private API definitions.
  ***********************/
 
-int
+static int
 scheduler_tp_freedom__looks_valid (void)
 {
   return (tpFreedom_implDetails.magic == SCHEDULER_TP_FREEDOM_MAGIC);
 }
 
-int scheduler_tp_freedom__queue_len (QUEUE *q)
+static int
+scheduler_tp_freedom__queue_len (QUEUE *q)
 {
   QUEUE *qP = NULL;
   int queue_len = 0;
@@ -361,12 +397,17 @@ int scheduler_tp_freedom__queue_len (QUEUE *q)
   return queue_len;
 }
 
-void scheduler_tp_freedom__shuffle_events (int degrees_of_freedom, void *events, int nitems, size_t item_size)
+static void
+scheduler_tp_freedom__shuffle_items (int degrees_of_freedom, void *items, int nitems, size_t item_size)
 {
   int chunk_len = 0, n_chunks = 0, last_chunk_len = 0, i = 0;
-  char *eventsP = events;
+  char *itemsP = items;
 
+  /* Nothing to shuffle. */
   if (nitems <= 1)
+    return;
+  /* Shuffling in chunks of 1 will have no effect. */
+  if (degrees_of_freedom == 1)
     return;
 
   if (degrees_of_freedom == -1)
@@ -380,14 +421,14 @@ void scheduler_tp_freedom__shuffle_events (int degrees_of_freedom, void *events,
     n_chunks++;
   last_chunk_len = (nitems % chunk_len == 0) ? chunk_len : nitems % chunk_len;
 
-  mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom__shuffle_events: nitems %i degrees_of_freedom %i chunk_len %i n_chunks %i\n", nitems, degrees_of_freedom, chunk_len, n_chunks);
+  mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom__shuffle_items: nitems %i degrees_of_freedom %i chunk_len %i n_chunks %i\n", nitems, degrees_of_freedom, chunk_len, n_chunks);
 
   for (i = 0; i < n_chunks; i++)
   {
     int this_chunk_len = (i < n_chunks-1) ? chunk_len : last_chunk_len;
-    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom__shuffle_events: i %i n_chunks %i this_chunk_len %i\n", i, n_chunks, this_chunk_len);
-    random_shuffle(eventsP, this_chunk_len, item_size);
-    eventsP += this_chunk_len*item_size;
+    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom__shuffle_items: i %i n_chunks %i this_chunk_len %i\n", i, n_chunks, this_chunk_len);
+    random_shuffle(itemsP, this_chunk_len, item_size);
+    itemsP += this_chunk_len*item_size;
   }
 
   return;

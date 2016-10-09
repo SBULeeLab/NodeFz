@@ -161,7 +161,8 @@ enum schedule_point_e
   SCHEDULE_POINT_TP_AFTER_PUT_DONE, /* TP: worker, after placing done item in done queue. */
  
   /* Timer schedule points. */
-  SCHEDULE_POINT_TIMER_RUN, /* Timer: I'm in uv__run_timers considering the next timer. */
+  SCHEDULE_POINT_TIMER_READY, /* Timer: I'm in uv__ready_timers considering a pending timer. */
+  SCHEDULE_POINT_TIMER_RUN, /* Timer: I'm in uv__run_timers considering the set of ready timers. */
   SCHEDULE_POINT_TIMER_NEXT_TIMEOUT, /* Timer: I'm in uv__next_timeout being asked how long until the next timer goes off. */
 
   SCHEDULE_POINT_MAX = SCHEDULE_POINT_TIMER_NEXT_TIMEOUT
@@ -169,6 +170,16 @@ enum schedule_point_e
 typedef enum schedule_point_e schedule_point_t;
 
 const char * schedule_point_to_string (schedule_point_t point);
+
+struct shuffleable_items_s
+{
+  size_t item_size; /* Size of each item in bytes. */
+
+  unsigned nitems;  /* Number of entries in the arrays. */
+  void *items;      /* Array of nitems items. */
+  int *thoughts;    /* Array of nitems "thoughts", one thought per item. */ 
+};
+typedef struct shuffleable_items_s shuffleable_items_t;
 
 /* The Schedule Point Details (SPD) provided for each schedule point. 
  * There's an SPD_X_t for each schedule_point_t. Use them together.
@@ -217,9 +228,11 @@ struct spd_iopoll_before_handling_events_s
 {
   int magic;
 
-  int nevents; /* INPUT: The number of events. */
-  struct uv__epoll_event *events; /* INPUT/OUTPUT: Array of nevents events returned by epoll_wait. Scheduler may shuffle the events. */
-  int *should_handle_event; /* OUTPUT: Array of nevents returned by epoll_wait. 1 means handle the corresponding entry in events, 0 means defer. */
+  /* nitems:   INPUT         The number of events.
+   * items:    INPUT/OUTPUT  Array of events returned by epoll_wait. Scheduler may shuffle them.
+   * thoughts: OUTPUT        1 means handle the corresponding entry in items, 0 means defer.
+   */
+  shuffleable_items_t shuffleable_items;
 };
 typedef struct spd_iopoll_before_handling_events_s spd_iopoll_before_handling_events_t;
 
@@ -284,12 +297,29 @@ void spd_getting_done_init (spd_getting_done_t *spd_getting_done);
 /* Returns non-zero if valid. */
 int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done);
 
+struct spd_timer_ready_s
+{
+  int magic;
+
+  uv_timer_t *timer; /* INPUT: A pending timer. */
+  uint64_t now;      /* INPUT: Current loop->time. */
+  int ready;         /* OUTPUT: Set to 1 if the timer is ready, else 0. */
+};
+typedef struct spd_timer_ready_s spd_timer_ready_t;
+
+void spd_timer_ready_init (spd_timer_ready_t *spd_timer_ready);
+/* Returns non-zero if valid. */
+int spd_timer_ready_is_valid (spd_timer_ready_t *spd_timer_ready);
+
 struct spd_timer_run_s
 {
   int magic;
-  uv_timer_t *timer; /* INPUT: The next-scheduled timer. */
-  uint64_t now; /* INPUT: Current loop->time. */
-  int run; /* OUTPUT: Set to 1 if we should run the timer, else 0. */
+
+  /* nitems:   INPUT         The number of timers.
+   * items:    INPUT/OUTPUT  Array of ready uv_timer_t *'s. Scheduler may shuffle them.
+   * thoughts: OUTPUT        1 means run the corresponding entry in items, 0 means defer.
+   */
+  shuffleable_items_t shuffleable_items;
 };
 typedef struct spd_timer_run_s spd_timer_run_t;
 

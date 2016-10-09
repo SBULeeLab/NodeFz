@@ -26,6 +26,9 @@ struct scheduler_tp_freedom_args_s
   int iopoll_defer_perc;
 
   /* Timer parameters. */
+  /* In uv__run_timers, how far can we swap ready timers? Give -1 for "no limit". 
+   * Legal because of https://nodejs.org/api/timers.html#timers_settimeout_callback_delay_arg. */
+  int timer_degrees_of_freedom;
   /* Probability of executing a timer early. Measured in tenths of a percent. */
   int timer_early_exec_tperc;
   /* Limit on how early we might execute a timer, to avoid absurd situations.

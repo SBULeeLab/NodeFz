@@ -2424,11 +2424,11 @@ Thur 06 Oct 2016
   This command works using "vanilla node" and "devel node - master" when test/disconnect.js has only 1 of the 4 tests uncommented.
   Not sure what the story is there.
     (16:49:39) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO $ DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 ./node_modules/.bin/mocha --reporter=spec test/disconnect.js 
-  Anyway, next step is to try it with "VANILLA/TP_FREEDOM devel node" and debug the mocha hang if it re-appears.
+    (14:29:52) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO $ UV_SCHEDULER_TYPE=VANILLA DISCONNECT_DELAY1=0 DISCONNECT_DELAY2=0 ./node_modules/.bin/mocha --reporter=spec test/disconnect.js 2>/tmp/err
 
 --------------------------------
 
-Fri 06 Oct 2016
+Fri 07 Oct 2016
 
 1. Fix racy access to struct uv__work in threadpool.c reported by:
     (23:08:37) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO/fuzz_test $ rm core; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=VANILLA DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 valgrind node-devel triggerRace.js
@@ -2439,26 +2439,18 @@ Fri 06 Oct 2016
  2. Fix racy access to uv_handle_t after calling its UV_CLOSE_CB (which might delete the handle).
    Thanks, valgrind!
  
- 3. Poke at mocha, try to determine why it works on 'node-devel master' but not 'node-devel'.
+ 3. Fix mocha error that caused it to skip tests. I was double-calling idle/check/prepare CBs.
 
-  > Per console.log, somehow we seem to be missing the test itself.
-    We see the test itself show up in the console.log output in the runnable constructor, so why doesn't it get executed properly?
+ 4. Mocha tests have a default suite-wide timeout of 2000 ms. This can be overridden using the '--timeout' flag on the mocha invocation.
+    However, the timer fuzzer won't work well with this, since it will accelerate the "test timeout" timer too.
 
-    Files to look at:
-      /tmp/t/node_modules/mocha/mocha.js
-
-      /tmp/t/node_modules/mocha/lib/mocha.js
-                                    test.js
-                                    runner.js
-                                    runnable.js
-                                    suite.js
-
-      /tmp/t/node_modules/mocha/lib/interfaces/bdd.js
-
-  TODO WIP:
-
-  - See if mocha works once racyness is cleaned up?
-  - If not, still work on test case exploration.
+    Solutions:  1. "blacklist" very long timers (Eh...).
+               *2. Call "this.timeout(0)" at the beginning of the mocha suite, and disable any per-test timeouts (which override the suite-wide value).
+                   This means that any tests that hang will just hang forever.
+                   You can sort-of address this with 'timeout ntests*2 mocha ...';
+                    this is the maximum time in seconds that the entire test suite could take.
+                    However, this timeout is much longer than an individual test case would take to timeout, so for a large test suite this could be expensive.
+                    This concern is only relevant if a failing test case can legitimately manifest as an indefinite hang, though.
 
   Run socket.io triggerRace.js:
     (23:09:17) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO/fuzz_test $ rm core; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=VANILLA DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 node-devel-debug triggerRace.js 2>/tmp/err
@@ -2467,8 +2459,24 @@ Fri 06 Oct 2016
   Run triggerRace using "vanilla node":
     (23:10:16) jamie@suwarna7-Lenovo-K450e ~/Desktop/noderacer2/fuzz_benchmarks/socket.io-1862_FOO/fuzz_test $ DISCONNECT_DELAY1=100 DISCONNECT_DELAY2=200 node triggerRace.js 
 
+5. Complete socket-io test case testing.
+
+6. Perform socket-io test *suite* testing. See README.fuzz for details.
+
+7. Begin work on nes
+
+--------------------------------
+
+Sat 08 Oct 2016
+
+1. Add notion of "timer degrees of freedom". I've discovered that we can legally shuffle timers.
+   https://nodejs.org/api/timers.html#timers_settimeout_callback_delay_arg 
+
+-----
+
+2. Finish nes
+
 TODO
-  - socket-io.client -- see notes from Thur 06 Oct
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
     agent-keepalive didn't need the "delay", but perhaps other modules will.
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 

@@ -348,27 +348,28 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
     /* Ask scheduler which events to handle in what order. */
     spd_iopoll_before_handling_events_init(&spd_iopoll_before_handling_events);
-    spd_iopoll_before_handling_events.events = events;
-    spd_iopoll_before_handling_events.nevents = nfds;
-    spd_iopoll_before_handling_events.should_handle_event = (int *) &should_handle_event;
+    spd_iopoll_before_handling_events.shuffleable_items.item_size = sizeof(struct uv__epoll_event); 
+    spd_iopoll_before_handling_events.shuffleable_items.nitems = nfds;
+    spd_iopoll_before_handling_events.shuffleable_items.items = (void *) events;
+    spd_iopoll_before_handling_events.shuffleable_items.thoughts = (int *) &should_handle_event;
     scheduler_thread_yield(SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS, &spd_iopoll_before_handling_events);
 
     /* TODO Testing. */
-    for (i = 0; i < spd_iopoll_before_handling_events.nevents; i++)
+    for (i = 0; i < (int) spd_iopoll_before_handling_events.shuffleable_items.nitems; i++)
     {
-      pe = spd_iopoll_before_handling_events.events + i;
+      pe = ((struct uv__epoll_event *) spd_iopoll_before_handling_events.shuffleable_items.items) + i;
       fd = pe->data;
       mylog(LOG_MAIN, 7, "uv__io_poll: AFTER: i %i fd %i\n", i, fd);
     }
 
     /* Handle each ready event (fd). */
-    for (i = 0; i < spd_iopoll_before_handling_events.nevents; i++)
+    for (i = 0; i < (int) spd_iopoll_before_handling_events.shuffleable_items.nitems; i++)
     {
-      pe = spd_iopoll_before_handling_events.events + i;
+      pe = ((struct uv__epoll_event *) spd_iopoll_before_handling_events.shuffleable_items.items) + i;
       fd = pe->data;
 
       /* Defer fds identified by scheduler. */
-      if (!spd_iopoll_before_handling_events.should_handle_event[i])
+      if (!spd_iopoll_before_handling_events.shuffleable_items.thoughts[i])
       {
         mylog(LOG_MAIN, 7, "uv__io_poll: Deferring fd %i\n", fd);
         continue;

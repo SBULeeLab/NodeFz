@@ -69,10 +69,12 @@ scheduler_vanilla_thread_yield (schedule_point_t point, void *pointDetails)
 {
   /* SPDs with complex inputs/outputs to modify. */
   spd_iopoll_before_handling_events_t *spd_iopoll_before_handling_events = NULL;
+  spd_timer_ready_t *spd_timer_ready = NULL;
   spd_timer_run_t *spd_timer_run = NULL;
   spd_timer_next_timeout_t *spd_timer_next_timeout = NULL;
 
   int i = 0;
+  unsigned iu = 0;
 
   assert(scheduler_vanilla__looks_valid());
   /* Ensure {point, pointDetails} are consistent. Afterwards we know the inputs are correct. */
@@ -94,21 +96,28 @@ scheduler_vanilla_thread_yield (schedule_point_t point, void *pointDetails)
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
       spd_iopoll_before_handling_events = (spd_iopoll_before_handling_events_t *) pointDetails;
       /* Handle every event. */
-      for (i = 0; i < spd_iopoll_before_handling_events->nevents; i++)
-        spd_iopoll_before_handling_events->should_handle_event[i] = 1;
+      for (iu = 0; iu < spd_iopoll_before_handling_events->shuffleable_items.nitems; iu++)
+        spd_iopoll_before_handling_events->shuffleable_items.thoughts[i] = 1;
       break;
     case SCHEDULE_POINT_LOOPER_GETTING_DONE:
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
       ((spd_getting_done_t *) pointDetails)->index = 0;
       break;
+    case SCHEDULE_POINT_TIMER_READY:
+      assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
+      spd_timer_ready = (spd_timer_ready_t *) pointDetails;
+      /* A timer is ready if it has expired. */
+      if (spd_timer_ready->timer->timeout < spd_timer_ready->now)
+        spd_timer_ready->ready = 1;
+      else
+        spd_timer_ready->ready = 0;
+      break;
     case SCHEDULE_POINT_TIMER_RUN:
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
       spd_timer_run = (spd_timer_run_t *) pointDetails;
-      /* Run timers if they've expired. */
-      if (spd_timer_run->timer->timeout < spd_timer_run->now)
-        spd_timer_run->run = 1;
-      else
-        spd_timer_run->run = 0;
+      /* Run every ready timer. */
+      for (iu = 0; iu < spd_timer_run->shuffleable_items.nitems; iu++)
+        spd_timer_run->shuffleable_items.thoughts[i] = 1;
       break;
     case SCHEDULE_POINT_TIMER_NEXT_TIMEOUT:
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);

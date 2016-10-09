@@ -27,25 +27,76 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <stdlib.h> /* qsort */
 
-UV_UNUSED(static int uv__timer_ready(uv_timer_t *handle));
-
-UV_UNUSED(static int uv__timer_ready(uv_timer_t *handle))
+/* Keeping pointers to timers in an array makes it easy to shuffle them. */
+struct heap_timer_ready_aux
 {
-  int ready = 0;
+  uv_timer_t **arr;
+  unsigned size;
+  unsigned max_size;
+};
 
-  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__timer_ready: begin: handle %p\n", handle));
-  assert(handle);
+/* Wrapper around scheduler_thread_yield(SCHEDULE_POINT_TIMER_RUN, ...) for use with heap_walk.
+ * Identifies ready timers according to the scheduler's whims (i.e. time dilation).
+ * AUX is a heap_timer_ready_aux. 
+ */
+static void uv__heap_timer_ready (struct heap_node *heap_node, void *aux)
+{
+  uv_timer_t *handle = NULL;
+  struct heap_timer_ready_aux *htra = (struct heap_timer_ready_aux *) aux;
+  spd_timer_ready_t spd_timer_ready;
 
-  ready = (handle->timeout < handle->loop->time);
-  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__timer_ready: returning ready %i (timeout %llu time %llu)\n", ready, handle->timeout, handle->loop->time));
-  return ready;
+  assert(heap_node);
+  assert(aux);
+
+  handle = container_of(heap_node, uv_timer_t, heap_node);
+
+  /* Ask the scheduler whether this timer is ready. */
+  spd_timer_ready_init(&spd_timer_ready);
+  spd_timer_ready.timer = handle;
+  spd_timer_ready.now = handle->loop->time;
+  spd_timer_ready.ready = -1;
+  scheduler_thread_yield(SCHEDULE_POINT_TIMER_READY, &spd_timer_ready);
+  assert(spd_timer_ready.ready == 0 || spd_timer_ready.ready == 1);
+
+  if (spd_timer_ready.ready)
+  {
+    assert(htra->size < htra->max_size);
+    htra->arr[htra->size] = handle;
+    htra->size++;
+  }
+  
+  return;
 }
 
-static int timer_less_than(const struct heap_node* ha,
-                           const struct heap_node* hb) {
-  const uv_timer_t* a;
-  const uv_timer_t* b;
+/* a and b are uv_timer_t **'s. "two arguments that point to the objects being compared."
+ * Returns -1 if a times out before b, 1 if b times out before a, 0 in the event of a tie (is this possible?).
+ */
+static int qsort_timer_cmp (const void *a, const void *b)
+{
+  const uv_timer_t *a_timer = *(const uv_timer_t **) a;
+  const uv_timer_t *b_timer = *(const uv_timer_t **) b;
+
+  if (a_timer->timeout < b_timer->timeout)
+    return -1;
+  if (b_timer->timeout < a_timer->timeout)
+    return 1;
+
+  /* Compare start_id when both have the same timeout. start_id is
+   * allocated with loop->timer_counter in uv_timer_start().
+   */
+  if (a_timer->start_id < b_timer->start_id)
+    return -1;
+  if (b_timer->start_id < a_timer->start_id)
+    return 1;
+
+  return 0;
+}
+
+static int heap_timer_less_than (const struct heap_node* ha, const struct heap_node* hb)
+{
+  const uv_timer_t *a = NULL, *b = NULL;
 
   a = container_of(ha, const uv_timer_t, heap_node);
   b = container_of(hb, const uv_timer_t, heap_node);
@@ -66,6 +117,35 @@ static int timer_less_than(const struct heap_node* ha,
   return 0;
 }
 
+
+/* Returns the ready timers. Caller is responsible for uv__free'ing htra.arr. 
+ * The ready timers are placed in the htra.arr sorted by timeout, so
+ * if un-shuffled they'll be executed in the "natural" order.
+ */
+static struct heap_timer_ready_aux uv__ready_timers (uv_loop_t* loop)
+{
+  struct heap *timer_heap = (struct heap *) &loop->timer_heap;
+  uv_timer_t **timerP_arr = NULL; 
+  struct heap_timer_ready_aux htra;
+
+  timerP_arr = (uv_timer_t **) uv__malloc(sizeof(uv_timer_t *) * timer_heap->nelts);
+  assert(timerP_arr != NULL);
+
+  htra.arr = timerP_arr;
+  htra.size = 0;
+  htra.max_size = timer_heap->nelts;
+
+  /* Walk the whole heap, since uv__heap_timer_ready might dilate time for some and not others, in effect letting some timers "jump ahead". */
+  heap_walk((struct heap*) &loop->timer_heap, uv__heap_timer_ready, &htra);
+
+  /* Sort timers in increasing {timeout, start_id} order.
+   * (heap_walk doesn't traverse in strict order of {timeout, start_id}, so htra.arr is not ordered). 
+   * No need for qsort_r because we're on the (sole) looper thread. */
+  qsort(htra.arr, htra.size, sizeof(uv_timer_t *), qsort_timer_cmp);
+
+  return htra;
+}
+
 int uv_timer_init(uv_loop_t* loop, uv_timer_t* handle) {
   uv__handle_init(loop, (uv_handle_t*)handle, UV_TIMER);
   handle->timer_cb = NULL;
@@ -80,7 +160,7 @@ int uv_timer_start(uv_timer_t* handle,
   uint64_t clamped_timeout;
   int rc = 0;
 
-  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv__timer_ready: begin: handle %p timeout %llu repeat %llu\n", handle, timeout, repeat));
+  ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv_timer_start: begin: handle %p timeout %llu repeat %llu\n", handle, timeout, repeat));
 
   if (cb == NULL)
   {
@@ -110,7 +190,7 @@ int uv_timer_start(uv_timer_t* handle,
 
   heap_insert((struct heap*) &handle->loop->timer_heap,
               (struct heap_node*) &handle->heap_node,
-              timer_less_than);
+              heap_timer_less_than);
   uv__handle_start(handle);
 
   rc = 0;
@@ -128,7 +208,7 @@ int uv_timer_stop(uv_timer_t* handle) {
 
   heap_remove((struct heap*) &handle->loop->timer_heap,
               (struct heap_node*) &handle->heap_node,
-              timer_less_than);
+              heap_timer_less_than);
 
   uv__handle_stop(handle);
 
@@ -184,57 +264,56 @@ int uv__next_timeout(const uv_loop_t* loop) {
 }
 
 void uv__run_timers(uv_loop_t* loop) {
-  struct heap_node* heap_node;
-  uv_timer_t* handle;
-
+  unsigned i;
   spd_timer_run_t spd_timer_run;
+  int *should_run = NULL;
+  struct heap_timer_ready_aux htra;
 
-  for (;;) {
-    heap_node = heap_min((struct heap*) &loop->timer_heap);
-    if (heap_node == NULL)
+  /* Calculating ready timers here means that any timers registered by ready timers
+   *  won't be candidates for execution until the next time we call uv__run_timers.
+   * This is appropriate since it matches the Node.js docs (timers have a minimum timeout of 1ms in the future).
+   */
+  htra = uv__ready_timers(loop);
+  should_run = (int *) uv__malloc(htra.size * sizeof(int));
+  assert(should_run != NULL);
+  memset(should_run, 0, sizeof(int)*htra.size);
+
+  spd_timer_run_init(&spd_timer_run);
+  /* Ask scheduler which timers to handle in what order. 
+   * Scheduler will defer every timer after the first deferred one,
+   * so that there is no shuffling due to deferral. */
+  spd_timer_run_init(&spd_timer_run);
+  spd_timer_run.shuffleable_items.item_size = sizeof(uv_timer_t *);
+  spd_timer_run.shuffleable_items.nitems = htra.size;
+  spd_timer_run.shuffleable_items.items = htra.arr;
+  spd_timer_run.shuffleable_items.thoughts = should_run;
+  scheduler_thread_yield(SCHEDULE_POINT_TIMER_RUN, &spd_timer_run);
+
+  for (i = 0; i < spd_timer_run.shuffleable_items.nitems; i++)
+  {
+    uv_timer_t *timer = ((uv_timer_t **) spd_timer_run.shuffleable_items.items)[i];
+    if (spd_timer_run.shuffleable_items.thoughts[i] == 1)
     {
-      mylog(LOG_TIMER, 7, "uv__run_timers: No timers left\n");
-      break;
-    }
-
-    handle = container_of(heap_node, uv_timer_t, heap_node);
-
-    /* A timer registered in this loop tick is a timer added by one of the timers we just invoked.
-     * Node.js states that the minimum timeout is 1 (https://nodejs.org/api/timers.html#timers_settimeout_callback_delay_arg),
-     *   so this is otherwise impossible.
-     * Therefore, don't invoke timers that were added by just-invoked timers, since this violates Node's rules.
-     */
-    if (handle->start_time == loop->time)
-    {
-      mylog(LOG_TIMER, 7, "uv__run_timers: The next timer %p was registered during this loop, so we definitely can't execute it\n", handle);
-      break;
-    }
-
-    /* Ask the scheduler whether we should run this timer. */
-    spd_timer_run_init(&spd_timer_run);
-    spd_timer_run.timer = handle;
-    spd_timer_run.now = handle->loop->time;
-    spd_timer_run.run = -1;
-    scheduler_thread_yield(SCHEDULE_POINT_TIMER_RUN, &spd_timer_run);
-    assert(spd_timer_run.run == 0 || spd_timer_run.run == 1);
-
-    mylog(LOG_TIMER, 7, "uv__run_timers: timer %p, time is %llu, timer has timeout %llu, run %i\n", handle, handle->loop->time, handle->timeout, spd_timer_run.run);
-    if (spd_timer_run.run)
-    {
-      uv_timer_stop(handle);
-      uv_timer_again(handle);
+      mylog(LOG_TIMER, 7, "uv__run_timers: running timer %p, time is %llu, timer has timeout %llu\n", timer, timer->loop->time, timer->timeout);
+      uv_timer_stop(timer);
+      uv_timer_again(timer);
 
      #if UNIFIED_CALLBACK
-      invoke_callback_wrap((any_func) handle->timer_cb, UV_TIMER_CB, (long) handle);
+      invoke_callback_wrap((any_func) timer->timer_cb, UV_TIMER_CB, (long) timer);
      #else
-      handle->timer_cb(handle);
+      timer->timer_cb(timer);
      #endif
     }
     else
-      break;
+      /* If performance is a problem, we could break out of the loop here. */
+      mylog(LOG_TIMER, 7, "uv__run_timers: deferring ready timer %p\n", timer);
   }
-}
 
+  uv__free(htra.arr);
+  uv__free(should_run);
+
+  return;
+}
 
 void uv__timer_close(uv_timer_t* handle) {
   uv_timer_stop(handle);

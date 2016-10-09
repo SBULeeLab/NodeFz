@@ -59,6 +59,7 @@ HEAP_EXPORT(void heap_remove(struct heap* heap,
                              struct heap_node* node,
                              heap_compare_fn less_than));
 HEAP_EXPORT(void heap_dequeue(struct heap* heap, heap_compare_fn less_than));
+/* NB heap_walk does not walk the heap in strict heap_compare_fn order. */
 HEAP_EXPORT(void heap_walk(struct heap* heap, heap_walk_fn apply, void *aux));
 
 /* Private functions. */

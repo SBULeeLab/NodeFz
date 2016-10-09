@@ -102,6 +102,7 @@ char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] =
     "TP_AFTER_PUT_DONE",
 
     /* Timer. */ 
+    "TIMER_READY",
     "TIMER_RUN",
     "TIMER_NEXT_TIMEOUT"
   };
@@ -126,6 +127,7 @@ static int SPD_TP_GOT_WORK_MAGIC = 46548678;
 static int SPD_TP_BEFORE_PUT_DONE_MAGIC = 59175099;
 static int SPD_TP_AFTER_PUT_DONE_MAGIC = 99281732;
 static int SPD_LOOPER_GETTING_DONE_MAGIC = 10229334;
+static int SPD_TIMER_READY_MAGIC = 64315287;
 static int SPD_TIMER_RUN_MAGIC = 87874545;
 static int SPD_TIMER_NEXT_TIMEOUT_MAGIC = 85563324;
 
@@ -192,8 +194,8 @@ int spd_iopoll_before_handling_events_is_valid (spd_iopoll_before_handling_event
 {
   return (spd_iopoll_before_handling_events != NULL &&
           spd_iopoll_before_handling_events->magic == SPD_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS_MAGIC &&
-          spd_iopoll_before_handling_events->events != NULL &&
-          spd_iopoll_before_handling_events->should_handle_event != NULL);
+          spd_iopoll_before_handling_events->shuffleable_items.items != NULL &&
+          spd_iopoll_before_handling_events->shuffleable_items.thoughts != NULL);
 }
 
 void spd_wants_work_init (spd_wants_work_t *spd_wants_work)
@@ -279,20 +281,35 @@ int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done)
           spd_getting_done->magic == SPD_LOOPER_GETTING_DONE_MAGIC);
 }
 
+void spd_timer_ready_init (spd_timer_ready_t *spd_timer_ready)
+{
+  assert(spd_timer_ready != NULL);
+  memset(spd_timer_ready, 0, sizeof *spd_timer_ready);
+  spd_timer_ready->magic = SPD_TIMER_READY_MAGIC;
+  spd_timer_ready->timer = NULL;
+  spd_timer_ready->ready = 0;
+}
+
+int spd_timer_ready_is_valid (spd_timer_ready_t *spd_timer_ready)
+{
+  return (spd_timer_ready != NULL &&
+          spd_timer_ready->magic == SPD_TIMER_READY_MAGIC &&
+          spd_timer_ready->timer != NULL);
+}
+
 void spd_timer_run_init (spd_timer_run_t *spd_timer_run)
 {
   assert(spd_timer_run != NULL);
   memset(spd_timer_run, 0, sizeof *spd_timer_run);
   spd_timer_run->magic = SPD_TIMER_RUN_MAGIC;
-  spd_timer_run->timer = NULL;
-  spd_timer_run->run = 0;
 }
 
 int spd_timer_run_is_valid (spd_timer_run_t *spd_timer_run)
 {
   return (spd_timer_run != NULL &&
           spd_timer_run->magic == SPD_TIMER_RUN_MAGIC &&
-          spd_timer_run->timer != NULL);
+          spd_timer_run->shuffleable_items.items != NULL &&
+          spd_timer_run->shuffleable_items.thoughts != NULL);
 }
 
 void spd_timer_next_timeout_init (spd_timer_next_timeout_t *spd_timer_next_timeout)
@@ -326,6 +343,7 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
   spd_before_put_done_t *spd_before_put_done = NULL;
   spd_after_put_done_t *spd_after_put_done = NULL;
   spd_getting_done_t *spd_getting_done = NULL;
+  spd_timer_ready_t *spd_timer_ready = NULL;
   spd_timer_run_t *spd_timer_run = NULL;
   spd_timer_next_timeout_t *spd_timer_next_timeout = NULL;
 
@@ -379,6 +397,10 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
     case SCHEDULE_POINT_TP_AFTER_PUT_DONE:
       spd_after_put_done = (spd_after_put_done_t *) pointDetails;
       is_valid = spd_after_put_done_is_valid(spd_after_put_done);
+      break;
+    case SCHEDULE_POINT_TIMER_READY:
+      spd_timer_ready = (spd_timer_ready_t *) pointDetails;
+      is_valid = spd_timer_ready_is_valid(spd_timer_ready);
       break;
     case SCHEDULE_POINT_TIMER_RUN:
       spd_timer_run = (spd_timer_run_t *) pointDetails;
