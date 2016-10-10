@@ -2469,14 +2469,19 @@ Fri 07 Oct 2016
 
 Sat 08 Oct 2016
 
-1. Add notion of "timer degrees of freedom". I've discovered that we can legally shuffle timers.
-   https://nodejs.org/api/timers.html#timers_settimeout_callback_delay_arg 
+1. I've discovered that we can legally shuffle timers. https://nodejs.org/api/timers.html#timers_settimeout_callback_delay_arg 
+   Add notion of "timer degrees of freedom". 
+  
+2. Work on nes testing.
+    > Developed "randomer" test case, maybe too contrived?
 
 -----
 
-2. Finish nes
 
 TODO
+  - Finish nes testing
+    > Don't forget comments about unsafe assumptions in the test suite. It's definitely flaky in that one test case with the TODO on it.
+  - Look for races in node core we can fuzz? Flaky test suites?
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
     agent-keepalive didn't need the "delay", but perhaps other modules will.
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 
