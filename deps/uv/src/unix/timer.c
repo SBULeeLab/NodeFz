@@ -28,6 +28,7 @@
 #include <assert.h>
 #include <limits.h>
 #include <stdlib.h> /* qsort */
+#include <unistd.h> /* usleep */
 
 /* Keeping pointers to timers in an array makes it easy to shuffle them. */
 struct heap_timer_ready_aux
@@ -305,8 +306,10 @@ void uv__run_timers(uv_loop_t* loop) {
      #endif
     }
     else
-      /* If performance is a problem, we could break out of the loop here. */
-      mylog(LOG_TIMER, 7, "uv__run_timers: deferring ready timer %p\n", timer);
+    {
+      mylog(LOG_TIMER, 7, "uv__run_timers: deferring ready timer %p and all subsequent timers\n", timer);
+      usleep(1000*5); /* Sleep 5 ms to let more events occur, since uv__io_poll will have timeout 0 while there are ready timers. */
+    }
   }
 
   uv__free(htra.arr);
