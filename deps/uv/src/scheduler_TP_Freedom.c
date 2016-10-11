@@ -24,6 +24,7 @@ static struct
   int mode;
   scheduler_tp_freedom_args_t args;
 
+  /* Accessed by looper and TP. Protected by scheduler__lock. */
   int looper_in_epoll; /* Non-zero if looper thread is between SCHEDULE_POINT_LOOPER_BEFORE_EPOLL and AFTER_EPOLL. */
   struct timespec looper_epoll_start_time; /* If looper_in_epoll, this is when looper reached SCHEDULE_POINT_LOOPER_BEFORE_EPOLL. */
 } tpFreedom_implDetails;
@@ -128,17 +129,15 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     else
       wait_diff_us = 0;
 
-    if (tpFreedom_implDetails.looper_in_epoll)
+    scheduler__lock();
+    if (tpFreedom_implDetails.looper_in_epoll && timespec_cmp(&now, &tpFreedom_implDetails.looper_epoll_start_time) == 1)
     {
-      /* TODO Weirdly I'm seeing cases where now is before looper_epoll_start_time. Not sure how this happens, but ignoring it for now. */
-      if (timespec_cmp(&now, &tpFreedom_implDetails.looper_epoll_start_time) == 1)
-      {
-        timespec_sub(&now, &tpFreedom_implDetails.looper_epoll_start_time, &looper_epoll_diff);
-        looper_epoll_diff_us = timespec_us(&looper_epoll_diff);
-      }
-      else
-        looper_epoll_diff_us = 0;
+      timespec_sub(&now, &tpFreedom_implDetails.looper_epoll_start_time, &looper_epoll_diff);
+      looper_epoll_diff_us = timespec_us(&looper_epoll_diff);
     }
+    else
+      looper_epoll_diff_us = 0;
+    scheduler__unlock();
 
     if (0 < tpFreedom_implDetails.args.tp_degrees_of_freedom && tpFreedom_implDetails.args.tp_degrees_of_freedom <= queue_len)
     {
@@ -150,13 +149,13 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (tp_max_delay_us %llu exceeded) (%s)\n", tpFreedom_implDetails.args.tp_max_delay_us, schedule_point_to_string(point));
       spd_wants_work->should_get_work = 1;
     }
-    else if (tpFreedom_implDetails.looper_in_epoll && tpFreedom_implDetails.args.tp_epoll_threshold <= looper_epoll_diff_us)
+    else if (tpFreedom_implDetails.args.tp_epoll_threshold < looper_epoll_diff_us)
     {
       mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can get work (looper blocked in epoll for more than %llu us, no more work coming) (%s)\n", tpFreedom_implDetails.args.tp_epoll_threshold, schedule_point_to_string(point));
       spd_wants_work->should_get_work = 1;
     }
     else
-      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can't get work yet (tp_degrees_of_freedom %i, queue_len %i; delay %llu tp_max_delay_us %llu; looper_in_epoll %i looper_epoll_diff_us %li tp_epoll_threshold %li) (%s)\n", tpFreedom_implDetails.args.tp_degrees_of_freedom, queue_len, wait_diff_us, tpFreedom_implDetails.args.tp_max_delay_us, tpFreedom_implDetails.looper_in_epoll, looper_epoll_diff_us, tpFreedom_implDetails.args.tp_epoll_threshold, schedule_point_to_string(point));
+      mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: thread can't get work yet (tp_degrees_of_freedom %i, queue_len %i; delay %llu tp_max_delay_us %llu; looper_epoll_diff_us %li tp_epoll_threshold %li) (%s)\n", tpFreedom_implDetails.args.tp_degrees_of_freedom, queue_len, wait_diff_us, tpFreedom_implDetails.args.tp_max_delay_us, looper_epoll_diff_us, tpFreedom_implDetails.args.tp_epoll_threshold, schedule_point_to_string(point));
   }
   else if (point == SCHEDULE_POINT_TP_GETTING_WORK || point == SCHEDULE_POINT_LOOPER_GETTING_DONE)
   {
@@ -197,13 +196,17 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
   else if (point == SCHEDULE_POINT_LOOPER_BEFORE_EPOLL)
   {
     assert(!tpFreedom_implDetails.looper_in_epoll);
+    scheduler__lock();
     tpFreedom_implDetails.looper_in_epoll = 1;
     assert(clock_gettime(CLOCK_MONOTONIC_RAW, &tpFreedom_implDetails.looper_epoll_start_time) == 0);
+    scheduler__unlock();
   }
   else if (point == SCHEDULE_POINT_LOOPER_AFTER_EPOLL)
   {
     assert(tpFreedom_implDetails.looper_in_epoll);
+    scheduler__lock();
     tpFreedom_implDetails.looper_in_epoll = 0;
+    scheduler__unlock();
   }
   else if (point == SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS)
   {
