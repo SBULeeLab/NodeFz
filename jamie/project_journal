@@ -2480,16 +2480,19 @@ Sat 08 Oct 2016
 Mon 10 Oct 2016
 
 1. Don't shuffle timers when delaying them.
-
-2. Finish nes testing. :-(.
-
+2. Finish nes testing.
+3. Add "fuzz-less" experiment for node-logger.
+4. Remove agent-keepalive from the list of successes. Changes in scheduler mean that I no longer have a working test case.
+   However, the initial experiments were good on another flavor of the fuzzer; can we still report the results?
 
 -----
 
 
 TODO
   - **In previously-completed tests, need to verify that "play-it-straight devel node" is less effective.
-  - kue. pep. ghost/etherpad?
+    > node-mkdirp
+    > mongoose
+  - Attempt fuzz testing on: kue. pep. ghost/etherpad?
   - Try core module test cases, since they don't need a working test suite.
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
     agent-keepalive didn't need the "delay", but perhaps other modules will.

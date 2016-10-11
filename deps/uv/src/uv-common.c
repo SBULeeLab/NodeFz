@@ -1170,7 +1170,7 @@ static void initialize_scheduler (void)
          *tp_sizeP = NULL;
 
     /* Defaults. */
-    int scheduler_timer_deg_freedom = 0, scheduler_timer_early_exec_tperc = 0, scheduler_timer_max_early_multiple = 1, scheduler_timer_late_exec_tperc = 0;
+    int scheduler_timer_deg_freedom = 1, scheduler_timer_early_exec_tperc = 0, scheduler_timer_max_early_multiple = 1, scheduler_timer_late_exec_tperc = 0;
 
     scheduler_type = SCHEDULER_TYPE_TP_FREEDOM;
 
