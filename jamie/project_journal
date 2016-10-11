@@ -2475,13 +2475,22 @@ Sat 08 Oct 2016
 2. Work on nes testing.
     > Developed "randomer" test case, maybe too contrived?
 
+--------------------------------
+
+Mon 10 Oct 2016
+
+1. Don't shuffle timers when delaying them.
+
+2. Finish nes testing. :-(.
+
+
 -----
 
 
 TODO
-  - Finish nes testing
-    > Don't forget comments about unsafe assumptions in the test suite. It's definitely flaky in that one test case with the TODO on it.
-  - Look for races in node core we can fuzz? Flaky test suites?
+  - **In previously-completed tests, need to verify that "play-it-straight devel node" is less effective.
+  - kue. pep. ghost/etherpad?
+  - Try core module test cases, since they don't need a working test suite.
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
     agent-keepalive didn't need the "delay", but perhaps other modules will.
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 
