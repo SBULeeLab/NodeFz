@@ -2485,13 +2485,30 @@ Mon 10 Oct 2016
 4. Remove agent-keepalive from the list of successes. Changes in scheduler mean that I no longer have a working test case.
    However, the initial experiments were good on another flavor of the fuzzer; can we still report the results?
 
+--------------------------------
+
+Tue 11 Oct 2016
+
+1. Verify that "play-it-straight devel node" doesn't produce bugs as easily as devel node does.
+   This lets us be confident that our fuzzer is actually useful.
+
+2. Explore and patch the most blatant race in the socket.io test suite.
+
+--------------------------------
+
+Wed 12 Oct 2016
+
+1. Working on paper writing.
+
+2. To compute LoC, try "git diff --stat master MultiSched -- '*.c' '*.h'"
+    (need to filter out some unused things for fairness, e.g. the changes in src/win)
+      -> I should just revert these changes...
+
 -----
 
 
 TODO
-  - **In previously-completed tests, need to verify that "play-it-straight devel node" is less effective.
-    > node-mkdirp
-    > mongoose
+  - Submit pull request for socket.io test suite bug
   - Attempt fuzz testing on: kue. pep. ghost/etherpad?
   - Try core module test cases, since they don't need a working test suite.
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
