@@ -24,9 +24,12 @@ static struct
   int mode;
   scheduler_tp_freedom_args_t args;
 
-  /* Accessed by looper and TP. Protected by scheduler__lock. */
+  uv_mutex_t mutex;
+
+  /* Accessed by looper and TP. Protected by mutex. */
   int looper_in_epoll; /* Non-zero if looper thread is between SCHEDULE_POINT_LOOPER_BEFORE_EPOLL and AFTER_EPOLL. */
   struct timespec looper_epoll_start_time; /* If looper_in_epoll, this is when looper reached SCHEDULE_POINT_LOOPER_BEFORE_EPOLL. */
+
 } tpFreedom_implDetails;
 
 /***********************
@@ -44,6 +47,9 @@ static int scheduler_tp_freedom__queue_len (QUEUE *q);
  * degrees_of_freedom == -1 means "shuffle everything together".
  */
 static void scheduler_tp_freedom__shuffle_items (int degrees_of_freedom, void *events, int nitems, size_t item_size);
+
+static void scheduler_tP_freedom__lock (void);
+static void scheduler_tP_freedom__unlock (void);
 
 /***********************
  * Public API definitions
@@ -77,6 +83,9 @@ scheduler_tp_freedom_init (scheduler_mode_t mode, void *args, schedulerImpl_t *s
 
   assert(tpFreedom_implDetails.args.tp_degrees_of_freedom == -1 || 1 <= tpFreedom_implDetails.args.tp_degrees_of_freedom);
   assert(0 <= tpFreedom_implDetails.args.iopoll_defer_perc && tpFreedom_implDetails.args.iopoll_defer_perc <= 100);
+
+  tpFreedom_implDetails.looper_in_epoll = 0;
+  assert(uv_mutex_init(&tpFreedom_implDetails.mutex) == 0);
 
   return;
 }
@@ -129,7 +138,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     else
       wait_diff_us = 0;
 
-    scheduler__lock();
+    scheduler_tP_freedom__lock();
     if (tpFreedom_implDetails.looper_in_epoll && timespec_cmp(&now, &tpFreedom_implDetails.looper_epoll_start_time) == 1)
     {
       timespec_sub(&now, &tpFreedom_implDetails.looper_epoll_start_time, &looper_epoll_diff);
@@ -137,7 +146,7 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
     }
     else
       looper_epoll_diff_us = 0;
-    scheduler__unlock();
+    scheduler_tP_freedom__unlock();
 
     if (0 < tpFreedom_implDetails.args.tp_degrees_of_freedom && tpFreedom_implDetails.args.tp_degrees_of_freedom <= queue_len)
     {
@@ -196,17 +205,17 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
   else if (point == SCHEDULE_POINT_LOOPER_BEFORE_EPOLL)
   {
     assert(!tpFreedom_implDetails.looper_in_epoll);
-    scheduler__lock();
+    scheduler_tP_freedom__lock();
     tpFreedom_implDetails.looper_in_epoll = 1;
     assert(clock_gettime(CLOCK_MONOTONIC_RAW, &tpFreedom_implDetails.looper_epoll_start_time) == 0);
-    scheduler__unlock();
+    scheduler_tP_freedom__unlock();
   }
   else if (point == SCHEDULE_POINT_LOOPER_AFTER_EPOLL)
   {
     assert(tpFreedom_implDetails.looper_in_epoll);
-    scheduler__lock();
+    scheduler_tP_freedom__lock();
     tpFreedom_implDetails.looper_in_epoll = 0;
-    scheduler__unlock();
+    scheduler_tP_freedom__unlock();
   }
   else if (point == SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS)
   {
@@ -435,4 +444,14 @@ scheduler_tp_freedom__shuffle_items (int degrees_of_freedom, void *items, int ni
   }
 
   return;
+}
+
+static void scheduler_tP_freedom__lock (void)
+{
+  uv_mutex_lock(&tpFreedom_implDetails.mutex);
+}
+
+static void scheduler_tP_freedom__unlock (void)
+{
+  uv_mutex_unlock(&tpFreedom_implDetails.mutex);
 }
