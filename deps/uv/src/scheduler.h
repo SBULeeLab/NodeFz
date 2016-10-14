@@ -151,6 +151,13 @@ enum schedule_point_e
 
   SCHEDULE_POINT_LOOPER_GETTING_DONE, /* LOOPER: uv__work_done, just before getting item from private done queue. */
 
+  SCHEDULE_POINT_LOOPER_RUN_CLOSING, /* LOOPER: In uv__run_closing_handles, deciding whether to continue or stop. */
+
+  /* Timer schedule points (also run by LOOPER). */
+  SCHEDULE_POINT_TIMER_READY, /* Timer: I'm in uv__ready_timers considering a pending timer. */
+  SCHEDULE_POINT_TIMER_RUN, /* Timer: I'm in uv__run_timers considering the set of ready timers. */
+  SCHEDULE_POINT_TIMER_NEXT_TIMEOUT, /* Timer: I'm in uv__next_timeout being asked how long until the next timer goes off. */
+
   /* TP schedule points. */
   SCHEDULE_POINT_TP_WANTS_WORK, /* TP: worker, when wq is locked and non-empty. */
 
@@ -160,12 +167,7 @@ enum schedule_point_e
   SCHEDULE_POINT_TP_BEFORE_PUT_DONE, /* TP: worker, before placing done item in done queue. */
   SCHEDULE_POINT_TP_AFTER_PUT_DONE, /* TP: worker, after placing done item in done queue. */
  
-  /* Timer schedule points. */
-  SCHEDULE_POINT_TIMER_READY, /* Timer: I'm in uv__ready_timers considering a pending timer. */
-  SCHEDULE_POINT_TIMER_RUN, /* Timer: I'm in uv__run_timers considering the set of ready timers. */
-  SCHEDULE_POINT_TIMER_NEXT_TIMEOUT, /* Timer: I'm in uv__next_timeout being asked how long until the next timer goes off. */
-
-  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TIMER_NEXT_TIMEOUT
+  SCHEDULE_POINT_MAX = SCHEDULE_POINT_TP_AFTER_PUT_DONE
 };
 typedef enum schedule_point_e schedule_point_t;
 
@@ -296,6 +298,18 @@ typedef spd_getting_work_t spd_getting_done_t;
 void spd_getting_done_init (spd_getting_done_t *spd_getting_done);
 /* Returns non-zero if valid. */
 int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done);
+
+struct spd_looper_run_closing_s
+{
+  int magic;
+
+  int defer; /* OUTPUT: Set to 1 if we should defer the next handle and all subsequent handles until the next turn of the loop, 0 to defer. */
+};
+typedef struct spd_looper_run_closing_s spd_looper_run_closing_t;
+
+void spd_looper_run_closing_init (spd_looper_run_closing_t *spd_looper_run_closing);
+/* Returns non-zero if valid. */
+int spd_looper_run_closing_is_valid (spd_looper_run_closing_t *spd_looper_run_closing);
 
 struct spd_timer_ready_s
 {

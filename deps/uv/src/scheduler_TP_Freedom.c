@@ -246,6 +246,20 @@ scheduler_tp_freedom_thread_yield (schedule_point_t point, void *pointDetails)
       }
     }
   }
+  else if (point == SCHEDULE_POINT_LOOPER_RUN_CLOSING)
+  {
+    spd_looper_run_closing_t *spd_looper_run_closing = (spd_looper_run_closing_t *) pointDetails;
+    int defer_choice = 0;
+
+    defer_choice = rand_int(100);
+    if (defer_choice < tpFreedom_implDetails.args.run_closing_defer_perc)
+      spd_looper_run_closing->defer = 1;
+    else
+      spd_looper_run_closing->defer = 0;
+
+    assert(spd_looper_run_closing->defer == 0 || spd_looper_run_closing->defer == 1);
+    mylog(LOG_SCHEDULER, 1, "scheduler_tp_freedom_thread_yield: %s defer %i\n", schedule_point_to_string(point), spd_looper_run_closing->defer);
+  }
   else if (point == SCHEDULE_POINT_TIMER_READY)
   {
     spd_timer_ready_t *spd_timer_ready = (spd_timer_ready_t *) pointDetails;

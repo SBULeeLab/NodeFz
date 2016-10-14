@@ -92,6 +92,8 @@ char *schedule_point_strings[SCHEDULE_POINT_MAX - SCHEDULE_POINT_MIN + 1] =
 
     "LOOPER_GETTING_DONE",
 
+    "LOOPER_RUN_CLOSING",
+
     /* TP */
     "TP_WANTS_WORK",
 
@@ -127,6 +129,7 @@ static int SPD_TP_GOT_WORK_MAGIC = 46548678;
 static int SPD_TP_BEFORE_PUT_DONE_MAGIC = 59175099;
 static int SPD_TP_AFTER_PUT_DONE_MAGIC = 99281732;
 static int SPD_LOOPER_GETTING_DONE_MAGIC = 10229334;
+static int SPD_LOOPER_RUN_CLOSING_MAGIC = 64976312;
 static int SPD_TIMER_READY_MAGIC = 64315287;
 static int SPD_TIMER_RUN_MAGIC = 87874545;
 static int SPD_TIMER_NEXT_TIMEOUT_MAGIC = 85563324;
@@ -281,6 +284,20 @@ int spd_getting_done_is_valid (spd_getting_done_t *spd_getting_done)
           spd_getting_done->magic == SPD_LOOPER_GETTING_DONE_MAGIC);
 }
 
+void spd_looper_run_closing_init (spd_looper_run_closing_t *spd_looper_run_closing)
+{
+  assert(spd_looper_run_closing != NULL);
+  memset(spd_looper_run_closing, 0, sizeof *spd_looper_run_closing);
+  spd_looper_run_closing->magic = SPD_LOOPER_RUN_CLOSING_MAGIC;
+  spd_looper_run_closing->defer = 0;
+}
+
+int spd_looper_run_closing_is_valid (spd_looper_run_closing_t *spd_looper_run_closing)
+{
+  return (spd_looper_run_closing != NULL &&
+          spd_looper_run_closing->magic == SPD_LOOPER_RUN_CLOSING_MAGIC);
+}
+
 void spd_timer_ready_init (spd_timer_ready_t *spd_timer_ready)
 {
   assert(spd_timer_ready != NULL);
@@ -343,6 +360,7 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
   spd_before_put_done_t *spd_before_put_done = NULL;
   spd_after_put_done_t *spd_after_put_done = NULL;
   spd_getting_done_t *spd_getting_done = NULL;
+  spd_looper_run_closing_t *spd_looper_run_closing = NULL;
   spd_timer_ready_t *spd_timer_ready = NULL;
   spd_timer_run_t *spd_timer_run = NULL;
   spd_timer_next_timeout_t *spd_timer_next_timeout = NULL;
@@ -397,6 +415,10 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
     case SCHEDULE_POINT_TP_AFTER_PUT_DONE:
       spd_after_put_done = (spd_after_put_done_t *) pointDetails;
       is_valid = spd_after_put_done_is_valid(spd_after_put_done);
+      break;
+    case SCHEDULE_POINT_LOOPER_RUN_CLOSING:
+      spd_looper_run_closing = (spd_looper_run_closing_t *) pointDetails;
+      is_valid = spd_looper_run_closing_is_valid(spd_looper_run_closing);
       break;
     case SCHEDULE_POINT_TIMER_READY:
       spd_timer_ready = (spd_timer_ready_t *) pointDetails;

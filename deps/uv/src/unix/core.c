@@ -286,15 +286,39 @@ static void uv__finish_close(uv_handle_t* handle) {
 static void uv__run_closing_handles(uv_loop_t* loop) {
   uv_handle_t* p;
   uv_handle_t* q;
+  int close_handle;
+
+  spd_looper_run_closing_t spd_looper_run_closing;
+  spd_looper_run_closing_init(&spd_looper_run_closing);
 
   p = loop->closing_handles;
   loop->closing_handles = NULL;
 
-  while (p) {
-    q = p->next_closing;
-    uv__finish_close(p);
-    p = q;
+  while (p)
+  {
+    spd_looper_run_closing.defer = -1;
+    scheduler_thread_yield(SCHEDULE_POINT_LOOPER_RUN_CLOSING, &spd_looper_run_closing);
+    assert(spd_looper_run_closing.defer == 0 || spd_looper_run_closing.defer == 1);
+
+    close_handle = !spd_looper_run_closing.defer;
+    if (close_handle)
+    {
+      mylog(LOG_MAIN, 1, "uv__run_closing_handles: uv__finish_close(%p)\n", p);
+      q = p->next_closing;
+      uv__finish_close(p);
+      p = q;
+    }
+    else
+    {
+      mylog(LOG_MAIN, 1, "uv__run_closing_handles: deferring closing_handles starting with handle %p\n", p);
+      assert(loop->closing_handles == NULL); /* Does TP ever mark a handle as closing? */
+      loop->closing_handles = p;
+      usleep(3*1000); /* 3ms */
+      break;
+    }
   }
+
+  return;
 }
 
 

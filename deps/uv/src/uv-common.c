@@ -1092,6 +1092,8 @@ void initialize_record_and_replay (void)
  *                                                                              "2" means that we'll break up the epoll events into pairs and may shuffle each pair.
  *                                                                              "-1" means "shuffle everything".
  *                                     UV_SCHEDULER_IOPOLL_DEFER_PERC           Looper (io_poll): Percentage of epoll events to defer each loop
+ *                                     UV_SCHEDULER_RUN_CLOSING_DEFER_PERC      In uv__run_closing_handles, we decide whether to defer all remaining handles until the next turn of the loop.
+ *                                                                              This percentage determines the likelihood of deferring. 
  *                                     [UV_SCHEDULER_TIMER_DEG_FREEDOM]         Timer: Legal "shuffle distance" of the ready timers.
  *                                                                              See notes about UV_SCHEDULER_IOPOLL_DEG_FREEDOM for clarity.
  *                                                                              One distinction: this is *not* the maximum distance we will shuffle timers in terms of their registration order.
@@ -1166,6 +1168,7 @@ static void initialize_scheduler (void)
   {
     char *scheduler_tp_deg_freedomP = NULL, *scheduler_tp_max_delayP = NULL, *scheduler_tp_epoll_thresholdP = NULL,
          *scheduler_iopoll_deg_freedomP = NULL, *scheduler_iopoll_defer_percP = NULL,
+         *scheduler_run_closing_defer_percP = NULL, 
          *scheduler_timer_deg_freedomP = NULL, *scheduler_timer_early_exec_tpercP = NULL, *scheduler_timer_max_early_multipleP = NULL, *scheduler_timer_late_exec_tpercP = NULL, 
          *tp_sizeP = NULL;
 
@@ -1194,6 +1197,10 @@ static void initialize_scheduler (void)
     if (scheduler_iopoll_defer_percP == NULL)
       assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_IOPOLL_DEFER_PERC");
 
+    scheduler_run_closing_defer_percP = getenv("UV_SCHEDULER_RUN_CLOSING_DEFER_PERC");
+    if (scheduler_run_closing_defer_percP == NULL)
+      assert(!"Error, for scheduler TP_FREEDOM, you must provide UV_SCHEDULER_RUN_CLOSING_DEFER_PERC");
+
     scheduler_timer_deg_freedomP = getenv("UV_SCHEDULER_TIMER_DEG_FREEDOM");
     if (scheduler_timer_deg_freedomP != NULL)
       scheduler_timer_deg_freedom = atoi(scheduler_timer_deg_freedomP);
@@ -1219,6 +1226,7 @@ static void initialize_scheduler (void)
     tp_freedom_args.tp_epoll_threshold = atol(scheduler_tp_epoll_thresholdP);
     tp_freedom_args.iopoll_degrees_of_freedom = atoi(scheduler_iopoll_deg_freedomP);
     tp_freedom_args.iopoll_defer_perc = atoi(scheduler_iopoll_defer_percP);
+    tp_freedom_args.run_closing_defer_perc = atoi(scheduler_run_closing_defer_percP); 
     tp_freedom_args.timer_degrees_of_freedom = scheduler_timer_deg_freedom;
     tp_freedom_args.timer_early_exec_tperc = scheduler_timer_early_exec_tperc;
     tp_freedom_args.timer_max_early_multiple = scheduler_timer_max_early_multiple;

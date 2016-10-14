@@ -144,6 +144,11 @@ scheduler_fuzzing_timer_thread_yield (schedule_point_t point, void *pointDetails
       spd_getting_done = (spd_getting_done_t *) pointDetails;
       spd_getting_done->index = 0;
       break;
+    case SCHEDULE_POINT_LOOPER_RUN_CLOSING:
+      assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
+      /* Don't short-circuit; close all handles. */
+      ((spd_looper_run_closing_t *) pointDetails)->defer = 0;
+      break;
     case SCHEDULE_POINT_TIMER_READY:
       assert(scheduler__get_thread_type() == THREAD_TYPE_LOOPER);
       spd_timer_ready = (spd_timer_ready_t *) pointDetails;

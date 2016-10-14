@@ -17,13 +17,20 @@ struct scheduler_tp_freedom_args_s
   /* If looper has been in epoll for longer than epoll_threshold useconds, assume it's blocked and that work queue will not fill further. */
   useconds_t tp_epoll_threshold;
 
-  /* Looper epoll (uv__io_poll) parameters. */
+  /* Looper parameters. */
+  
+  /* epoll (uv__io_poll) parameters. */
 
   /* In iopoll, how far can we swap ready events? Give -1 for "no limit". */
   int iopoll_degrees_of_freedom;
   /* In iopoll, what percentage of ready events to defer until the next loop? 
    * A value of 100 will result in no forward progress. */
   int iopoll_defer_perc;
+
+  /* uv__run_closing parameters. */
+
+  /* In uv__run_closing, what percentage of the time will we defer a handle until the next turn of the loop? */
+  int run_closing_defer_perc;
 
   /* Timer parameters. */
   /* In uv__run_timers, how far can we swap ready timers? Give -1 for "no limit". 
