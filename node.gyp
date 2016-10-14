@@ -104,7 +104,6 @@
         'src/fs_event_wrap.cc',
         'src/cares_wrap.cc',
         'src/handle_wrap.cc',
-        'src/immediate_wrap.cc',
         'src/js_stream.cc',
         'src/node.cc',
         'src/node_buffer.cc',
