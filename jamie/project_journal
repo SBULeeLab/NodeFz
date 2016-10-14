@@ -2504,6 +2504,19 @@ Wed 12 Oct 2016
     (need to filter out some unused things for fairness, e.g. the changes in src/win)
       -> I should just revert these changes...
 
+--------------------------------
+
+Thur 13 Oct 2016
+
+1. More paper writing.
+2. Added uv__run_closing_handles fuzzing for agentkeepalive. Details in the associated README.fuzz.
+
+--------------------------------
+
+Fri 14 Oct 2016
+
+1. Bug recreates on kue, pep, ghost, etherpad, ...?
+
 -----
 
 
@@ -2512,7 +2525,6 @@ TODO
   - Attempt fuzz testing on: kue. pep. ghost/etherpad?
   - Try core module test cases, since they don't need a working test suite.
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
-    agent-keepalive didn't need the "delay", but perhaps other modules will.
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 
 
       package.json:
