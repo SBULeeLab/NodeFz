@@ -3949,30 +3949,6 @@ Environment* CreateEnvironment(Isolate* isolate,
   return env;
 }
 
-#if 0
-/* Used for testing the uv_{prepare,check,idle}_* APIs. */
-static void foo_prepare_1 (uv_prepare_t *prepare)
-{
-  printf("foo_prepare_1: This is my prepare_cb. Hello world\n");
-}
-
-static void foo_prepare_2 (uv_prepare_t *prepare)
-{
-  printf("foo_prepare_2: This is prepare_cb 2. Hello world\n");
-}
-
-static void foo_check (uv_check_t *check)
-{
-  printf("foo_check: This is my check_cb. Hello world\n");
-}
-
-static void foo_idle (uv_idle_t *idle)
-{
-  printf("foo_idle: This is my idle_cb. Hello world\n");
-  sleep(1);
-}
-#endif
-
 // Entry point for new node instances, also called directly for the main
 // node instance.
 static void StartNodeInstance(void* arg) {
@@ -4016,24 +3992,6 @@ static void StartNodeInstance(void* arg) {
     {
       SealHandleScope seal(isolate);
       bool more;
-
-#if 0
-      uv_prepare_t prepare_1;
-      uv_prepare_init(env->event_loop(), &prepare_1);
-      uv_prepare_start(&prepare_1, foo_prepare_1);
-
-      uv_prepare_t prepare_2;
-      uv_prepare_init(env->event_loop(), &prepare_2);
-      uv_prepare_start(&prepare_2, foo_prepare_2);
-
-      uv_check_t check;
-      uv_check_init(env->event_loop(), &check);
-      uv_check_start(&check, foo_check);
-
-      uv_idle_t idle;
-      uv_idle_init(env->event_loop(), &idle);
-      uv_idle_start(&idle, foo_idle);
-#endif
 
       uv_mark_init_stack_end();
       mylog_0("node::StartNodeInstance: Initial stack is definitely over now\n");
