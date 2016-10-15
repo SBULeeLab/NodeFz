@@ -134,7 +134,6 @@ namespace node {
   V(ocsp_request_string, "OCSPRequest")                                       \
   V(offset_string, "offset")                                                  \
   V(onchange_string, "onchange")                                              \
-  V(oncheckcb_string, "oncheck")                                              \
   V(onclienthello_string, "onclienthello")                                    \
   V(oncomplete_string, "oncomplete")                                          \
   V(onconnection_string, "onconnection")                                      \
