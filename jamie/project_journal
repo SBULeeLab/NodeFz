@@ -2510,15 +2510,29 @@ Thur 13 Oct 2016
 
 1. More paper writing.
 2. Added uv__run_closing_handles fuzzing for agentkeepalive. Details in the associated README.fuzz.
+3. Re-ran all experiments.
 
 --------------------------------
 
 Fri 14 Oct 2016
 
-1. Bug recreates on kue, pep, ghost, etherpad, ...?
+1. Bug recreate on pep.
+2. Misc. pull requests on fiware-pep-steelskin, to learn how to do it before trying socket.io.
+3. Revert all Node.js-lib changes (setImmediate, timers).
+     setImmediate: 'fiware-pep-steelskin test case/library' 
+     timers: 'mkdirp->tap framework' hangs
+   I don't anticipate that this will affect the experimental results run on 13 Oct.
+
+--------------------------------
+
+Sat 15 Oct 2016
+
 
 -----
 
+- Minimize changes in nodejs/src
+- Stop hoarding LCBNs. I think this is what causes some cases to fail catastrophically (system hang) -- node ends up using all of the memory on LCBNs?
+- Bug recreates on kue, pep, ghost, etherpad, ...?
 
 TODO
   - Submit pull request for socket.io test suite bug
@@ -2536,15 +2550,6 @@ TODO
       }
 
       Use a perl JSON parser, see http://search.cpan.org/~bkb/JSON-Parse-0.42/lib/JSON/Parse.pod
-  - How does nextTick look at the libuv level?
-  - Fix "npm test" hang: mocha (file-system), tap (mkdirp)
-    > This is needful if we want to test a random selection of modules in search of bugs, but the state of the test suites thus far suggests that
-      if there are *any* tests, they're focused on unit tests rather than "application-type" (system) testing.
-      So not confident that this project is worthwhile.
-    > Try with various versions of node to see when the hang was introduced, starting with 'git checkout master' so we actually know whether it ever worked.
-      < It did in fact work at some point. I compiled on 'master' branch and it ran OK on the file-system tests.
-    > Could use git-bisect, if I knew that every commit compiled...which I don't
-      - That's a good reason to make good commits, I suppose.
 
 -----------
 
