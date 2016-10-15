@@ -225,25 +225,11 @@ int uv_getaddrinfo(uv_loop_t* loop,
     req->hostname = memcpy(buf + len, hostname, hostname_len);
 
   if (cb) {
-#ifdef UNIFIED_CALLBACK
-    uv__register_callback(req, (any_func) uv__getaddrinfo_work_wrapper, UV_GETADDRINFO_WORK_CB);
-    uv__register_callback(req, (any_func) cb, UV_GETADDRINFO_CB);
-    /* GETADDRINFO_WORK_CB -> GETADDRINFO_CB. */
-    lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_GETADDRINFO_WORK_CB),
-                        lcbn_get(req->cb_type_to_lcbn, UV_GETADDRINFO_CB));
-
-
     work_req = (uv_work_t *) uv__malloc(sizeof *work_req);
     assert(work_req != NULL);
     memset(work_req, 0, sizeof *work_req);
     work_req->data = req;
     uv_queue_work(loop, work_req, uv__getaddrinfo_work_wrapper, uv__getaddrinfo_done_wrapper);
-#else
-    uv__work_submit(loop,
-                    &req->work_req,
-                    uv__getaddrinfo_work,
-                    uv__getaddrinfo_done);
-#endif
     return 0;
   } else {
     uv__getaddrinfo_work(&req->work_req);

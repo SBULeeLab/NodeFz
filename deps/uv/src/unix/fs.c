@@ -109,12 +109,6 @@
 #define POST                                                                  \
   do {                                                                        \
     if (cb != NULL) {                                                         \
-      uv__register_callback(req, (any_func) uv__fs_work_wrapper, UV_FS_WORK_CB);         \
-      uv__register_callback(req, (any_func) cb, UV_FS_CB);                               \
-      /* FS_WORK_CB -> FS_CB. */                                              \
-      lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_FS_WORK_CB),      \
-                          lcbn_get(req->cb_type_to_lcbn, UV_FS_CB));          \
-                                                                              \
       /* Wrapper for uv_queue_work. */                                        \
       work_req = (uv_work_t *) uv__malloc(sizeof *work_req);                      \
       assert(work_req);                                                       \

@@ -708,9 +708,6 @@ int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
   int err = -1;
 
   ENTRY_EXIT_LOG((LOG_UV_STREAM, 9, "uv_listen: begin: stream %p backlog %i\n", stream, backlog));
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(stream, (any_func)  cb, UV_CONNECTION_CB);
-#endif
 
   switch (stream->type) {
   case UV_TCP:
@@ -1369,10 +1366,6 @@ int uv_shutdown(uv_shutdown_t* req, uv_stream_t* stream, uv_shutdown_cb cb) {
   req->handle = stream;
   req->cb = cb;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, (any_func)  cb, UV_SHUTDOWN_CB);
-#endif
-
   stream->shutdown_req = req;
   stream->flags |= UV_STREAM_SHUTTING;
 
@@ -1586,13 +1579,6 @@ int uv_write2(uv_write_t* req,
   req->write_index = 0;
   stream->write_queue_size += uv__count_bufs(bufs, nbufs);
 
-#ifdef UNIFIED_CALLBACK
-  /* uv_try_write_cb is never intended to be invoked.
-     Including it in metadata structures would be misleading. */
-  if (cb != uv_try_write_cb)
-    uv__register_callback(req, (any_func)  cb, UV_WRITE_CB);
-#endif
-
   /* Append the request to write_queue. */
   QUEUE_INSERT_TAIL(&stream->write_queue, &req->queue);
 
@@ -1710,14 +1696,6 @@ int uv_read_start(uv_stream_t* stream,
     rc = -EINVAL;
     goto DONE;
   }
-
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(stream, (any_func)  alloc_cb, UV_ALLOC_CB);
-  uv__register_callback(stream, (any_func)  read_cb, UV_READ_CB);
-  /* ALLOC -> READ. */
-  lcbn_add_dependency(lcbn_get(stream->cb_type_to_lcbn, UV_ALLOC_CB),
-                      lcbn_get(stream->cb_type_to_lcbn, UV_READ_CB));
-#endif
 
   /* The UV_STREAM_READING flag is irrelevant of the state of the tcp - it just
    * expresses the desired state of the user.

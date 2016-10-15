@@ -412,51 +412,6 @@ any_func uv_uv__queue_done_ptr (void)
   return (any_func) uv__queue_done;
 }
 
-/* Add extra LCBN dependencies if REQ is of one of the 'wrapped' paths
-    (fs, getaddrinfo, getnameinfo). */ 
-void uv__add_other_dependencies (uv_work_t *req)
-{
-  enum callback_type wrapped_work_type, wrapped_done_type;
-  lcbn_t *work_lcbn;
-  uv_req_t *wrapped_req;
-
-  assert(req != NULL);
-
-  /* Identify the type. */
-  work_lcbn = lcbn_get(req->cb_type_to_lcbn, UV_WORK_CB);
-  if (work_lcbn->cb == uv_uv__fs_work_wrapper_ptr())
-  {
-    wrapped_work_type = UV_FS_WORK_CB;
-    wrapped_done_type = UV_FS_CB;
-  }
-  else if (work_lcbn->cb == uv_uv__getaddrinfo_work_wrapper_ptr())
-  {
-    wrapped_work_type = UV_GETADDRINFO_WORK_CB;
-    wrapped_done_type = UV_GETADDRINFO_CB;
-  }
-  else if (work_lcbn->cb == uv_uv__getnameinfo_work_wrapper_ptr())
-  {
-    wrapped_work_type = UV_GETNAMEINFO_WORK_CB;
-    wrapped_done_type = UV_GETNAMEINFO_CB;
-  }
-  else
-    /* Not a wrapped request, nothing to do. */
-    return;
-
-  wrapped_req = (uv_req_t *) req->data;
-
-  /* WORK -> wrapped_work_type */
-  lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_WORK_CB),
-                      lcbn_get(wrapped_req->cb_type_to_lcbn, wrapped_work_type));
-  /* wrapped_work_type -> AFTER_WORK */
-  lcbn_add_dependency(lcbn_get(wrapped_req->cb_type_to_lcbn, wrapped_work_type),
-                      lcbn_get(req->cb_type_to_lcbn, UV_AFTER_WORK_CB));
-  /* AFTER_WORK -> wrapped_done_type */
-  lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_AFTER_WORK_CB),
-                      lcbn_get(wrapped_req->cb_type_to_lcbn, wrapped_done_type));
-  return;
-}
-
 int uv_queue_work(uv_loop_t* loop,
                   uv_work_t* req,
                   uv_work_cb work_cb,
@@ -468,15 +423,6 @@ int uv_queue_work(uv_loop_t* loop,
   req->loop = loop;
   req->work_cb = work_cb;
   req->after_work_cb = after_work_cb;
-
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, (any_func) work_cb, UV_WORK_CB);
-  uv__register_callback(req, (any_func) after_work_cb, UV_AFTER_WORK_CB);
-  /* WORK -> AFTER_WORK. */
-  lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_WORK_CB),
-                      lcbn_get(req->cb_type_to_lcbn, UV_AFTER_WORK_CB));
-  uv__add_other_dependencies(req);
-#endif
 
   uv__work_submit(loop, &req->work_req, uv__queue_work, uv__queue_done);
   return 0;

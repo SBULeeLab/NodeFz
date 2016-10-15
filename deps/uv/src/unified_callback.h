@@ -39,17 +39,8 @@ struct callback_info_s
 void dump_and_exit_sighandler (int signum);
 
 void invoke_callback_wrap (any_func cb, enum callback_type type, ...);
-void invoke_callback (callback_info_t *);
 
 time_t get_relative_time (void);
-
-/* Register and retrieve an LCBN in its context (handle or req). */
-void lcbn_register (struct map *cb_type_to_lcbn, enum callback_type cb_type, lcbn_t *lcbn);
-lcbn_t * lcbn_get (struct map *cb_type_to_lcbn, enum callback_type cb_type);
-
-/* Set and get the current LCBN for this thread. */
-void lcbn_current_set (lcbn_t *lcbn);
-lcbn_t * lcbn_current_get (void);
 
 /* Return the internal ID for the current pthread. */
 int pthread_self_internal (void);

@@ -142,24 +142,11 @@ int uv_getnameinfo(uv_loop_t* loop,
   req->retcode = 0;
 
   if (getnameinfo_cb) {
-#ifdef UNIFIED_CALLBACK
-    uv__register_callback(req, (any_func) uv__getnameinfo_work_wrapper, UV_GETNAMEINFO_WORK_CB);
-    uv__register_callback(req, (any_func) getnameinfo_cb, UV_GETNAMEINFO_CB);
-    /* GETNAMEINFO_WORK_CB -> GETNAMEINFO_CB. */
-    lcbn_add_dependency(lcbn_get(req->cb_type_to_lcbn, UV_GETNAMEINFO_WORK_CB),
-                        lcbn_get(req->cb_type_to_lcbn, UV_GETNAMEINFO_CB));
-
     work_req = (uv_work_t *) uv__malloc(sizeof *work_req);
     assert(work_req != NULL);
     memset(work_req, 0, sizeof *work_req);
     work_req->data = req;
     uv_queue_work(loop, work_req, uv__getnameinfo_work_wrapper, uv__getnameinfo_done_wrapper);
-#else
-    uv__work_submit(loop,
-                    &req->work_req,
-                    uv__getnameinfo_work,
-                    uv__getnameinfo_done);
-#endif
     return 0;
   } else {
     uv__getnameinfo_work(&req->work_req);

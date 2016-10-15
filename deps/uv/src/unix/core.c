@@ -100,10 +100,6 @@ void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
   assert(handle != NULL);
   assert(!(handle->flags & (UV_CLOSING | UV_CLOSED)));
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, (any_func) close_cb, UV_CLOSE_CB);
-#endif
-
   handle->flags |= UV_CLOSING;
   handle->close_cb = close_cb;
 
@@ -225,7 +221,6 @@ int uv__getiovmax(void) {
 
 
 static void uv__finish_close(uv_handle_t* handle) {
-  struct map *handle_map;
   /* Note: while the handle is in the UV_CLOSING state now, it's still possible
    * for it to be active in the sense that uv__is_active() returns true.
    * A good example is when the user calls uv_shutdown(), immediately followed
@@ -267,20 +262,13 @@ static void uv__finish_close(uv_handle_t* handle) {
   uv__handle_unref(handle);
   QUEUE_REMOVE(&handle->handle_queue);
 
-  /* Save this because handle may be delete'd in handle->close_cb. */
-  handle_map = handle->cb_type_to_lcbn;
-
   if (handle->close_cb) {
 #if UNIFIED_CALLBACK
-    invoke_callback_wrap ((any_func) handle->close_cb, UV_CLOSE_CB, (long) handle);
+    invoke_callback_wrap((any_func) handle->close_cb, UV_CLOSE_CB, (long) handle);
 #else
     handle->close_cb(handle);
 #endif
   }
-
-  /* JD: Extra structures I added to handle. */
-  if (handle_map)
-    map_destroy(handle_map);
 }
 
 static void uv__run_closing_handles(uv_loop_t* loop) {
@@ -372,7 +360,6 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int timeout;
   int r;
   int ran_pending;
-  enum callback_type next_cb_type = CALLBACK_TYPE_ANY;
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv_run: begin: loop %p mode %i\n", loop, mode));
 
@@ -387,132 +374,37 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     mylog(LOG_MAIN, 1, "uv_run: loop begins (%i CBs run, %i remaining, next %s)\n", scheduler_n_executed(), scheduler_lcbns_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (1)\n");
-    emit_marker_event(MARKER_RUN_TIMERS_1_BEGIN);
-  /* The timers we choose depend on external input (system time). 
-     Repeat until the next looper event is not a UV_TIMER_CB. */
-  RUN_TIMERS_1: 
     uv__update_time(loop);
     uv__run_timers(loop);
-    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-    {
-      if (scheduler_lcbns_remaining() == 0)
-        goto REPLAY_NO_ITEMS_LEFT;
-      next_cb_type = scheduler_next_lcbn_type();
-      if (is_threadpool_cb(next_cb_type) || is_run_timers_cb(next_cb_type))
-      {
-        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (1). next_cb_type %s\n", callback_type_to_string(next_cb_type));
-        if (is_run_timers_cb(next_cb_type))
-        {
-          if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-          {
-            /* Sleep until the next timer is ready. */
-            timeout = uv__next_timeout(loop);
-            if (0 < timeout)
-            {
-              mylog(LOG_MAIN, 1, "uv_run: usleep'ing %i ms\n", timeout);
-              usleep(1000*timeout);
-            }
-          }
-        }
-        goto RUN_TIMERS_1;
-      }
-    }
-    emit_marker_event(MARKER_RUN_TIMERS_1_END);
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_pending\n");
-    emit_marker_event(MARKER_RUN_PENDING_BEGIN);
-    /* TODO Not sure if this is valid. */
-  RUN_PENDING:
     ran_pending = uv__run_pending(loop);
-    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-    {
-      if (scheduler_lcbns_remaining() == 0)
-        goto REPLAY_NO_ITEMS_LEFT;
-      next_cb_type = scheduler_next_lcbn_type();
-      if (is_threadpool_cb(next_cb_type) || is_run_pending_cb(next_cb_type))
-      {
-        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_pending. next_cb_type %s\n", callback_type_to_string(next_cb_type));
-        goto RUN_PENDING;
-      }
-    }
-    emit_marker_event(MARKER_RUN_PENDING_END);
 
-    mylog(LOG_MAIN, 1, "uv_run: uv__run_idle\n");
-    emit_marker_event(MARKER_RUN_IDLE_BEGIN);
   /* cf. RUN_CHECK. */
-  RUN_IDLE:
+    mylog(LOG_MAIN, 1, "uv_run: uv__run_idle\n");
     uv__run_idle(loop);
-    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-    {
-      if (scheduler_lcbns_remaining() == 0)
-        goto REPLAY_NO_ITEMS_LEFT;
-      next_cb_type = scheduler_next_lcbn_type();
-      if (is_threadpool_cb(next_cb_type) || is_run_idle_cb(next_cb_type))
-      {
-        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_idle. next_cb_type %s\n", callback_type_to_string(next_cb_type));
-        goto RUN_IDLE;
-      }
-    }
-    emit_marker_event(MARKER_RUN_IDLE_END);
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_prepare\n");
-    emit_marker_event(MARKER_RUN_PREPARE_BEGIN);
     uv__run_prepare(loop);
-    /* TODO Why is this goto here? */
-    if (scheduler_lcbns_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
-    emit_marker_event(MARKER_RUN_PREPARE_END);
 
-    mylog(LOG_MAIN, 1, "uv_run: uv__io_poll\n");
-    emit_marker_event(MARKER_IO_POLL_BEGIN);
   /* The ready handles depend on external input.
      Repeat until the next looper event is not an io_poll CB. */
-  RUN_IO_POLL:
+    mylog(LOG_MAIN, 1, "uv_run: uv__io_poll\n");
     timeout = 0;
     if ((mode == UV_RUN_ONCE && !ran_pending) || mode == UV_RUN_DEFAULT)
       timeout = uv_backend_timeout(loop);
 
     uv__io_poll(loop, timeout);
-    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-    {
-      if (scheduler_lcbns_remaining() == 0)
-        goto REPLAY_NO_ITEMS_LEFT;
-      next_cb_type = scheduler_next_lcbn_type();
-                                            /* TODO is_io_poll_cb is a hack. */
-      if (is_threadpool_cb(next_cb_type) || is_io_poll_cb(next_cb_type))
-      {
-        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__io_poll. next_cb_type %s\n", callback_type_to_string(next_cb_type));
-        goto RUN_IO_POLL;
-      }
-    }
-    emit_marker_event(MARKER_IO_POLL_END);
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_check\n");
-    emit_marker_event(MARKER_RUN_CHECK_BEGIN);
-  /* Any CB can produce a pending CHECK CB through a call to setImmediate.
-     Repeat until the next looper event is not a check CB. */
-  RUN_CHECK:
     uv__run_check(loop);
-    if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-    {
-      if (scheduler_lcbns_remaining() == 0)
-        goto REPLAY_NO_ITEMS_LEFT;
-      next_cb_type = scheduler_next_lcbn_type();
-      if (is_threadpool_cb(next_cb_type) || is_run_check_cb(next_cb_type))
-      {
-        mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_check. next_cb_type %s\n", callback_type_to_string(next_cb_type));
-        goto RUN_CHECK;
-      }
-    }
-    emit_marker_event(MARKER_RUN_CHECK_END);
 
     /* JD: This will invoke the close_cb of any closing handles that have one defined. */
     mylog(LOG_MAIN, 1, "uv_run: uv__run_closing_handles\n");
-    emit_marker_event(MARKER_RUN_CLOSING_BEGIN);
     uv__run_closing_handles(loop);
-    if (scheduler_lcbns_remaining() == 0) goto REPLAY_NO_ITEMS_LEFT;
-    emit_marker_event(MARKER_RUN_CLOSING_END);
 
-    if (mode == UV_RUN_ONCE) {
+    if (mode == UV_RUN_ONCE)
+    {
       /* UV_RUN_ONCE implies forward progress: at least one callback must have
        * been invoked when it returns. uv__io_poll() can return without doing
        * I/O (meaning: no callbacks) when its timeout expires - which means we
@@ -522,36 +414,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
        * the check.
        */
       mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (2)\n");
-      emit_marker_event(MARKER_RUN_TIMERS_2_BEGIN);
-    /* cf. RUN_TIMERS_1. */
-    RUN_TIMERS_2: 
       uv__update_time(loop);
       uv__run_timers(loop);
-      if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-      {
-        if (scheduler_lcbns_remaining() == 0)
-          goto REPLAY_NO_ITEMS_LEFT;
-        next_cb_type = scheduler_next_lcbn_type();
-        if (is_threadpool_cb(next_cb_type) || is_run_timers_cb(next_cb_type))
-        {
-          mylog(LOG_MAIN, 1, "uv_run: Repeating uv__run_timers (2). next_cb_type %s\n", callback_type_to_string(next_cb_type));
-          if (is_run_timers_cb(next_cb_type))
-          {
-            if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-            {
-              /* Sleep until the next timer is ready. */
-              timeout = uv__next_timeout(loop);
-              if (0 < timeout)
-              {
-                mylog(LOG_MAIN, 1, "uv_run: usleep'ing %i ms\n", timeout);
-                usleep(1000*timeout);
-              }
-            }
-          }
-          goto RUN_TIMERS_2;
-        }
-      }
-      emit_marker_event(MARKER_RUN_TIMERS_2_END);
     }
 
     r = uv__loop_alive(loop);
@@ -569,17 +433,6 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv_run: returning r %i\n", r));
   return r;
-
-  REPLAY_NO_ITEMS_LEFT:
-    /* It could be that the last item(s) are threadpool WORK CBs.
-       In this case it might still be active, because invoke_callback scheduler_advance's prior
-         to executing the CB. 
-
-       TODO Hack: sleep a bit to let it finish... */
-    sleep(1);
-
-    mylog(LOG_MAIN, 1, "uv_run: No items left to schedule. I'm outta here!\n");
-    exit(0);
 }
 
 void uv_mark_init_stack_begin (void)

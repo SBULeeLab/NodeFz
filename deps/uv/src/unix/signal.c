@@ -303,10 +303,6 @@ int uv_signal_start(uv_signal_t* handle, uv_signal_cb signal_cb, int signum) {
   if (signum == 0)
     return -EINVAL;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, (any_func) signal_cb, UV_SIGNAL_CB);
-#endif
-
   /* Short circuit: if the signal watcher is already watching {signum} don't
    * go through the process of deregistering and registering the handler.
    * Additionally, this avoids pending signals getting lost in the small time

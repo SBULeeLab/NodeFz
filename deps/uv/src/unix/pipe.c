@@ -196,10 +196,6 @@ out:
   req->handle = (uv_stream_t*)handle;
   req->cb = cb;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, (any_func) cb, UV_CONNECT_CB);
-#endif
-
   QUEUE_INIT(&req->queue);
 
   /* Force callback to run on next tick in case of error. */

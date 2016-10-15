@@ -36,7 +36,6 @@
   int uv_##_name##_start(uv_##_name##_t* handle, uv_##_name##_cb cb) {        \
     if (uv__is_active(handle)) return 0;                                      \
     if (cb == NULL) return -EINVAL;                                           \
-    uv__register_callback(handle, (any_func) cb, UV_##_type##_CB);            \
     /* JD: FIFO order. Was LIFO order. No docs requiring this, and FIFO needed to make setImmediate-as-check work. I think LIFO order was so that uv__run_X could start at front and iterate without an infinite loop? */ \
     QUEUE_INSERT_TAIL(&handle->loop->_name##_handles, &handle->queue);        \
     handle->_name##_cb = cb;                                                  \

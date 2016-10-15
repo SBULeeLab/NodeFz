@@ -140,6 +140,8 @@ static lcbn_t * lcbn_create_raw (void)
 {
   lcbn_t *lcbn = NULL;
 
+  assert(!"lcbn_create_raw: Error, we shouldn't be here");
+
   ENTRY_EXIT_LOG((LOG_LCBN, 9, "lcbn_create_raw: begin\n"));
   lcbn = (lcbn_t *) uv__malloc(sizeof *lcbn);
   assert(lcbn);

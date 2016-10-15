@@ -181,10 +181,6 @@ int uv__tcp_connect(uv_connect_t* req,
   req->handle = (uv_stream_t*) handle;
   QUEUE_INIT(&req->queue);
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(req, (any_func)  cb, UV_CONNECT_CB);
-#endif
-
   handle->connect_req = req;
 
   uv__io_start(handle->loop, &handle->io_watcher, UV__POLLOUT);

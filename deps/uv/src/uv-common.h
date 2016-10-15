@@ -217,8 +217,6 @@ void uv__fs_scandir_cleanup(uv_fs_t* req);
     QUEUE_INSERT_TAIL(&(loop_)->handle_queue, &(h)->handle_queue);            \
     uv__handle_platform_init(h);                                              \
     (h)->magic = UV_HANDLE_MAGIC;                                             \
-    (h)->cb_type_to_lcbn = map_create(); /* Destroyed in uv__finish_close */  \
-    assert((h)->cb_type_to_lcbn != NULL);                                     \
     (h)->self_parent = 0;                                                     \
   }                                                                           \
   while (0);
@@ -250,8 +248,6 @@ void uv__mark_main_uv_run_end (void);
 void uv__mark_exit_begin (void);
 void uv__mark_exit_end (void);
 int uv__exit_active (void);
-
-void emit_marker_event (enum callback_type cbt);
 
 void uv__mark_uv__run_pending_begin (void);
 void uv__mark_uv__run_pending_end (void);

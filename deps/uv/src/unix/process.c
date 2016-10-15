@@ -515,10 +515,6 @@ int uv_spawn(uv_loop_t* loop,
   process->pid = pid;
   process->exit_cb = options->exit_cb;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(process, (any_func) process->exit_cb, UV_EXIT_CB);
-#endif
-
   uv__free(pipes);
   return exec_errorno;
 

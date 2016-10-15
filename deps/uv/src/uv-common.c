@@ -362,16 +362,7 @@ int uv_udp_recv_start(uv_udp_t* handle,
   if (handle->type != UV_UDP || alloc_cb == NULL || recv_cb == NULL)
     return UV_EINVAL;
   else
-  {
-#ifdef UNIFIED_CALLBACK
-    uv__register_callback(handle, (any_func) alloc_cb, UV_ALLOC_CB);
-    uv__register_callback(handle, (any_func) recv_cb, UV_UDP_RECV_CB);
-    /* ALLOC -> UDP_RECV. */
-    lcbn_add_dependency(lcbn_get(handle->cb_type_to_lcbn, UV_ALLOC_CB),
-                        lcbn_get(handle->cb_type_to_lcbn, UV_UDP_RECV_CB));
-#endif
     return uv__udp_recv_start(handle, alloc_cb, recv_cb);
-  }
 }
 
 
@@ -386,13 +377,6 @@ int uv_udp_recv_stop(uv_udp_t* handle) {
 void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
   QUEUE* q;
   uv_handle_t* h;
-
-#if 0
-/* TODO Do I want to bother with this? Seems irrelevant. Also, the handle it receives changes every time the CB is called, making it unsuitable for embedding. Would need another approach. */
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback((void *) walk_cb, UV_WALK_CB);
-#endif
-#endif
 
   QUEUE_FOREACH(q, &loop->handle_queue) {
     h = QUEUE_DATA(q, uv_handle_t, handle_queue);
@@ -678,72 +662,6 @@ void uv_loop_delete(uv_loop_t* loop) {
     uv__free(loop);
 }
 
-/* JD: New functions. */
-static lcbn_t * get_init_stack_lcbn (void);
-static lcbn_t * get_exit_lcbn (void);
-
-#if 0
-static void dump_lcbn_globalorder (void);
-static void dump_lcbn_globalorder(void)
-{
-  int fd;
-  char unique_out_file[128];
-  char shared_out_file[128];
-  struct list *lcbn_list = NULL, *filtered_nodes = NULL;
-
-  lcbn_list = tree_as_list(&get_init_stack_lcbn()->tree_node);
-
-  /* Registration order (all CBs). */
-  snprintf(unique_out_file, 128, "/tmp/lcbn_global_reg_order_%i_%i.txt", (int) time(NULL), getpid());
-  mylog(LOG_MAIN, 0, "Dumping all %i registered LCBNs in their global registration order to %s\n", list_size(lcbn_list), unique_out_file);
-
-  fd = open(unique_out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
-  if (fd < 0)
-    assert(!"dump_lcbn_globalorder: Error, could not open output file");
-  list_sort(lcbn_list, lcbn_sort_by_reg_id, NULL);
-  list_apply(lcbn_list, lcbn_tree_list_print_f, &fd);
-  close(fd);
-
-  snprintf(shared_out_file, 128, "/tmp/lcbn_registered_schedule.txt");
-  (void) unlink(shared_out_file);
-  assert(symlink(unique_out_file, shared_out_file) == 0);
-
-  /* Exec order (does not include never-executed CBs). */
-  snprintf(unique_out_file, 128, "/tmp/lcbn_global_exec_order_%i_%i.txt", (int) time(NULL), getpid());
-
-  fd = open(unique_out_file, O_CREAT|O_TRUNC|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
-  if (fd < 0)
-    assert(!"dump_lcbn_globalorder: Error, could not open output file");
-  list_sort(lcbn_list, lcbn_sort_by_exec_id, NULL);
-  filtered_nodes = list_filter(lcbn_list, lcbn_remove_unexecuted, NULL); 
-  mylog(LOG_MAIN, 0, "dump_lcbn_globalorder: Dumping all %i executed LCBNs in their global exec order to %s\n", list_size(lcbn_list), unique_out_file);
-  list_apply(lcbn_list, lcbn_tree_list_print_f, &fd);
-  close(fd);
-  /* We applied list_filter, so lcbn_list no longer includes all nodes from the tree. 
-     Repair by combining the two lists, destroying filtered_nodes in the process. */
-  list_concat(lcbn_list, filtered_nodes);
-
-  snprintf(shared_out_file, 128, "/tmp/lcbn_exec_schedule.txt");
-  (void) unlink(shared_out_file);
-  assert(symlink(unique_out_file, shared_out_file) == 0);
-
-  list_destroy(lcbn_list);
-}
-#endif
-
-void dump_and_exit_sighandler (int signum)
-{
-#if 0
-  mylog(LOG_MAIN, 0, "Got signal %i. Dumping and exiting.\n", signum);
-  mylog(LOG_MAIN, 0, "lcbn global order\n");
-  dump_lcbn_globalorder();
-  fflush(NULL);
-#endif
-  mylog(LOG_MAIN, 0, "dump_and_exit_sighandler: Got signum %i, exiting 1 (should trigger any atexit routines\n", signum);
-  fflush(NULL);
-  exit(1);
-}
-
 /* Indexed by value of 'enum callback_type'. */
 int callback_type_to_nargs[] = 
 {
@@ -933,69 +851,8 @@ static void cbi_execute_callback (callback_info_t *cbi)
 /* Global time. */
 static void mark_global_start (void);
 
-/* NB these are not thread safe. Use a mutex to ensure that exec_id actually matches exec order, and so on. */
-static unsigned lcbn_next_exec_id (void);
-static unsigned lcbn_next_reg_id (void);
-
-unsigned lcbn_global_exec_counter = 0;
-unsigned lcbn_global_reg_counter = 0;
-
-int is_active_user_cb = 0;
-
-struct list *lcbn_global_reg_order_list = NULL;
-
-/* Maps pthread_t to lcbn_t *, accommodating callbacks
-     being executed by the threadpool and looper threads.
-   The entry for a given pthread_t is the callback_node currently being executed
-     by that thread.
-   If the value is NULL, the next callback by that node will be a root
-     (unless the callback is an asynchronous one for which the parent is already known). */
-struct map *tid_to_current_lcbn;
-
 /* Maps pthread_t to internal id, yielding human-readable thread IDs. */
 struct map *pthread_to_tid;
-
-/* Code in support of tracking the initial stack. */
-
-/* Returns the CBN associated with the initial stack.
-   Not thread safe the first time it is called. */
-int init_stack_lcbn_initialized = 0;
-static lcbn_t * get_init_stack_lcbn (void)
-{
-  static lcbn_t *init_stack_lcbn = NULL;
-  if (!init_stack_lcbn)
-  {
-    init_stack_lcbn = lcbn_create(NULL, NULL, 0);
-
-    init_stack_lcbn->cb_type = INITIAL_STACK;
-
-    init_stack_lcbn->global_exec_id = lcbn_next_exec_id();
-    init_stack_lcbn->global_reg_id = lcbn_next_reg_id();
-    scheduler_register_lcbn(init_stack_lcbn);
-    init_stack_lcbn_initialized = 1;
-  }
-
-  assert(lcbn_looks_valid(init_stack_lcbn));
-  return init_stack_lcbn;
-}
-
-static lcbn_t * get_exit_lcbn (void)
-{
-  static lcbn_t *exit_lcbn = NULL;
-  if (!exit_lcbn)
-  {
-    exit_lcbn = lcbn_create(NULL, NULL, 0);
-
-    exit_lcbn->cb_type = EXIT;
-
-    exit_lcbn->global_exec_id = lcbn_next_exec_id();
-    exit_lcbn->global_reg_id = lcbn_next_reg_id();
-    scheduler_register_lcbn(exit_lcbn);
-  }
-
-  assert(lcbn_looks_valid(exit_lcbn));
-  return exit_lcbn;
-}
 
 /* Initialize everything for the record-and-replay code. 
  * This is a catch-all initialization function. 
@@ -1044,14 +901,8 @@ void initialize_record_and_replay (void)
   initialize_scheduler();
   scheduler_register_thread(THREAD_TYPE_LOOPER);
 
-  /* invoke_callback */
-  tid_to_current_lcbn = map_create();
-  assert(tid_to_current_lcbn != NULL);
-
   pthread_to_tid = map_create();
   assert(pthread_to_tid != NULL);
-
-  (void) get_init_stack_lcbn(); /* Initializes the first time it is called. */
 
   /* Record initialization time. */
   mark_global_start();
@@ -1259,166 +1110,6 @@ static void initialize_scheduler (void)
   scheduler_init(scheduler_type, scheduler_mode, schedule_fileP, args);
 }
 
-/* Invoke the callback described by CBI.
-   Returns the CBN allocated for the callback.
-
-   A condition variable is used to prevent multiple threads from
-   invoking LCBNs concurrently. */
-void invoke_callback (callback_info_t *cbi)
-{
-  /* JD: TODO Add calls to scheduler. */
-  void *context = NULL;
-  enum callback_context cb_context;
-  lcbn_t *lcbn_orig = NULL, /* The LCBN executing at the time of this call (i.e. this call is a nested CB). */
-         *lcbn_cur = NULL;  /* The LCBN executed by this call. */
-  int is_logical_cb = 0; /* 1 if it's a UV_*CB, 0 if it's a UV__*CB. */
-  int is_user_cb = 0;    /* if (is_logical_cb): 1 if it's a user UV_*CB, else 0. Only 0 if it's the UV_ASYNC_CB associated with the TP's done items. */
-  /* if (is_user_cb), then is_logical_cb, too. */
-
-  /* Scheduler supplies. */
-  spd_before_exec_cb_t spd_before_exec_cb;
-  spd_after_exec_cb_t spd_after_exec_cb;
-
-#ifndef UNIFIED_CALLBACK
-  assert(!"Error, should not be in invoke_callback");
-#endif
-  assert(cbi);
-
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: Begin: cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type)));
-
-  cb_context = callback_type_to_context(cbi->type);
-  is_logical_cb = (cb_context != CALLBACK_CONTEXT_UNKNOWN);
-
-  if (is_logical_cb)
-  {
-    struct map *cb_type_to_lcbn = NULL;
-    uv_handle_t *context_handle = NULL;
-    uv_req_t *context_req = NULL;
-
-    /* Determine the context. */
-    context = (void *) cbi->args[0];
-    if (cb_context == CALLBACK_CONTEXT_HANDLE)
-    {
-      context_handle = (uv_handle_t *) context;
-      assert(context_handle != NULL && context_handle->magic == UV_HANDLE_MAGIC);
-      cb_type_to_lcbn = context_handle->cb_type_to_lcbn;
-    }
-    else if (cb_context == CALLBACK_CONTEXT_REQ)
-    {
-      if (cbi->type == UV_FS_WORK_CB) /* args[0] is the uv__work of a uv_fs_t request. */
-        context_req = (uv_req_t *) container_of(cbi->args[0], uv_fs_t, work_req);
-      else if (cbi->type == UV_GETADDRINFO_WORK_CB) /* args[0] is the uv__work of a uv_getaddrinfo_t request. */
-        context_req = (uv_req_t *) container_of(cbi->args[0], uv_getaddrinfo_t, work_req);
-      else if (cbi->type == UV_GETNAMEINFO_WORK_CB) /* args[0] is the uv__work of a uv_getnameinfo_t request. */
-        context_req = (uv_req_t *) container_of(cbi->args[0], uv_getnameinfo_t, work_req);
-      else
-        context_req = (uv_req_t *) context;
-      assert(context_req != NULL && context_req->magic == UV_REQ_MAGIC);
-      cb_type_to_lcbn = context_req->cb_type_to_lcbn;
-    }
-    else
-      assert(!"invoke_callback: Error, unexpected cb_context type");
-
-    /* Is it a user CB?
-     * The threadpool uses the async cb to signal pending 'done' items.
-     */
-    if (cb_context == CALLBACK_CONTEXT_HANDLE && context_handle->type == UV_ASYNC && ((uv_async_t *) context_handle)->async_cb == uv__work_done)
-      is_user_cb = 0;
-    else
-      is_user_cb = 1;
-
-    mylog(LOG_MAIN, 7, "invoke_callback: cb_context %i is_logical_cb %i is_user_cb %i\n", cb_context, is_logical_cb, is_user_cb);
-
-    /* If we are invoking a user-provided callback, retrieve and update the lcbn. */
-    assert(cb_type_to_lcbn && map_looks_valid(cb_type_to_lcbn)); 
-
-    /* Extract lcbn (and registration parent info, for logging). */
-    lcbn_cur = lcbn_get(cb_type_to_lcbn, cbi->type);
-    assert(lcbn_looks_valid(lcbn_cur));
-    assert(lcbn_cur->cb_type == cbi->type);
-
-    /* Embed any extra info. */
-    if (lcbn_cur->cb_type == UV_READ_CB)
-    {
-      size_t size      = sizeof(lcbn_cur->extra_info),
-             len       = strnlen(lcbn_cur->extra_info, size),
-             remaining = size - len; 
-      /* TODO fd extraction is hack-y. See unix/internal.h: uv__stream_fd. */
-      snprintf(lcbn_cur->extra_info + len, remaining, "<%li = read(%i)>", (ssize_t) cbi->args[1], ((uv_stream_t *) cbi->args[0])->io_watcher.fd);
-    }
-    if (!is_user_cb)
-      lcbn_mark_non_user(lcbn_cur);
-
-    /* Execution parent (if nested). */
-    lcbn_orig = lcbn_current_get();
-
-    mylog(LOG_MAIN, 3, "invoke_callback: Working with lcbn %p (type %s) context %p lcbn_orig %p; is_user_cb %i\n",
-      lcbn_cur, callback_type_to_string(cbi->type), context, lcbn_orig, is_user_cb);
-
-    lcbn_cur->info = cbi;
-    lcbn_cur->executing_thread = pthread_self_internal();
-
-    mylog(LOG_MAIN, 5, "invoke_callback: I am going to invoke LCBN %p (type %s). is_user_cb %i is_active_user_cb %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), is_user_cb, is_active_user_cb);
-
-    if (callback_type_to_behavior(lcbn_cur->cb_type) == CALLBACK_BEHAVIOR_RESPONSE)
-    {
-      /* If this LCBN is a response, it may repeat. If so, the next response must come after this response,
-         and is in some sense caused by this response. Consequently, register after setting LCBN so that it becomes a child of this LCBN. */
-      lcbn_current_set(lcbn_cur);
-      mylog(LOG_MAIN, 5, "invoke_callback: registering cb (context %p type %s) as child of LCBN %p\n",
-        lcbn_get_context(lcbn_cur), callback_type_to_string(lcbn_get_cb_type(lcbn_cur)), lcbn_cur);
-      uv__register_callback(lcbn_get_context(lcbn_cur), lcbn_get_cb(lcbn_cur), lcbn_get_cb_type(lcbn_cur));
-      lcbn_current_set(lcbn_orig);
-
-      /* READ_CBs are dependent on the associated ALLOC_CBs. 
-         The ALLOC_CB has already been invoke_callback'd and updated cb_type_to_lcbn. */
-      if (lcbn_cur->cb_type == UV_READ_CB)
-      {
-        lcbn_t *new_alloc_lcbn = lcbn_get(cb_type_to_lcbn, UV_ALLOC_CB);
-        lcbn_t *new_read_lcbn  = lcbn_get(cb_type_to_lcbn, UV_READ_CB);
-        assert(new_alloc_lcbn && !lcbn_executed(new_alloc_lcbn));
-        assert(new_read_lcbn && !lcbn_executed(new_read_lcbn));
-
-        lcbn_add_dependency(new_alloc_lcbn, new_read_lcbn);
-      }
-    }
-
-    /* Commit to being the active CB. */
-    lcbn_current_set(lcbn_cur);
-    lcbn_mark_begin(lcbn_cur);
-    lcbn_cur->global_exec_id = lcbn_next_exec_id();
-
-    mylog(LOG_MAIN, 7, "invoke_callback: Invoking lcbn %p (type %s) exec_id %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), lcbn_cur->global_exec_id);
-  } /* is_logical_cb */
-
-  /* Yield to scheduler. */
-  spd_before_exec_cb_init(&spd_before_exec_cb);
-  spd_before_exec_cb.lcbn = lcbn_cur;
-  scheduler_thread_yield(SCHEDULE_POINT_BEFORE_EXEC_CB, &spd_before_exec_cb);
-
-  /* User code or not, run the callback. */
-  mylog(LOG_MAIN, 7, "invoke_callback: Invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
-  cbi_execute_callback(cbi); 
-  mylog(LOG_MAIN, 7, "invoke_callback: Done invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
-
-  /* Done with the callback.
-     If was a user callback, restore the previous lcbn. */
-  if (is_logical_cb)
-  {
-    mylog(LOG_MAIN, 5, "invoke_callback: Done with lcbn %p (type %s) exec_id %i\n", lcbn_cur, callback_type_to_string(lcbn_cur->cb_type), lcbn_cur->global_exec_id);
-    lcbn_mark_end(lcbn_cur);
-    lcbn_current_set(lcbn_orig);
-  }
-
-  /* Yield to scheduler. */
-  assert(scheduler_current_cb_thread() == uv_thread_self()); /* Only fails if threadpool.c:cleanup ever happens and returns from the CB. */
-  spd_after_exec_cb_init(&spd_after_exec_cb);
-  spd_after_exec_cb.lcbn = lcbn_cur;
-  scheduler_thread_yield(SCHEDULE_POINT_AFTER_EXEC_CB, &spd_after_exec_cb);
-
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "invoke_callback: returning\n"));
-}
-
 /* Returns time in microseconds (us) relative to the time at which the first CB was invoked. */
 struct timespec global_start;
 static void mark_global_start (void)
@@ -1431,113 +1122,16 @@ static void mark_global_start (void)
   }
 }
 
-/* Call from any libuv function that is passed a user callback.
-   At callback registration time we can determine the origin
-     and create a new logical node.
-   If CB is NULL, CB will never be called, and we ignore it. 
+/* Tracking the initial stack. */
 
-   May be called concurrently due to threadpool. Thread safe. 
-   
-   CONTEXT is the handle or request associated with this callback.
-   Use callback_type_to_context and callback_type_to_behavior to deal with it. 
-   If CONTEXT is a uv_req_t *, it must have been uv_req_init'd already. 
-
-   TODO We call lcbn_next_reg_id without mutex. If threadpool 'work' items register new CBs,
-     we're in trouble. 
-     
-   TODO We assumed that every CB was registered by another CB.
-        However, mongoose-2992/fuzz_test/triggerRace.js produces the following call stack
-
-       (gdb) bt
-       #0  0x00007f9d9b36fcc9 in __GI_raise (sig=sig@entry=6) at ../nptl/sysdeps/unix/sysv/linux/raise.c:56
-       #1  0x00007f9d9b3730d8 in __GI_abort () at abort.c:89
-       #2  0x00007f9d9b368b86 in __assert_fail_base (fmt=0x7f9d9b4b9830 "%s%s%s:%u: %s%sAssertion `%s' failed.\n%n", assertion=assertion@entry=0x1906dff "lcbn_cur", 
-              file=file@entry=0x1906058 "../deps/uv/src/uv-common.c", line=line@entry=1430, function=function@entry=0x1907180 <__PRETTY_FUNCTION__.9659> "uv__register_callback") at assert.c:92
-       #3  0x00007f9d9b368c32 in __GI___assert_fail (assertion=0x1906dff "lcbn_cur", file=0x1906058 "../deps/uv/src/uv-common.c", line=1430, 
-                  function=0x1907180 <__PRETTY_FUNCTION__.9659> "uv__register_callback") at assert.c:101
-       #4  0x000000000159d9ae in uv__register_callback (context=0x3ba72d0, cb=0x15a7db0 <uv__getaddrinfo_work_wrapper>, cb_type=UV_GETADDRINFO_WORK_CB) at ../deps/uv/src/uv-common.c:1430
-       #5  0x00000000015a8309 in uv_getaddrinfo (loop=0x1e39500 <default_loop_struct>, req=0x3ba72d0, cb=0x14e9c35 <node::cares_wrap::AfterGetAddrInfo(uv_getaddrinfo_s*, int, addrinfo*)>, 
-                      hostname=0x7ffca46dfee0 "localhost", service=0x0, hints=0x7ffca46dfea0) at ../deps/uv/src/unix/getaddrinfo.c:224
-       #6  0x00000000014ea737 in node::cares_wrap::GetAddrInfo (args=...) at ../src/cares_wrap.cc:1086
-       #7  0x0000000000d8c867 in v8::internal::FunctionCallbackArguments::Call (this=0x7ffca46e0480, f=0x14ea3de <node::cares_wrap::GetAddrInfo(v8::FunctionCallbackInfo<v8::Value> const&)>)
-                          at ../deps/v8/src/arguments.cc:33
-       #8  0x0000000000ddae2d in v8::internal::HandleApiCallHelper<false> (isolate=0x3ab8520, args=...) at ../deps/v8/src/builtins.cc:1092
-       #9  0x0000000000dd56b8 in v8::internal::Builtin_Impl_HandleApiCall (args=..., isolate=0x3ab8520) at ../deps/v8/src/builtins.cc:1115
-       #10 0x0000000000dd562c in v8::internal::Builtin_HandleApiCall (args_length=6, args_object=0x7ffca46e0608, isolate=0x3ab8520) at ../deps/v8/src/builtins.cc:1111
-
-       This suggests that my understanding of how Node.js/v8 make use of libuv is incomplete.
-       As a result, we no longer track LCBN registration relationships, and our record-replay approach won't work
-       without a correction to our understanding.
-*/
-void uv__register_callback (void *context, any_func cb, enum callback_type cb_type)
-{
-  uv_handle_t *context_handle = NULL;
-  uv_req_t *context_req = NULL;
-  struct map *cb_type_to_lcbn = NULL;
-  enum callback_context cb_context;
-  lcbn_t *lcbn_cur = NULL, *lcbn_new = NULL;
-
-  mylog(LOG_MAIN, 5, "uv__register_callback: context %p cb_type %s\n", context, callback_type_to_string(cb_type));
-  assert(init_stack_lcbn_initialized);
-
-  /* Identify the context of the callback. */
-  assert(context);
-  cb_context = callback_type_to_context(cb_type);
-  if (cb_context == CALLBACK_CONTEXT_HANDLE)
-  {
-    context_handle = (uv_handle_t *) context;
-    assert(context_handle->magic == UV_HANDLE_MAGIC);
-    cb_type_to_lcbn = context_handle->cb_type_to_lcbn;
-  }
-  else if (cb_context == CALLBACK_CONTEXT_REQ)
-  {
-    context_req = (uv_req_t *) context;
-    assert(context_req->magic == UV_REQ_MAGIC);
-    cb_type_to_lcbn = context_req->cb_type_to_lcbn;
-  }
-  else
-    assert(!"uv__register_callback: Error, unexpected cb_context");
-  assert(cb_type_to_lcbn && map_looks_valid(cb_type_to_lcbn)); 
-
-  /* Create a new LCBN. */
-  lcbn_new = lcbn_create(context, cb, cb_type);
-  /* Register it in its context. */
-  lcbn_register(cb_type_to_lcbn, cb_type, lcbn_new);
-
-  /* Add to metadata structures. */
-  lcbn_new->global_reg_id = lcbn_next_reg_id();
-  scheduler_register_lcbn(lcbn_new);
-
-  mylog(LOG_MAIN, 5, "uv__register_callback: lcbn %p context %p type %s registrar %p\n",
-    lcbn_new, context, callback_type_to_string(cb_type), lcbn_cur);
-}
-
-/* Implementation for tracking the initial stack. */
-
-/* Note that we've begun the initial application stack. 
-   Call once prior to invoking the application code. 
-   We also set the current LCBN to the init_stack_lcbn so that all LCBNs
-   resulting from the initial stack are descended appropriately. */
+/* Note that we've begun the initial application stack. */
+int initial_stack_active = 0;
 void uv__mark_init_stack_begin (void)
 {
-  /* JD: TODO: Call to scheduler. */
-  lcbn_t *init_stack_lcbn = NULL;
-
-  /* Call at most once. */
-  static int here = 0;
-  assert(!here);
-  here = 1;
-
   initialize_record_and_replay();
 
-  init_stack_lcbn = get_init_stack_lcbn();
-  assert(lcbn_looks_valid(init_stack_lcbn));
-
-  init_stack_lcbn->executing_thread = pthread_self_internal();
-  lcbn_current_set(init_stack_lcbn);
-  lcbn_mark_begin(init_stack_lcbn);
-
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_begin: initial stack has begun\n"));
+  initial_stack_active = 1;
 }
 
 /* Note that we've finished the initial application stack. 
@@ -1545,38 +1139,19 @@ void uv__mark_init_stack_begin (void)
    Pair with uv__mark_init_stack_begin. */
 void uv__mark_init_stack_end (void)
 {
-  /* JD: TODO: Call to scheduler.
-   * NB Cannot check for divergence yet because the first marker node and the EXIT node are added to the initial stack node later. 
-     Instead, we check for divergence of the initial stack when we generate the EXIT event. 
-   */
-  lcbn_t *init_stack_lcbn = NULL;
-
-  assert(uv__init_stack_active()); 
-
-  init_stack_lcbn = get_init_stack_lcbn();
-  assert(lcbn_looks_valid(init_stack_lcbn));
-  lcbn_mark_end(init_stack_lcbn);
-  lcbn_current_set(NULL);
-
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_end: INITIAL_STACK has ended\n"));
+  initial_stack_active = 0;
 }
 
-/* Returns non-zero if we're in the application's initial stack, else 0. */
 int uv__init_stack_active (void)
 {
-  return lcbn_is_active(get_init_stack_lcbn());
-}
-
-int uv__exit_active (void)
-{
-  return lcbn_is_active(get_exit_lcbn());
+  return initial_stack_active;
 }
 
 /* Note that we've entered Node's "main" uv_run loop. */
 void uv__mark_main_uv_run_begin (void)
 {
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_begin: begin\n"));
-  emit_marker_event(MARKER_UV_RUN_BEGIN);
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_begin: returning\n"));
 }
 
@@ -1584,43 +1159,14 @@ void uv__mark_main_uv_run_begin (void)
 void uv__mark_main_uv_run_end (void)
 {
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_end: begin\n"));
-  emit_marker_event(MARKER_UV_RUN_END);
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_end: returning\n"));
 }
 
+int exit_active = 0;
 void uv__mark_exit_begin (void)
 {
-  lcbn_t *active_lcbn = NULL, *exit_lcbn = NULL;
-
-  /* Can legally be called more than once, just ignore subsequent calls.
-       process.on('exit', function(){ process.exit(1); }); */
-  static int here = 0;
-  if (here)
-    return;
-  here = 1;
-
-  exit_lcbn = get_exit_lcbn();
-  assert(lcbn_looks_valid(exit_lcbn));
-
-  exit_lcbn->executing_thread = pthread_self_internal();
-  active_lcbn = lcbn_current_get();
-
-  /* exit lcbn is the *synchronous* child of the caller (if any), or the child of the initial stack. 
-     NB Its immediate children are invoked *synchronously*, just like INITIAL_STACK's children.
-        We treat it as a separate event for visibility purposes. */
-  if (active_lcbn)
-  {
-    /* TODO Race with threadpool (or what if it's emitted by the threadpool?)? */
-    lcbn_add_child(active_lcbn, exit_lcbn);
-    lcbn_mark_end(active_lcbn);
-  }
-  else
-    lcbn_add_child(get_init_stack_lcbn(), exit_lcbn);
-
-  lcbn_current_set(exit_lcbn);
-  lcbn_mark_begin(exit_lcbn);
-
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_begin: inital stack has begun\n"));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_begin: exit begin\n"));
+  exit_active = 1;
 }
 
 /* Note that we've finished the initial application stack. 
@@ -1628,117 +1174,13 @@ void uv__mark_exit_begin (void)
    Pair with uv__mark_exit_begin. */
 void uv__mark_exit_end (void)
 {
-  lcbn_t *exit_lcbn = NULL;
-
-  assert(uv__exit_active()); 
-
-  exit_lcbn = get_exit_lcbn();
-  assert(lcbn_looks_valid(exit_lcbn));
-  lcbn_mark_end(exit_lcbn);
-  lcbn_current_set(NULL);
-
-  if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-  {
-    /* JD: TODO: scheduler calls. */
-    /*
-    scheduler_check_lcbn_for_divergence(get_init_stack_lcbn());
-    scheduler_check_lcbn_for_divergence(exit_lcbn);
-    */
-  }
-
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: EXIT has ended\n"));
+  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: exit ended. Morituri te salutant.\n"));
+  exit_active = 0;
 }
 
-/* Tracking whether or not we're in uv__run_pending. */
-int uv__run_pending_active = 0;
-any_func uv__run_pending_active_cb = NULL;
-/* Note that we've entered libuv's uv__run_pending loop. */
-void uv__mark_uv__run_pending_begin (void)
+int uv__exit_active (void)
 {
-  assert(!uv__run_pending_active);
-  uv__run_pending_active = 1;
-  uv__uv__run_pending_set_active_cb(NULL);
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_uv__run_pending_begin: uv__run_pending has begun\n"));
-}
-
-/* Note that we've finished the libuv uv__run_pending loop.
-   Pair with uv__mark_uv__run_pending_begin. */
-void uv__mark_uv__run_pending_end (void)
-{
-  assert(uv__run_pending_active);
-  uv__run_pending_active = 0;
-  uv__uv__run_pending_set_active_cb(NULL);
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_uv__run_pending_end: uv__run_pending has ended\n"));
-}
-
-/* Returns non-zero if we're in uv__run_pending, else 0. */
-int uv__uv__run_pending_active (void)
-{
-  return uv__run_pending_active;
-}
-
-/* Set and get the active CB in uv__run_pending. */
-any_func uv__uv__run_pending_get_active_cb (void)
-{
-  return uv__run_pending_active_cb;
-}
-
-void uv__uv__run_pending_set_active_cb (any_func cb)
-{
-  uv__run_pending_active_cb = cb;
-}
-
-/* Associate LCBN with CALLBACK_TYPE in CB_TYPE_TO_LCBN. */
-void lcbn_register (struct map *cb_type_to_lcbn, enum callback_type cb_type, lcbn_t *lcbn)
-{
-  assert(cb_type_to_lcbn);
-  assert(lcbn);
-  map_insert(cb_type_to_lcbn, cb_type, lcbn);
-}
-
-/* Return the LCBN stored in CB_TYPE_TO_LCBN for CALLBACK_TYPE. */
-lcbn_t * lcbn_get (struct map *cb_type_to_lcbn, enum callback_type cb_type)
-{
-  int found = 0;
-  lcbn_t *lcbn = NULL;
-
-  assert(cb_type_to_lcbn);
-
-  lcbn = (lcbn_t *) map_lookup(cb_type_to_lcbn, cb_type, &found);
-  assert(found && lcbn_looks_valid(lcbn));
-  return lcbn;
-}
-
-/* APIs that let us build lineage trees: nodes can identify their parents. 
-   current_callback_node_{set,get} are thread safe and maintain per-thread mappings. */
-
-/* Sets the current callback node for this thread to LCBN.
-   NULL signifies the end of a callback tree. */
-void lcbn_current_set (lcbn_t *lcbn)
-{
-  map_lock(tid_to_current_lcbn);
-  /* TODO My maps are thread safe. */
-  map_insert(tid_to_current_lcbn, (int) pthread_self(), (void *) lcbn);
-  if (lcbn == NULL)
-    mylog(LOG_MAIN, 5, "lcbn_current_set: Next callback will be a root\n");
-  else
-    mylog(LOG_MAIN, 5, "lcbn_current_set: Current LCBN is %p (type %s)\n", lcbn, callback_type_to_string(lcbn->cb_type));
-  map_unlock(tid_to_current_lcbn);
-}
-
-/* Retrieves the current callback node for this thread, or NULL if no such node. 
-   This function is thread safe. */
-lcbn_t * lcbn_current_get (void)
-{
-  int found = 0;
-  lcbn_t *ret = NULL;
-
-  /* My maps are thread safe. */
-  ret = (lcbn_t *) map_lookup(tid_to_current_lcbn, (int) pthread_self(), &found);
-
-  if (!found)
-    assert(!ret);
-  return ret;
+  return exit_active;
 }
 
 /* Returns an internal (small) thread identifier. */
@@ -1760,27 +1202,15 @@ int pthread_self_internal (void)
   return internal_id;
 }
 
-/* Obtain the next available exec_id.
- * Not thread safe, so caller should ensure mutex somehow.
- */
-static unsigned lcbn_next_exec_id (void)
-{
-  lcbn_global_exec_counter++;
-  return lcbn_global_exec_counter - 1;
-}
-
-/* Not thread safe. */
-static unsigned lcbn_next_reg_id (void)
-{
-  lcbn_global_reg_counter++;
-  return lcbn_global_reg_counter - 1;
-}
-
 void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
 {
   int i, nargs;
   va_list ap;
   callback_info_t *cbi = NULL;
+
+  /* Scheduler supplies. */
+  spd_before_exec_cb_t spd_before_exec_cb;
+  spd_after_exec_cb_t spd_after_exec_cb;
 
   assert(UV_ALLOC_CB <= type && type <= UV__WORK_DONE);
   nargs = callback_type_to_nargs[type];
@@ -1797,72 +1227,22 @@ void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
     cbi->args[i] = va_arg(ap, long);
   va_end(ap);
 
-  invoke_callback(cbi);
-}
+  /* Yield to scheduler (and, if scheduler desires, serialize CBs). */
+  spd_before_exec_cb_init(&spd_before_exec_cb);
+  spd_before_exec_cb.lcbn = NULL; /* TODO Change this. */
+  scheduler_thread_yield(SCHEDULE_POINT_BEFORE_EXEC_CB, &spd_before_exec_cb);
 
-/* Go through the motions of executing LCBN
- *  - mark it begin/end'ed
- *  - acquire an execution ID
- *  - advance the scheduler 
- * Since it's internal, it doesn't actually have an associated CB.
- *
- * TODO This should really be going through invoke_callback to avoid code repetition.
- *      Set the CB associated with the LCBN to a dummy function.
- */
-static void execute_internal_lcbn (lcbn_t *lcbn)
-{
-  assert(lcbn);
-  assert(lcbn_internal(lcbn));
+  /* User code or not, run the callback. */
+  mylog(LOG_MAIN, 7, "invoke_callback_wrap: Invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
+  cbi_execute_callback(cbi); 
+  mylog(LOG_MAIN, 7, "invoke_callback_wrap: Done invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
 
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "execute_internal_lcbn: begin: lcbn %p\n", lcbn));
+  /* Yield to scheduler. */
+  assert(scheduler_current_cb_thread() == uv_thread_self()); /* Only fails if threadpool.c:cleanup ever happens and returns from the CB. */
+  spd_after_exec_cb_init(&spd_after_exec_cb);
+  spd_after_exec_cb.lcbn = NULL; /* TODO Change this. */
+  scheduler_thread_yield(SCHEDULE_POINT_AFTER_EXEC_CB, &spd_after_exec_cb);
 
-  /* Get an exec id, fake an execution, tell any waiters we're done. */
-  mylog(LOG_MAIN, 7, "execute_internal_lcbn: Invoking lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
-  lcbn_mark_begin(lcbn);
-  lcbn->global_exec_id = lcbn_next_exec_id();
-  lcbn_mark_end(lcbn);
-  mylog(LOG_MAIN, 5, "execute_internal_lcbn: Done with lcbn %p (type %s) exec_id %i\n", lcbn, callback_type_to_string(lcbn->cb_type), lcbn->global_exec_id);
-
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "execute_internal_lcbn: returning\n"));
-}
-
-/* Marker events are in a registration chain. 
-   The first uv_run is a child of the initial stack.
-   Each subsequent marker event is a child of the previous one. */
-lcbn_t *prev_marker_event = NULL;
-void emit_marker_event (enum callback_type cbt)
-{
-  lcbn_t *lcbn = lcbn_create(NULL, NULL, cbt), *parent = NULL;
-
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: begin: cbt %s\n", callback_type_to_string(cbt)));
-  assert(is_marker_event(cbt));
-
-  lcbn_mark_non_user(lcbn);
-
-  /* Register as child of the parent. */
-  if (prev_marker_event)
-    parent = prev_marker_event;
-  else
-  {
-    assert(cbt == MARKER_UV_RUN_BEGIN);
-    parent = get_init_stack_lcbn();
-  }
-  lcbn_add_child(parent, lcbn);
-  lcbn->global_reg_id = lcbn_next_reg_id();
-  scheduler_register_lcbn(lcbn);
-
-  if (scheduler_get_scheduler_mode() == SCHEDULER_MODE_REPLAY)
-  {
-    enum callback_type next_cb_type = scheduler_next_lcbn_type();
-    mylog(LOG_MAIN, 5, "emit_marker_event: cbt %s next_cb_type %s\n", callback_type_to_string(cbt), callback_type_to_string(next_cb_type));
-    assert(is_threadpool_cb(next_cb_type) || next_cb_type == cbt);
-    /* JD: TODO: Call to scheduler. */
-  }
-
-  execute_internal_lcbn(lcbn);
-
-  /* JD: TODO: Call to scheduler. */
-
-  prev_marker_event = lcbn;
-  ENTRY_EXIT_LOG((LOG_MAIN, 9, "emit_marker_event: returning\n"));
+  uv__free(cbi);
+  return;
 }

@@ -387,7 +387,6 @@ UV_EXTERN const char* uv_err_name(int err);
   /* private */                                                               \
   void* active_queue[2];                                                      \
   void* reserved[4];                                                          \
-  struct map *cb_type_to_lcbn;                                                \
   int magic;                                                                  \
   UV_REQ_PRIVATE_FIELDS                                                       \
 
@@ -428,7 +427,6 @@ struct uv_shutdown_s {
     void* reserved[4];                                                        \
   } u;                                                                        \
   UV_HANDLE_PRIVATE_FIELDS                                                    \
-  struct map *cb_type_to_lcbn;                                                \
   int magic;                                                                  \
   int self_parent; /* For timer and loop-watcher. */                          \
 

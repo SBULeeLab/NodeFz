@@ -65,8 +65,6 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   handle->pending = 0;
   handle->io_watcher.fd = -1;
 
-  uv__register_callback(handle, (any_func) handle->async_cb, UV_ASYNC_CB);
-
   err = uv__async_start(loop, handle);
 
   assert(handle->type == UV_ASYNC);

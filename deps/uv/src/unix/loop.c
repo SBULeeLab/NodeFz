@@ -31,14 +31,6 @@
 int uv_loop_init(uv_loop_t* loop) {
   int err;
 
-  /* TODO At the moment we call unified_callback_init almost first thing in node.cc,
-     and signal handlers/atexit requests are wiped afterwards by node.
-     uv_loop_init is called after node has finished its signal/atexit business,
-     so we register our own handlers here for now. This is a hack. */
-  mylog(LOG_MAIN, 7, "unified_callback_init: Registering dump_and_exit_sighandler on signal SIGUSR2\n");
-  signal(SIGUSR2, dump_and_exit_sighandler);
-  atexit(scheduler_emit);
-
   uv__signal_global_once_init();
 
   memset(loop, 0, sizeof(*loop));

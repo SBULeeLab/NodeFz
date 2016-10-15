@@ -107,10 +107,6 @@ int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
   if (pevents == 0)
     return 0;
 
-#ifdef UNIFIED_CALLBACK
-  uv__register_callback(handle, (any_func) poll_cb, UV_POLL_CB);
-#endif
-
   events = 0;
   if (pevents & UV_READABLE)
     events |= UV__POLLIN;
