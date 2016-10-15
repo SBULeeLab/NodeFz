@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <assert.h>
 
 namespace node {
 
@@ -438,6 +439,10 @@ void SyncProcessRunner::TryInitializeAndRunLoop(Local<Value> options) {
   // only option we'd have is to close all handles and destroy the loop.
   CHECK_EQ(lifecycle_, kUninitialized);
   lifecycle_ = kInitialized;
+
+  /* JD: There are probably race conditions in my code, since I was working
+   * under the assumption that only one loop would ever be active at a time in libuv. */
+  assert(!"Error, SyncProcessRunner not supported right now");
 
   uv_loop_ = new uv_loop_t;
   if (uv_loop_ == nullptr)

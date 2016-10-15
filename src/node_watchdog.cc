@@ -3,6 +3,8 @@
 #include "env-inl.h"
 #include "util.h"
 
+#include <assert.h>
+
 namespace node {
 
 using v8::V8;
@@ -11,6 +13,11 @@ using v8::V8;
 Watchdog::Watchdog(Environment* env, uint64_t ms) : env_(env),
                                                     destroyed_(false) {
   int rc;
+
+  /* JD: There are probably race conditions in my code, since I was working
+   * under the assumption that only one loop would ever be active at a time in libuv. */
+  assert(!"Error, Watchdog not supported right now");
+
   loop_ = new uv_loop_t;
   CHECK(loop_);
   rc = uv_loop_init(loop_);
