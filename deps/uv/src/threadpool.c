@@ -220,7 +220,7 @@ static void worker(void* arg) {
     w->work = NULL;  /* Signal uv_cancel() that the work req is done
                         executing. */
     /* Signal the looper that this item is done. */
-    mylog(LOG_THREADPOOL, 9, "worker: Signaling that work item %i w %p is done\n", work_item_number, w);
+    mylog(LOG_THREADPOOL, 9, "worker: Signaling that work item %i w %p (async handle %p) is done\n", work_item_number, w, w->ptr_and_async->async_buf);
     uv_async_send((uv_async_t *) w->ptr_and_async->async_buf);
 
     spd_after_put_done_init(&spd_after_put_done);
@@ -328,6 +328,7 @@ void uv__work_done(uv_async_t *handle) {
 #endif
 
   /* We're done with handle. */
+  mylog(LOG_THREADPOOL, 1, "uv__work_done: calling uv_close on handle %p w %p\n", handle, w);
   uv_close((uv_handle_t *) handle, uv__work_async_close);
 }
 

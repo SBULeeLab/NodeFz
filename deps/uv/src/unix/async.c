@@ -70,14 +70,15 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   err = uv__async_start(loop, handle);
 
   assert(handle->type == UV_ASYNC);
+  assert(handle != NULL && 0 <= handle->io_watcher.fd);
   return err;
 }
 
 
 int uv_async_send(uv_async_t* handle) {
 
-  assert(0 <= handle->io_watcher.fd);
   mylog(LOG_UV_ASYNC, 1, "uv_async_send: handle %p\n", handle);
+  assert(handle != NULL && 0 <= handle->io_watcher.fd);
 
   /* If already pending, coalesce. */
   if (ACCESS_ONCE(int, handle->pending) != 0)
@@ -119,6 +120,9 @@ void uv__async_close(uv_async_t* handle) {
   uv__io_stop(handle->loop, &handle->io_watcher, UV__POLLIN);
   uv__close(handle->io_watcher.fd);
   uv__handle_stop(handle);
+
+  mylog(LOG_UV_ASYNC, 1, "uv__async_close: closed handle %p (fd %i)\n", handle, handle->io_watcher.fd);
+  return;
 }
 
 /* This is the IO function for uv_async_t's after they've been uv_async_send'd.
@@ -289,7 +293,10 @@ static int uv__async_eventfd() {
     return fd;
 
   if (errno != ENOSYS)
+  {
+    mylog(LOG_UV_ASYNC, 1, "uv__async_eventfd: could not get fd (1), errno %i: %s\n", errno, strerror(errno));
     return -errno;
+  }
 
   no_eventfd2 = 1;
 
@@ -306,7 +313,10 @@ skip_eventfd2:
   }
 
   if (errno != ENOSYS)
+  {
+    mylog(LOG_UV_ASYNC, 1, "uv__async_eventfd: could not get fd (2), errno %i: %s\n", errno, strerror(errno));
     return -errno;
+  }
 
   no_eventfd = 1;
 
