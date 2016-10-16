@@ -2545,12 +2545,14 @@ Sat 15 Oct 2016
 
 3. Submit socket.io pull request.
 
+4. Bug recreate on ghost.
+
 -----
 
-- Bug recreates on kue, pep, ghost, etherpad, ...?
-
 TODO
-  - Attempt fuzz testing on: kue. pep. ghost/etherpad?
+  - Add in some logging in invoke_callback_wrap so we can at least see what type of CBs we're invoking.
+  - Merge into MultiSched
+  - Attempt fuzz testing on: kue. etherpad?
   - Try core module test cases, since they don't need a working test suite.
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 
