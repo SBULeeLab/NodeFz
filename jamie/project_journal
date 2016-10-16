@@ -2517,25 +2517,39 @@ Thur 13 Oct 2016
 Fri 14 Oct 2016
 
 1. Bug recreate on pep.
+
 2. Misc. pull requests on fiware-pep-steelskin, to learn how to do it before trying socket.io.
+
 3. Revert all Node.js-lib changes (setImmediate, timers).
      setImmediate: 'fiware-pep-steelskin test case/library' 
      timers: 'mkdirp->tap framework' hangs
    I don't anticipate that this will affect the experimental results run on 13 Oct.
 
+4. Experiment briefly with the "core" node test suite.
+    
+
 --------------------------------
 
 Sat 15 Oct 2016
 
+1a. Remove unused code in nodejs/src
+1b. Stick asserts in src/node_watchdog.cc and src/spawn_sync.cc, just prior to them creating new uv_loop_t's.
+    The libuv implementation assumes only one uv_loop_t, so creating more than one within a process is disastrous.
+    Race conditions, etc. because I use per-file globals instead of embedding them in a uv_loop_t. Sue me.
+
+2. Completely eliminate the use of LCBNs in libuv.
+   After this change, we no longer see the catastrophic test failures (system hang with CPU 99%, memory 99%).
+   I conclude that in the catastrophic failure cases, libuv was using all of the memory to:
+     - store LCBNs
+     - leak maps and so on when requests are handled
+
+3. Submit socket.io pull request.
 
 -----
 
-- Minimize changes in nodejs/src
-- Stop hoarding LCBNs. I think this is what causes some cases to fail catastrophically (system hang) -- node ends up using all of the memory on LCBNs?
 - Bug recreates on kue, pep, ghost, etherpad, ...?
 
 TODO
-  - Submit pull request for socket.io test suite bug
   - Attempt fuzz testing on: kue. pep. ghost/etherpad?
   - Try core module test cases, since they don't need a working test suite.
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
