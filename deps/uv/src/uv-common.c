@@ -984,11 +984,15 @@ void initialize_fuzzy_libuv (void)
  *
  *     UV_SCHEDULER_MODE           Choose from: RECORD[, REPLAY]                Defaults to RECORD
  *
- *     UV_SCHEDULER_SCHEDULE_FILE  Where to emit or load schedule             Defaults to /tmp/f.sched
+ *     UV_SCHEDULER_SCHEDULE_FILE  Where to emit or load schedule               Defaults to /tmp/libuv_<pid>.sched
+ *                                                                              CAUTION: Programs like mocha are Node.js programs that start other Node.js processes,
+ *                                                                                       so in this case specifying UV_SCHEDULER_SCHEDULE_FILE will produce a garbled file.
+ *                                                                                       It's safer to rely on the default behavior unless you're confident about the behavior of the application.
  */
 static void initialize_scheduler (void)
 {
-  char *scheduler_typeP = NULL, *scheduler_modeP = NULL, *schedule_fileP = NULL;
+  char *scheduler_typeP = NULL, *scheduler_modeP = NULL;
+  char schedule_fileP[1024]; 
   scheduler_type_t scheduler_type;
   scheduler_mode_t scheduler_mode;
   struct stat stat_buf;
@@ -1114,9 +1118,11 @@ static void initialize_scheduler (void)
     assert(!"Error, UV_SCHEDULER_MODE was neither RECORD nor REPLAY");
 
   /* Scheduler file. */
-  schedule_fileP = getenv("UV_SCHEDULER_SCHEDULE_FILE");
-  if (!schedule_fileP)
-    schedule_fileP = "/tmp/f.sched";
+  if (getenv("UV_SCHEDULER_SCHEDULE_FILE") != NULL)
+    strcpy(schedule_fileP, getenv("UV_SCHEDULER_SCHEDULE_FILE"));
+  else
+    sprintf(schedule_fileP, "/tmp/libuv_%i.sched", getpid());
+
   if (scheduler_mode == SCHEDULER_MODE_REPLAY && stat(schedule_fileP, &stat_buf))
     assert(!"Error, scheduler_mode REPLAY but schedule_file does not exist");
 

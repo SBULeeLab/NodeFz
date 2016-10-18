@@ -445,7 +445,8 @@ int schedule_point_looks_valid (schedule_point_t point, void *pointDetails)
 
 static int SCHEDULER_MAGIC = 8675309; /* Jenny. */
 
-int scheduler_initialized = 0;
+static int scheduler_initialized = 0;
+static int scheduler_closed = 0;
 struct
 {
   int magic;
@@ -455,6 +456,12 @@ struct
   scheduler_mode_t mode;
   char schedule_file[1024];
   void *args;
+
+  /* Track each CB type we execute. 
+   * Clean up in atexit. */
+  FILE *schedule_fileP;
+  void *schedule_cbType_buf; /* Used with setbuf. */
+  size_t schedule_cbType_buf_size;
 
   /* Things we can track ourselves (not handled by a schedulerImpl_t). */
   long unsigned int n_executed; /* Protected by mutex. */
@@ -474,13 +481,13 @@ struct
  ***********************/
 
 /* Returns non-zero if scheduler is initialized and magic is OK. */
-int scheduler__looks_valid (void);
-
-/* Returns the current holder of scheduler.mutex, or REENTRANT_MUTEX_NO_HOLDER if no holder. */
-uv_thread_t scheduler__current_lock_holder (void);
+static int scheduler__looks_valid (void);
 
 /* Returns the depth of scheduler.mutex. */
-int scheduler__lock_depth (void);
+static int scheduler__lock_depth (void);
+
+/* Runs atexit. Cleans up, ensures the schedule file is closed, etc. */
+static void scheduler__cleanup (void);
 
 /***********************
  * Public scheduler API definitions.
@@ -503,6 +510,17 @@ void scheduler_init (scheduler_type_t type, scheduler_mode_t mode, char *schedul
   scheduler.type = type;
   scheduler.mode = mode;
   strncpy(scheduler.schedule_file, schedule_file, sizeof scheduler.schedule_file);
+
+  scheduler.schedule_fileP = fopen(scheduler.schedule_file, "w");
+  assert(scheduler.schedule_fileP != NULL); 
+  scheduler.schedule_cbType_buf_size = 1024*1024; /* 1 MB is plenty of space for buffering. */
+  scheduler.schedule_cbType_buf = uv__malloc(1024*1024);
+  assert(scheduler.schedule_cbType_buf != NULL);
+  /* Fully buffered I/O to scheduler.schedule_fileP. 1MB buffer. */
+  setvbuf(scheduler.schedule_fileP, scheduler.schedule_cbType_buf, _IOFBF, scheduler.schedule_cbType_buf_size);
+
+  atexit(scheduler__cleanup);
+
   scheduler.args = args;
 
   scheduler.n_executed = 0;
@@ -584,8 +602,15 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
 
   if (point == SCHEDULE_POINT_AFTER_EXEC_CB)
   {
+    char *cbTypeStr = callback_type_to_string(((spd_after_exec_cb_t *) schedule_point_details)->cb_type);
     scheduler.n_executed++; /* We hold scheduler__lock. */
-    mylog(LOG_SCHEDULER, 1, "scheduler_thread_yield: Just executed CB of type %s\n", callback_type_to_string(((spd_after_exec_cb_t *) schedule_point_details)->cb_type));
+    mylog(LOG_SCHEDULER, 1, "scheduler_thread_yield: Just executed CB of type %s\n", cbTypeStr);
+
+    if (!scheduler_closed)
+    {
+      assert(fwrite(cbTypeStr, strlen(cbTypeStr), 1, scheduler.schedule_fileP) == 1);
+      assert(fwrite("\n", 1, 1, scheduler.schedule_fileP) == 1);
+    }
   }
 
   scheduler.impl.thread_yield(point, schedule_point_details);
@@ -693,20 +718,29 @@ thread_type_t scheduler__get_thread_type (void)
  * Private scheduler API definitions.
  ***********************/
 
-int scheduler__looks_valid (void)
+static int scheduler__looks_valid (void)
 {
   return (scheduler_initialized &&
           scheduler.magic == SCHEDULER_MAGIC);
 }
 
-uv_thread_t scheduler__current_lock_holder (void)
-{
-  assert(scheduler__looks_valid());
-  return reentrant_mutex_holder(scheduler.mutex);
-}
-
-int scheduler__lock_depth (void)
+static int scheduler__lock_depth (void)
 {
   assert(scheduler__looks_valid());
   return reentrant_mutex_depth(scheduler.mutex);
+}
+
+static void scheduler__cleanup (void)
+{
+  assert(scheduler_initialized);
+  assert(scheduler.schedule_fileP != NULL);
+  assert(scheduler.schedule_cbType_buf != NULL);
+
+  printf("See %s for CB type schedule\n", scheduler.schedule_file);
+  assert(fclose(scheduler.schedule_fileP) == 0);
+  uv__free(scheduler.schedule_cbType_buf);
+
+  scheduler.schedule_fileP = NULL;
+  scheduler.schedule_cbType_buf = NULL;
+  scheduler_closed = 1;
 }
