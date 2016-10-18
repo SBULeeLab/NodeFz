@@ -56,6 +56,13 @@ any_func uv_uv__async_io_ptr (void)
 
 int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   int err;
+  static int here_before = 0;
+
+  /* Node calls this on uv_default_loop() before initializing TP and before calling uv_run(). */
+  if (!here_before)
+    initialize_fuzzy_libuv();
+  else
+    here_before = 1;
 
   mylog(LOG_UV_ASYNC, 1, "uv_async_init: initializing handle %p\n", handle);
   memset(handle, 0, sizeof(*handle));

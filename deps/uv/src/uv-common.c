@@ -598,6 +598,13 @@ static uv_loop_t default_loop_struct;
 static uv_loop_t* default_loop_ptr;
 
 uv_loop_t* uv_default_loop(void) {
+  static int here_before = 0;
+
+  if (!here_before)
+    initialize_fuzzy_libuv();
+  else
+    here_before = 1;
+
   if (default_loop_ptr != NULL)
     return default_loop_ptr;
 
@@ -855,21 +862,21 @@ static void mark_global_start (void);
 /* Maps pthread_t to internal id, yielding human-readable thread IDs. */
 struct map *pthread_to_tid;
 
-/* Initialize everything for the record-and-replay code. 
+/* Initialize everything for the fuzzy libuv.
  * This is a catch-all initialization function. 
  * It initializes:
  *    - logging (mylog)
  *    - the scheduler
  *    - unified callback variables
  *
- * It should be called exactly once.
+ * It is not thread-safe, but can safely be called more than once.
  */
-void initialize_record_and_replay (void)
+void initialize_fuzzy_libuv (void)
 {
   static int initialized = 0;
 
-  assert(!initialized);
-  initialized = 1;
+  if (initialized)
+    return;
 
   /* mylog */
   mylog_init();
@@ -889,14 +896,14 @@ void initialize_record_and_replay (void)
   mylog_set_verbosity(LOG_STATISTICS, 9);
 
 #ifdef JD_UT
-  mylog(LOG_MAIN, 1, "initialize_record_and_replay: Running unit tests\n");
+  mylog(LOG_MAIN, 1, "initialize_fuzzy_libuv: Running unit tests\n");
   list_UT();
   map_UT();
   tree_UT();
   lcbn_UT();
   mylog_UT();
   scheduler_UT();
-  mylog(LOG_MAIN, 1, "initialize_record_and_replay: Done running unit tests\n");
+  mylog(LOG_MAIN, 1, "initialize_fuzzy_libuv: Done running unit tests\n");
 #endif
 
   /* scheduler */
@@ -911,6 +918,8 @@ void initialize_record_and_replay (void)
 
   /* Record initialization time. */
   mark_global_start();
+
+  initialized = 1;
 }
 
 /* Initialize the scheduler (scheduler_init).
@@ -1127,16 +1136,16 @@ static void mark_global_start (void)
   }
 }
 
-/* Tracking the initial stack. */
+/* APIs for tracking the initial stack (the first pass through the input file) and when we're about to exit.
+ *
+ * These requires you to insert calls into node/src/, which you might not want to do.
+ * They are unnecessary for the basic fuzzer, unless you like logging.
+ */
 
 /* Note that we've begun the initial application stack. */
-int initial_stack_active = 0;
 void uv__mark_init_stack_begin (void)
 {
-  initialize_record_and_replay();
-
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_begin: initial stack has begun\n"));
-  initial_stack_active = 1;
 }
 
 /* Note that we've finished the initial application stack. 
@@ -1145,12 +1154,6 @@ void uv__mark_init_stack_begin (void)
 void uv__mark_init_stack_end (void)
 {
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_init_stack_end: INITIAL_STACK has ended\n"));
-  initial_stack_active = 0;
-}
-
-int uv__init_stack_active (void)
-{
-  return initial_stack_active;
 }
 
 /* Note that we've entered Node's "main" uv_run loop. */
@@ -1167,11 +1170,9 @@ void uv__mark_main_uv_run_end (void)
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_main_uv_run_end: returning\n"));
 }
 
-int exit_active = 0;
 void uv__mark_exit_begin (void)
 {
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_begin: exit begin\n"));
-  exit_active = 1;
 }
 
 /* Note that we've finished the initial application stack. 
@@ -1180,12 +1181,6 @@ void uv__mark_exit_begin (void)
 void uv__mark_exit_end (void)
 {
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv__mark_exit_end: exit ended. Morituri te salutant.\n"));
-  exit_active = 0;
-}
-
-int uv__exit_active (void)
-{
-  return exit_active;
 }
 
 /* Returns an internal (small) thread identifier. */

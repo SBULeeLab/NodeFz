@@ -363,8 +363,18 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int timeout;
   int r;
   int ran_pending;
+  static int here_already = 0;
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv_run: begin: loop %p mode %i\n", loop, mode));
+
+  /* Fuzzy libuv initialization. 
+   * This is actually not sufficient for safe libuv-wide use of my APIs if the caller is using the default loop and does things like
+   * initialize async stuff prior to calling uv_run, but at least this makes me feel better.
+   */
+  if (!here_already)
+    initialize_fuzzy_libuv(); /* Cheap if already initialized. */
+  else
+    here_already = 1;
 
   r = uv__loop_alive(loop);
   if (!r)

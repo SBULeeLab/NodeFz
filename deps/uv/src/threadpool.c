@@ -283,8 +283,8 @@ UV_DESTRUCTOR(static void cleanup(void)) {
 static void init_once(void) {
   unsigned int i;
   const char* val;
-
-  mylog_init();
+  
+  initialize_fuzzy_libuv();
 
   nthreads = ARRAY_SIZE(default_threads);
   val = getenv("UV_THREADPOOL_SIZE");

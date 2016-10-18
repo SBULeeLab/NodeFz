@@ -244,6 +244,7 @@ typedef enum {
   UV_RUN_NOWAIT
 } uv_run_mode;
 
+UV_EXTERN void initialize_fuzzy_libuv (void);
 
 UV_EXTERN unsigned int uv_version(void);
 UV_EXTERN const char* uv_version_string(void);

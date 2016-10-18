@@ -2547,10 +2547,57 @@ Sat 15 Oct 2016
 
 4. Bug recreate on ghost.
 
+--------------------------------
+
+Mon 17 Oct 2016
+
+1. Demonstrate that we can use our libuv in various versions of node.
+   I cloned node into ~/Desktop/noderacer2/node_version_src and identified the libuv version used in each branch (/tmp/uv_versions: nodeBranch1\nlibuvVersion1\n...).
+   
+    - We've done all of our work on a libuv release from 2015.09.12 (that's what node v5.0.0-pre was using when we cloned it)
+    - This version is in use by 1 branch of Node: v3.x
+    - This branch compiles to iojs (iojs -v: 3.3.2-pre), seems too dated
+    - We looked for "nearby" releases
+       > Branch v4.0.0-rc uses 2015.08.28 and compiles to node v4.0.0-pre
+       > Branches 0.12.[5-7]-release use 2015.06.06
+          < We compiled on the 0.12.5-release without a problem, suggesting no API changes between releases
+       > Other options: v0.12, v0.12-staging
+    - Installing v0.12.5, node/npm seem to work fine with 'export UV_SCHEDULER_TYPE=VANILLA'
+
+    Steps:
+        - checkout the appropriate branch
+        - change deps/uv to point to the right place (copy ~/Desktop/noderacer2/nodejsrr/deps/uv wholesale -- not sure why symlinks don't work)
+          > use 'rsync -r ~/Desktop/noderacer2/nodejsrr/deps/uv/ uv' to keep the twain in sync
+        - run './configure --debug'
+        - run 'make -j 4'
+
+      Some tests:
+        sqlite3: "npm test" fails in initialization (193483 downloads last month), Google agrees
+                 It also fails using the system v0.10.37 release.
+        lokijs: no problems during initial fuzzing of test suite
+
+2. Add statistics module for "guided fuzzing".
+3. Develop ~/Desktop/noderacer2/bin/levDist.py, a way to compare how "alike" two "CB type schedules" are based on the Levenshtein distance between them. 
+   Use: 
+      enable libuv logging
+      run application 2>/tmp/stderr_1
+      ~/Desktop/noderacer2/bin/extractCBTypeSched < /tmp/stderr_1 > /tmp/sched_1
+      run application 2>/tmp/stderr_2
+      ~/Desktop/noderacer2/bin/extractCBTypeSched < /tmp/stderr_2 > /tmp/sched_2
+      ~/Desktop/noderacer2/bin/levDist.py --schedFile1 /tmp/sched_1 --schedFile2 /tmp/sched_2
+
+--------------------------------
+
+Tue 18 Oct 2016
+
+1. Remove need for initialization code in node/src
+    > run initialization on entry to uv_run(), TP initialization, uv_default_loop, uv_async_init
+
 -----
 
+  - try webpack-tapable NaN error repro
+
 TODO
-  - Add in some logging in invoke_callback_wrap so we can at least see what type of CBs we're invoking.
   - Merge into MultiSched
   - Attempt fuzz testing on: kue. etherpad?
   - Try core module test cases, since they don't need a working test suite.
