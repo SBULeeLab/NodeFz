@@ -64,6 +64,7 @@
         'src/unified-callback-enums.c',
         'src/uv-random.c',
         'src/synchronization.c',
+        'src/statistics.c',
         'include/uv-errno.h',
         'include/uv-threadpool.h',
         'include/uv-version.h',
