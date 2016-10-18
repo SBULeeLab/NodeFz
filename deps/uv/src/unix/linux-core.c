@@ -20,8 +20,9 @@
 
 #include "uv.h"
 #include "internal.h"
-#include "list.h"
 #include "scheduler.h"
+
+#include "statistics.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -346,6 +347,8 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
     spd_iopoll_before_handling_events.shuffleable_items.thoughts = (int *) &should_handle_event;
     scheduler_thread_yield(SCHEDULE_POINT_LOOPER_IOPOLL_BEFORE_HANDLING_EVENTS, &spd_iopoll_before_handling_events);
 
+    statistics_record(STATISTIC_EPOLL_SIMULTANEOUS_EVENTS, spd_iopoll_before_handling_events.shuffleable_items.nitems);
+
     /* Handle each ready event (fd). */
     for (i = 0; i < (int) spd_iopoll_before_handling_events.shuffleable_items.nitems; i++)
     {
@@ -416,6 +419,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 #else
         w->cb(loop, w, pe->events);
 #endif
+        statistics_record(STATISTIC_EPOLL_EVENTS_EXECUTED, 1);
         nevents++;
       }
     }

@@ -457,7 +457,7 @@ struct
   void *args;
 
   /* Things we can track ourselves (not handled by a schedulerImpl_t). */
-  int n_executed; /* Protected by mutex. */
+  long unsigned int n_executed; /* Protected by mutex. */
   struct map *tidToType;
   uv_thread_t current_cb_thread;
 
@@ -583,7 +583,10 @@ void scheduler_thread_yield (schedule_point_t point, void *schedule_point_detail
   assert(scheduler__looks_valid());
 
   if (point == SCHEDULE_POINT_AFTER_EXEC_CB)
+  {
     scheduler.n_executed++; /* We hold scheduler__lock. */
+    mylog(LOG_SCHEDULER, 1, "scheduler_thread_yield: Just executed CB of type %s\n", callback_type_to_string(((spd_after_exec_cb_t *) schedule_point_details)->cb_type));
+  }
 
   scheduler.impl.thread_yield(point, schedule_point_details);
 
@@ -644,7 +647,7 @@ int scheduler_schedule_has_diverged (void)
   return has_diverged;
 }
 
-int scheduler_n_executed (void)
+long unsigned int scheduler_n_executed (void)
 {
   assert(scheduler__looks_valid());
   /* Not thread-safe, but monotonically increasing so NBD. */

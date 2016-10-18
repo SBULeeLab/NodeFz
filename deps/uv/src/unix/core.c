@@ -21,6 +21,8 @@
 #include "uv.h"
 #include "internal.h"
 
+#include "statistics.h"
+
 #include <stddef.h> /* NULL */
 #include <stdio.h> /* printf */
 #include <stdlib.h>
@@ -268,6 +270,7 @@ static void uv__finish_close(uv_handle_t* handle) {
 #else
     handle->close_cb(handle);
 #endif
+    statistics_record(STATISTIC_CLOSING_EXECUTED, 1);
   }
 }
 
@@ -371,7 +374,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   while (r != 0 && loop->stop_flag == 0)
   {
     /* TODO If we diverge we need to detect it and break out of the infinite loops here. */
-    mylog(LOG_MAIN, 1, "uv_run: loop begins (%i CBs run, %i remaining, next %s)\n", scheduler_n_executed(), scheduler_lcbns_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
+    mylog(LOG_MAIN, 1, "uv_run: loop begins (%lu CBs run, %i remaining, next %s)\n", scheduler_n_executed(), scheduler_lcbns_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (1)\n");
     uv__update_time(loop);

@@ -191,7 +191,9 @@ typedef struct shuffleable_items_s shuffleable_items_t;
 struct spd_before_exec_cb_s
 {
   int magic;
-  lcbn_t *lcbn; /* NULL for non-logical CBs. */
+
+  enum callback_type cb_type;
+  lcbn_t *lcbn; /* NOT USED. NULL for non-logical CBs. */
 };
 typedef struct spd_before_exec_cb_s spd_before_exec_cb_t;
 
@@ -436,7 +438,7 @@ int scheduler_schedule_has_diverged (void);
 /* How many LCBNs have already been executed? 
  * This is measured by the number of times scheduler_thread_yield is called
  * at schedule point SCHEDULE_POINT_AFTER_EXEC_CB. */
-int scheduler_n_executed (void);
+long unsigned scheduler_n_executed (void);
 
 /* RECORD vs. REPLAY mode may affect control-flow decisions. 
  * The scheduler mode is not a constant. We may shift from REPLAY to RECORD mode.

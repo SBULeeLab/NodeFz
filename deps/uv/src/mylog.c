@@ -14,21 +14,25 @@
 #include "uv-common.h" /* uv__malloc/uv__free */
 
 /* Global vars. */
+
+/* Use LOG_ prefix so we can grep out log statements from stderr. */
 char *log_class_strings[LOG_CLASS_MAX - LOG_CLASS_MIN] = {
-  "MAIN",
-  "LCBN",
-  "SCHEDULER",
-  "THREADPOOL",
-  "TIMER",
-  "LIST",
-  "MAP",
-  "TREE",
-  "UV_STREAM",
-  "UV_IO",
-  "UV_ASYNC"
+  "LOG_MAIN",
+  "LOG_LCBN",
+  "LOG_SCHEDULER",
+  "LOG_THREADPOOL",
+  "LOG_TIMER",
+  "LOG_LIST",
+  "LOG_MAP",
+  "LOG_TREE",
+  "LOG_UV_STREAM",
+  "LOG_UV_IO",
+  "LOG_UV_ASYNC",
+  "LOG_STATISTICS"
 };
 
 int verbosity_levels[LOG_CLASS_MAX] = {
+  0,
   0,
   0,
   0,
@@ -43,7 +47,7 @@ int verbosity_levels[LOG_CLASS_MAX] = {
 };
 
 uv_mutex_t log_lock;
-int initialized = 0;
+static int initialized = 0;
 FILE *output_stream = NULL;
 
 /* Private functions. */
@@ -90,7 +94,7 @@ static char * mylog_gen_prefix (enum log_class log_class, int verbosity, char *b
   strftime(now_s, sizeof now_s, "%a %b %d %H:%M:%S", &t);
   snprintf(now_s + strlen(now_s), sizeof(now_s) - strlen(now_s), ".%09ld", now.tv_nsec);
 
-  snprintf(buf, len, "%-10s %-3i %-32s %-7i %-20li ", log_class_strings[log_class], verbosity, now_s, my_pid, (long) my_tid);
+  snprintf(buf, len, "%-14s %-3i %-32s %-7i %-20li ", log_class_strings[log_class], verbosity, now_s, my_pid, (long) my_tid);
   return buf;
 }
 

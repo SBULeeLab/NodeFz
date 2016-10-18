@@ -20,6 +20,7 @@
  */
 
 #include "uv-common.h"
+#include "statistics.h"
 
 #if !defined(_WIN32)
 # include "unix/internal.h"
@@ -114,7 +115,7 @@ static QUEUE * QUEUE_INDEX (QUEUE *head, int index)
  */
 static void worker(void* arg) {
   struct uv__work* w;
-  QUEUE* q;
+  QUEUE *q;
   int work_item_number = -1; /* Holds value of n_work_items when worker gets each work item. */
 
   /* Scheduler supplies. */
@@ -159,7 +160,7 @@ static void worker(void* arg) {
       
       /* Let looper thread proceed. */
       assert(uv_thread_yield() == 0);
-      usleep(10); /* Seems to be more effective on Ubuntu than just uv_thread_yield. */
+      usleep(10); /* Seems to be more effective at yielding on Ubuntu than just uv_thread_yield. */
 
       goto GET_WORK;
     }
@@ -175,6 +176,14 @@ static void worker(void* arg) {
 
     mylog(LOG_THREADPOOL, 7, "worker: getting item at index %i\n", spd_getting_work.index);
     q = QUEUE_INDEX(&wq, spd_getting_work.index);
+
+    /* Tell the scheduler how long the TP queue is at the point when we are getting work. */
+    {
+      int len;
+      QUEUE *q2;
+      QUEUE_LEN(len, q2, &wq);
+      statistics_record(STATISTIC_TP_SIMULTANEOUS_WORK, len);
+    }
 
     if (q == &exit_message)
       uv_cond_signal(&cond);
@@ -227,6 +236,8 @@ static void worker(void* arg) {
     spd_after_put_done.work_item = w;
     spd_after_put_done.work_item_num = work_item_number;
     scheduler_thread_yield(SCHEDULE_POINT_TP_AFTER_PUT_DONE, &spd_after_put_done);
+
+    statistics_record(STATISTIC_TP_WORK_EXECUTED, 1);
   }
 }
 

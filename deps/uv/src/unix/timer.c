@@ -22,8 +22,8 @@
 #include "internal.h"
 #include "heap-inl.h"
 
-#include "list.h"
 #include "scheduler.h"
+#include "statistics.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -190,6 +190,8 @@ int uv_timer_start(uv_timer_t* handle,
               heap_timer_less_than);
   uv__handle_start(handle);
 
+  statistics_record(STATISTIC_TIMERS_REGISTERED, 1);
+
   rc = 0;
   DONE:
     ENTRY_EXIT_LOG((LOG_TIMER, 9, "uv_timer_start: returning rc %i\n", rc));
@@ -300,6 +302,7 @@ void uv__run_timers(uv_loop_t* loop) {
      #else
       timer->timer_cb(timer);
      #endif
+      statistics_record(STATISTIC_TIMERS_EXECUTED, 1);
     }
     else
     {

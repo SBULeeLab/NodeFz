@@ -26,6 +26,7 @@
 #include "logical-callback-node.h"
 #include "unified-callback-enums.h"
 #include "scheduler.h"
+#include "statistics.h"
 
 #if defined(ENABLE_SCHEDULER_VANILLA)
   #include "scheduler_Vanilla.h"
@@ -885,6 +886,7 @@ void initialize_record_and_replay (void)
   mylog_set_verbosity(LOG_UV_STREAM, 9);
   mylog_set_verbosity(LOG_UV_IO, 9);
   mylog_set_verbosity(LOG_UV_ASYNC, 9);
+  mylog_set_verbosity(LOG_STATISTICS, 9);
 
 #ifdef JD_UT
   mylog(LOG_MAIN, 1, "initialize_record_and_replay: Running unit tests\n");
@@ -900,6 +902,9 @@ void initialize_record_and_replay (void)
   /* scheduler */
   initialize_scheduler();
   scheduler_register_thread(THREAD_TYPE_LOOPER);
+
+  /* Statistics. */
+  statistics_init();
 
   pthread_to_tid = map_create();
   assert(pthread_to_tid != NULL);
@@ -1229,6 +1234,7 @@ void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
 
   /* Yield to scheduler (and, if scheduler desires, serialize CBs). */
   spd_before_exec_cb_init(&spd_before_exec_cb);
+  spd_before_exec_cb.cb_type = type;
   spd_before_exec_cb.lcbn = NULL; /* TODO Change this. */
   scheduler_thread_yield(SCHEDULE_POINT_BEFORE_EXEC_CB, &spd_before_exec_cb);
 
@@ -1236,10 +1242,12 @@ void invoke_callback_wrap (any_func cb, enum callback_type type, ...)
   mylog(LOG_MAIN, 7, "invoke_callback_wrap: Invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
   cbi_execute_callback(cbi); 
   mylog(LOG_MAIN, 7, "invoke_callback_wrap: Done invoking cbi %p (type %s)\n", cbi, callback_type_to_string(cbi->type));
+  statistics_record(STATISTIC_CB_EXECUTED, 1);
 
   /* Yield to scheduler. */
   assert(scheduler_current_cb_thread() == uv_thread_self()); /* Only fails if threadpool.c:cleanup ever happens and returns from the CB. */
   spd_after_exec_cb_init(&spd_after_exec_cb);
+  spd_after_exec_cb.cb_type = type;
   spd_after_exec_cb.lcbn = NULL; /* TODO Change this. */
   scheduler_thread_yield(SCHEDULE_POINT_AFTER_EXEC_CB, &spd_after_exec_cb);
 

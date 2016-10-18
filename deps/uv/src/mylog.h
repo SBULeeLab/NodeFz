@@ -23,6 +23,7 @@ enum log_class
   LOG_UV_STREAM,
   LOG_UV_IO,
   LOG_UV_ASYNC,
+  LOG_STATISTICS,
   LOG_CLASS_MAX
 };
 
