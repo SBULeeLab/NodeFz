@@ -2591,15 +2591,36 @@ Mon 17 Oct 2016
 Tue 18 Oct 2016
 
 1. Remove need for initialization code in node/src
-    > run initialization on entry to uv_run(), TP initialization, uv_default_loop, uv_async_init
+    > Run initialization on entry to uv_run(), TP initialization, uv_default_loop, uv_async_init
+    > Now we don't need to touch node/src at all.
 
------
+2. Attempt, then omit, the webpack-tapable NaN error.
+    > No recreate details, non-JS test case.
 
-  - try webpack-tapable NaN error repro
+3. Meet with DY.
+
+    Paper priorities:
+      TODAY
+        -1. Schedule recording to a file, and disable verbose mode. Use setbuf to minimize the cost (use a huge buffer) until we call fsync() and close() atexit.
+        0. Create a new "vanilla node" based on the 0.12.7-release stream. Use this as the base case b/c it's the same version of node as our fuzzer.
+        1. Get kue and node-stream
+        2. Carry out schedule variation measurement
+        3. Download nodebench (from "Microarchitectural Implications of Event-driven Server-side Web Applications"), ensure we can run it.
+           Don't bother with performance testing, we just want to know that it will work.
+        4. Start looking for new bugs (can do this in the background, run a bunch of iterations on test suites and change modules every 15 minutes or something)
+            > start with the core test suite
+      WEDNESDAY
+        1. Look for new bugs
+      THURSDAY
+        1. Look for new bugs
+        2. Performance measurements.
+        3. Writing writing writing.
+      FRIDAY
+        1. Writing writing writing.
+        2. Death.
 
 TODO
   - Merge into MultiSched
-  - Attempt fuzz testing on: kue. etherpad?
   - Try core module test cases, since they don't need a working test suite.
   - "Timer fuzzing": the "delay" might only be relevant if we delay it beyond 'k' other CBs.
   - Extend test_npm_module with a "fast" mode that simply checks if the npm module has tests. 
