@@ -2599,12 +2599,48 @@ Tue 18 Oct 2016
 
 3. Meet with DY.
 
+4. Stream CB types out to a schedule as we execute them, and disable verbose mode.
+   The system seems a lot more stable, so we'll rely on statistics for now.
+   Use setbuf to minimize the cost (use a huge buffer) of fwrite()'ing.
+
+5. Create a "vanilla node" backed by the 0.12.7-release branch
+
+6. Identify "new" (old, but new to me) bug in kue. Bug in test suite. Found fix in github.
+7. Identify new bug in kue. Bug *not* in test suite, cannot quite identify the root cause.
+   Bug report: https://github.com/Automattic/kue/issues/967
+
+IN PROGRESS
+
+8. Start bleeding-edge redis test suite fuzzing. Results in /tmp/o
+     rm /tmp/o; for i in `seq 1 10`; do echo $i; UV_THREADPOOL_SIZE=1 UV_SCHEDULER_TYPE=TP_FREEDOM UV_SCHEDULER_TP_DEG_FREEDOM=-1 UV_SCHEDULER_TP_MAX_DELAY=500 UV_SCHEDULER_TP_EPOLL_THRESHOLD=500 UV_SCHEDULER_IOPOLL_DEG_FREEDOM=-1 UV_SCHEDULER_IOPOLL_DEFER_PERC=30 UV_SCHEDULER_TIMER_DEG_FREEDOM=1 UV_SCHEDULER_TIMER_EARLY_EXEC_TPERC=200 UV_SCHEDULER_TIMER_MAX_EARLY_MULTIPLE=1 UV_SCHEDULER_TIMER_LATE_EXEC_TPERC=200 UV_SCHEDULER_RUN_CLOSING_DEFER_PERC=5 npm test >> /tmp/o 2>&1; done
+  > also need to try redis warlock to be more confident about the novel bug report from kue.
+
+--------------------------------
+
+Wed 19 Oct 2016
+
+1. Confirm Node.js fidelity per concerns about Kue bug. Add section to paper to this effect.
+2. Meeting with DY.
+3. Use VANILLA by default.
+4. Add UV_SILENT to avoid annoying recompilation.
+5. Train Talha, develop README documentation for general use.
+6. Work on paper edits before DY's flight.
+7. Talk about GRFP with Akanksha.
+
+---
+
+  > make commits for libuv changes
+  > kue, node-stream repro
+  > plan schedule variation measurement experimentation
+  > check if the "new old" kue bug's commit mentioned race condition -- why didn't we find it in our report?
+  > mention that the fiware-pep-steelskin PR I made was another C-type bug
+  > discuss root cause analysis approach when identifying bugs
+  > add future work talking about root cause analysis shortcomings: event ordering, whitebox, etc. w/Jalangi partnership
+
     Paper priorities:
       TODAY
-        -1. Schedule recording to a file, and disable verbose mode. Use setbuf to minimize the cost (use a huge buffer) until we call fsync() and close() atexit.
-        0. Create a new "vanilla node" based on the 0.12.7-release stream. Use this as the base case b/c it's the same version of node as our fuzzer.
-        1. Get kue and node-stream
-        2. Carry out schedule variation measurement
+        1. Repro on kue and node-stream
+        2. Measure schedule variation
         3. Download nodebench (from "Microarchitectural Implications of Event-driven Server-side Web Applications"), ensure we can run it.
            Don't bother with performance testing, we just want to know that it will work.
         4. Start looking for new bugs (can do this in the background, run a bunch of iterations on test suites and change modules every 15 minutes or something)
