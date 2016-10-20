@@ -65,6 +65,7 @@
         'src/uv-random.c',
         'src/synchronization.c',
         'src/statistics.c',
+        'src/runtime.c',
         'include/uv-errno.h',
         'include/uv-threadpool.h',
         'include/uv-version.h',

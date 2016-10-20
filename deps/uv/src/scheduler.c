@@ -18,11 +18,11 @@
   #include "scheduler_CBTree.h"
 #endif /* ENABLE_SCHEDULER_CBTREE */
 
-#include "list.h"
 #include "map.h"
 #include "mylog.h"
 #include "timespec_funcs.h"
 #include "synchronization.h"
+#include "runtime.h"
 
 #include "unix/internal.h"
 
@@ -736,7 +736,9 @@ static void scheduler__cleanup (void)
   assert(scheduler.schedule_fileP != NULL);
   assert(scheduler.schedule_cbType_buf != NULL);
 
-  printf("See %s for CB type schedule\n", scheduler.schedule_file);
+  if (runtime_should_print_summary())
+    fprintf(stderr, "See %s for CB type schedule\n", scheduler.schedule_file);
+
   assert(fclose(scheduler.schedule_fileP) == 0);
   uv__free(scheduler.schedule_cbType_buf);
 

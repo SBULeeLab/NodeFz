@@ -12,6 +12,7 @@
 #include <stdlib.h>
 
 #include "uv-common.h" /* uv__malloc/uv__free */
+#include "runtime.h" /* runtime_should_be_silent */
 
 /* Global vars. */
 
@@ -133,9 +134,12 @@ void mylog_init (void)
 {
   int i = 0;
 
+/* TODO Remove references to JD_SILENT_LIBUV. */
 #ifdef JD_SILENT_LIBUV
   return;
 #endif
+  if (runtime_should_be_silent())
+    return;
 
   if (initialized)
     return;
@@ -176,6 +180,8 @@ void mylog (enum log_class log_class, int verbosity, const char *format, ...)
 #ifdef JD_SILENT_LIBUV
   return;
 #endif
+  if (runtime_should_be_silent())
+    return;
 
   assert(log_initialized());
   assert(is_log_class_valid(log_class));
@@ -207,6 +213,8 @@ void mylog_buf (enum log_class log_class, int verbosity, char *buf, int len)
 #ifdef JD_SILENT_LIBUV
   return;
 #endif
+  if (runtime_should_be_silent())
+    return;
 
   assert(log_initialized());
   assert(is_log_class_valid(log_class));

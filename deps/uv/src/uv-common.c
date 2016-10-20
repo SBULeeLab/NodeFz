@@ -27,6 +27,7 @@
 #include "unified-callback-enums.h"
 #include "scheduler.h"
 #include "statistics.h"
+#include "runtime.h"
 
 #if defined(ENABLE_SCHEDULER_VANILLA)
   #include "scheduler_Vanilla.h"
@@ -878,6 +879,9 @@ void initialize_fuzzy_libuv (void)
   if (initialized)
     return;
 
+  /* Runtime parameters. */
+  runtime_init();
+
   /* mylog */
   mylog_init();
   mylog_set_verbosity(LOG_MAIN, 9);
@@ -928,7 +932,7 @@ void initialize_fuzzy_libuv (void)
  * At the moment, scheduler parameters are provided through the following environment variables:
  *    Environment variable            Details                                   Notes
  * ---------------------------------------------------------------------------------------------------
- *     UV_SCHEDULER_TYPE           Changes the scheduler type.
+ *     UV_SCHEDULER_TYPE           Changes the scheduler type.                  Default is VANILLA.
  *                                 Choose from: VANILLA, FUZZING_TIME, TP_FREEDOM.
  *                                 Each scheduler is parameterized using environment variables.
  *
@@ -988,6 +992,13 @@ void initialize_fuzzy_libuv (void)
  *                                                                              CAUTION: Programs like mocha are Node.js programs that start other Node.js processes,
  *                                                                                       so in this case specifying UV_SCHEDULER_SCHEDULE_FILE will produce a garbled file.
  *                                                                                       It's safer to rely on the default behavior unless you're confident about the behavior of the application.
+ *
+ *  General runtime parameters are described below.
+ *    Environment variable            Details                                   Notes
+ * ---------------------------------------------------------------------------------------------------
+ *    [UV_THREADPOOL_SIZE]              How many threads in the threadpool?     Default 4.
+ *    [UV_SILENT]                       Whether to print anything.              Default 0 (not silent). Give 0 or 1.
+ *    [UV_PRINT_SUMMARY]                Whether to print summary (overrides UV_SILENT=1).
  */
 static void initialize_scheduler (void)
 {
@@ -1008,8 +1019,8 @@ static void initialize_scheduler (void)
 
   /* Scheduler type. */
   scheduler_typeP = getenv("UV_SCHEDULER_TYPE");
-  if (!scheduler_typeP)
-    assert(!"Error, you must provide UV_SCHEDULER_TYPE");
+  if (scheduler_typeP == NULL)
+    scheduler_typeP = "VANILLA";
 
   if (strcmp(scheduler_typeP, "VANILLA") == 0)
   {

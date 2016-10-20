@@ -3,6 +3,7 @@
 #include "uv.h"
 #include "uv-common.h"
 #include "mylog.h"
+#include "runtime.h"
 
 #include <stdlib.h> /* atexit */
 #include <string.h> /* memset */
@@ -93,20 +94,22 @@ void statistics_record (statistic_t stat, int value)
 
 void statistics_dump (void)
 {
-  statistic_t i;
-
   assert(initialized);
 
-  printf("Dumping libuv statistics\n");
-
-  for (i = STATISTIC_MIN; i < 1 + STATISTIC_MAX - STATISTIC_MIN; i++)
+  if (runtime_should_print_summary())
   {
-    if (statistics_records[i].any_observations)
-      printf("%s: min_observed %lu max_observed %lu total %lu average %lu\n",
-        statistic_to_string(i), statistics_records[i].min_observed, statistics_records[i].max_observed, statistics_records[i].total, statistics_records[i].total/statistics_records[i].n_calls);
-    else
-      printf("%s: no observations\n",
-        statistic_to_string(i));
+    statistic_t i;
+    fprintf(stderr, "Dumping libuv statistics\n");
+
+    for (i = STATISTIC_MIN; i < 1 + STATISTIC_MAX - STATISTIC_MIN; i++)
+    {
+      if (statistics_records[i].any_observations)
+        fprintf(stderr, "%s: min_observed %lu max_observed %lu total %lu average %lu\n",
+          statistic_to_string(i), statistics_records[i].min_observed, statistics_records[i].max_observed, statistics_records[i].total, statistics_records[i].total/statistics_records[i].n_calls);
+      else
+        fprintf(stderr, "%s: no observations\n",
+          statistic_to_string(i));
+    }
   }
 
   return;
