@@ -134,10 +134,6 @@ void mylog_init (void)
 {
   int i = 0;
 
-/* TODO Remove references to JD_SILENT_LIBUV. */
-#ifdef JD_SILENT_LIBUV
-  return;
-#endif
   if (runtime_should_be_silent())
     return;
 
@@ -177,9 +173,6 @@ void mylog (enum log_class log_class, int verbosity, const char *format, ...)
 {
   va_list args;
 
-#ifdef JD_SILENT_LIBUV
-  return;
-#endif
   if (runtime_should_be_silent())
     return;
 
@@ -210,9 +203,6 @@ void mylog_buf (enum log_class log_class, int verbosity, char *buf, int len)
 {
   int i = 0;
 
-#ifdef JD_SILENT_LIBUV
-  return;
-#endif
   if (runtime_should_be_silent())
     return;
 
