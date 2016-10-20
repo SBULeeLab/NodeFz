@@ -302,8 +302,26 @@ static void uv__run_closing_handles(uv_loop_t* loop) {
     else
     {
       mylog(LOG_MAIN, 1, "uv__run_closing_handles: deferring closing_handles starting with handle %p\n", p);
-      assert(loop->closing_handles == NULL); /* Does TP ever mark a handle as closing? */
-      loop->closing_handles = p;
+
+      /* Put p and the handles after it at the front of the line of closing_handles.
+       * Since uv__fs_poll_close -> uv_fs_poll_stop -> uv_close() on a helper timer, there might be closing handles now.
+       */
+      if (loop->closing_handles == NULL)
+        loop->closing_handles = p;
+      else
+      {
+        uv_handle_t *end_of_old_chain = p;
+
+        /* Find end of old chain. */
+        assert(end_of_old_chain != NULL);
+        while (end_of_old_chain->next_closing != NULL)
+          end_of_old_chain = end_of_old_chain->next_closing;
+
+        /* loop->closing_handles = old chain (i.e. p -> [x -> y -> ...]) -> new_chain. */
+        end_of_old_chain->next_closing = loop->closing_handles;
+        loop->closing_handles = p;
+      }
+
       usleep(3*1000); /* 3ms */
       break;
     }
