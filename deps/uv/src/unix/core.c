@@ -364,8 +364,10 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int r;
   int ran_pending;
   static int here_already = 0;
+  static long unsigned loop_num = 0;
 
   ENTRY_EXIT_LOG((LOG_MAIN, 9, "uv_run: begin: loop %p mode %i\n", loop, mode));
+  loop_num++;
 
   /* Fuzzy libuv initialization. 
    * This is actually not sufficient for safe libuv-wide use of my APIs if the caller is using the default loop and does things like
@@ -384,7 +386,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   while (r != 0 && loop->stop_flag == 0)
   {
     /* TODO If we diverge we need to detect it and break out of the infinite loops here. */
-    mylog(LOG_MAIN, 1, "uv_run: loop begins (%lu CBs run, %i remaining, next %s)\n", scheduler_n_executed(), scheduler_lcbns_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
+    mylog(LOG_MAIN, 1, "uv_run: loop %i begins (%lu CBs run, %i remaining, next %s)\n", loop_num, scheduler_n_executed(), scheduler_lcbns_remaining(), callback_type_to_string(scheduler_next_lcbn_type()));
 
     mylog(LOG_MAIN, 1, "uv_run: uv__run_timers (1)\n");
     uv__update_time(loop);
