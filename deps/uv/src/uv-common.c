@@ -947,6 +947,8 @@ void initialize_fuzzy_libuv (void)
  *                                     [UV_THREADPOOL_SIZE]                     Default 4
  *
  *                                 TP_FREEDOM                                   Schedule order is fuzzed through explicitly flipping the order of TP "work" and "done" events
+ *                                                                              This name is a misnomer; "TP_FREEDOM" will also flip the order of ongoing loop events,
+ *                                                                              as implied by the variety of parameters below.
  *                                  Parameters
  *                                     UV_SCHEDULER_TP_DEG_FREEDOM              TP: The number of TP threads to simulate.
  *                                                                              "1" means to simulate 1 thread; TP work will not be re-ordered.
