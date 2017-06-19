@@ -7,7 +7,7 @@ The modifications are exclusively (I think) to the libuv subsystem, which fundam
 Their purpose is to increase the non-determinism already inherent in Node.js's asynchronous, event-driven nature.
 The goal of increasing the non-determinism is to flush out *race conditions* in the Node.js application being executed.
 
-The changes I made are detailed in the associated [paper](http://dl.acm.org/citation.cfm?id=3064188).
+The changes I made to Node.js are detailed in the associated [paper](http://dl.acm.org/citation.cfm?id=3064188).
 Essentially, I probabilistically re-order the event queue, constrained by legal or practical ordering guarantees prescribed by the Node.js and libuv documentation.
 
 ## Does it work?
@@ -50,6 +50,8 @@ Node.fz is a dynamic test tool. It is only as good as the test suite being used 
 If there's a bug in function *B* but your test suite never calls this function, obviously Node.fz won't help you.
 
 ## Contributing
+
+The initial prototype of Node.fz was implemented by [James (Jamie) Davis](https://github.com/davisjam).
 
 Please reach out to me to discuss any pull requests you'd like to submit.
 The most needed change is porting it up to a more recent version of Node.js (libuv).
