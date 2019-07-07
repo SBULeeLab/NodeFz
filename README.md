@@ -19,6 +19,8 @@ As described in the associated [paper](http://dl.acm.org/citation.cfm?id=3064188
 Node.fz will make a great addition to your testing methodology, continuous integration pipelines, etc.
 Once you've worked out obvious bugs in your program, replace the installation of Node.js with Node.fz, and then re-run your test suite to look for race conditions.
 
+The fuzzing benchmark applications used in the paper are available [here](https://drive.google.com/open?id=1M0TaL4m8v9z-MFf0U1k13OGuKF-evpzz). See the README within it for details. Warning: the tarball is (quite unnecessarily) 200MB and expands to 800MB.
+
 ## How do I use it?
 
 Follow the standard Node.js compilation procedure, as described elsewhere in this repository.
